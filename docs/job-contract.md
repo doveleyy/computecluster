@@ -139,10 +139,16 @@ A job's script receives:
 
 | Variable | Meaning |
 |---|---|
-| `HOME_PLATFORM_DATASET` | Absolute path to the input CSV, read-only |
+| `HOME_PLATFORM_DATASET` | Absolute path to the input file, read-only (`python_batch`) |
+| `HOME_PLATFORM_INPUT_DIR` | Read-only directory of logical named inputs |
 | `HOME_PLATFORM_OUTPUT_DIR` | Write results here; everything left behind is published |
 | `HOME_PLATFORM_JOB_ID` | The job's UUID |
+| `HOME_PLATFORM_JOB_NAME` | The submitted job name, or the UUID when unnamed |
 | `HOME_PLATFORM_CPU_LIMIT` | The CPU quota, as a float |
+
+Both job types expose this same set, so a script can move between them without
+rewriting its I/O. The batch type adds `HOME_PLATFORM_PROJECT_DIR` and
+`HOME_PLATFORM_ARRAY_INDEX`; see [batch script](jobs/batch-script.md).
 
 The container has no network, no credentials, and no container-runtime socket.
 Standard output is captured but **truncated to the last 8000 characters**, so
@@ -311,6 +317,28 @@ traversal, no leading dot — because they originate from user-supplied code and
 are used to build a path. Per-file and per-job size limits are enforced while
 streaming rather than trusting a declared length.
 
+**Where results land** is decided by the server, never by the worker or the
+script. Each run publishes into `<owner-id>/<job-name>-<short-id>/`; an array
+child nests one level deeper, under its group's directory and keyed by array
+index:
+
+```text
+artifacts/<owner-id>/
+├── SVM_model-7dcf9099/         metrics.json, model.joblib
+├── SVM_model-1a4be012/         a second run of the same script
+└── cohort-analysis-3b2e91c4/
+    ├── 1/result.txt
+    └── 2/result.txt
+```
+
+The standalone job name, or the parent group name for an array, is a convenience
+for browsing storage directly; the UUID remains the identity every API route
+resolves. Because these names are neither unique nor path-safe, the directory
+carries a short UUID suffix and the name is reduced to a safe segment, so two
+runs sharing a name cannot collide and a crafted name cannot escape the owner's
+root. Results published before this layout existed are still served from their
+original `<job-id>/` directory.
+
 The default ceilings are 100 MiB per file and 512 MiB across one job. Publication
 uses one HTTP request per file; it is not chunked or resumable at the application
 protocol level. The CLI writes downloads incrementally and the HTTP response
@@ -323,8 +351,10 @@ the files. Retrieval goes through the endpoints above.
 
 Deleting artifacts leaves the job record intact — its status, output streams and
 recorded file names survive. Nothing expires by age; deletion is an explicit
-action. A publish response includes `evicted_jobs`, non-empty only when the
-store exceeded its ceiling and older jobs had to be evicted.
+action. A publish response includes `evicted_runs`, non-empty only when the
+store exceeded its ceiling and older runs had to be evicted. Eviction removes a
+whole submission, so an array loses all its children together rather than
+leaving a partial result behind.
 
 Staged inputs are released automatically once a job reaches a terminal state,
 unless another unfinished job still references them.

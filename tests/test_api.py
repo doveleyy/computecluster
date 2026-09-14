@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+from app.artifacts import run_directory_name
 from app.identity import ADMIN_USER_ID
 from app.main import create_app
 
@@ -1653,6 +1654,157 @@ def test_member_storage_pilot_allowlist_enables_only_provisioned_member(
         assert client.get("/jobs-ui/api/storage").status_code == 503
 
 
+def test_member_project_preview_and_submission_resolve_header_input_defaults(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HOME_PLATFORM_API_TOKEN", "test-secret")
+    monkeypatch.setenv("HOME_PLATFORM_MEMBER_STORAGE_ENABLED", "true")
+    storage = tmp_path / "storage"
+    uploads = tmp_path / "uploads"
+    monkeypatch.setenv("HOME_PLATFORM_STORAGE_DIR", str(storage))
+    monkeypatch.setenv("HOME_PLATFORM_UPLOAD_DIR", str(uploads))
+    password = "member password 1234"
+    token_header = {"X-API-Token": "test-secret"}
+
+    with TestClient(create_app(tmp_path / "jobs.db")) as client:
+        client.post(
+            "/workers/heartbeat",
+            headers=token_header,
+            json={"worker_id": "worker-a", "supported_types": ["batch"]},
+        )
+        client.put(
+            "/workers/worker-a/capacity",
+            headers=token_header,
+            json={"max_job_cpu": 2, "max_job_memory_mb": 1024},
+        )
+        client.post("/dashboard/login", json={"token": "test-secret"})
+        alice = client.post(
+            "/dashboard/api/users",
+            json={"username": "alice", "password": password, "role": "MEMBER"},
+        ).json()
+        project = storage / "users" / alice["id"] / "Workspace" / "Projects" / "demo"
+        inputs = storage / "users" / alice["id"] / "Workspace" / "Inputs"
+        project.mkdir(parents=True)
+        inputs.mkdir(parents=True)
+        (inputs / "cohort.csv").write_text("sample,value\na,1\n")
+        (project / "run.sh").write_text("#!/usr/bin/env bash\n")
+        (project / "submit.hp").write_text(
+            """#!/usr/bin/env bash
+#HP --version 1
+#HP --name "Resolved NAS input"
+#HP --runtime scientific-python:1
+#HP --cpus 1
+#HP --memory-mb 512
+#HP --time-limit 00:05:00
+#HP --input dataset=Home/Workspace/Inputs/cohort.csv
+#HP --array 1-2
+echo "$HOME_PLATFORM_ARRAY_INDEX"
+"""
+        )
+
+        client.post("/dashboard/logout")
+        client.post(
+            "/dashboard/login", json={"username": "alice", "password": password}
+        )
+        preview = client.post(
+            "/jobs-ui/api/storage/project-preview",
+            json={
+                "path": "Home/Workspace/Projects/demo",
+                "entrypoint": "submit.hp",
+            },
+        )
+        packaged = client.post(
+            "/jobs-ui/api/storage/project-uploads",
+            json={"path": "Home/Workspace/Projects/demo"},
+        )
+        submitted = client.post(
+            "/jobs-ui/api/batch-submissions",
+            json={
+                "project": packaged.json(),
+                "entrypoint": "submit.hp",
+                "inputs": {},
+            },
+        )
+
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["name"] == "Resolved NAS input"
+    assert preview.json()["files"] == ["run.sh", "submit.hp"]
+    assert preview.json()["inputs"] == [
+        {
+            "name": "dataset",
+            "default_path": "Home/Workspace/Inputs/cohort.csv",
+        }
+    ]
+    assert packaged.status_code == 201
+    assert submitted.status_code == 201, submitted.text
+    source = submitted.json()["tasks"][0]["parameters"]["inputs"]["dataset"]
+    assert source["path"] == f"users/{alice['id']}/Workspace/Inputs/cohort.csv"
+
+
+def test_member_workspace_create_and_upload_are_scoped_and_non_overwriting(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HOME_PLATFORM_API_TOKEN", "test-secret")
+    monkeypatch.setenv("HOME_PLATFORM_MEMBER_STORAGE_ENABLED", "true")
+    monkeypatch.setenv("HOME_PLATFORM_MEMBER_WORKSPACE_ENABLED", "true")
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("HOME_PLATFORM_STORAGE_DIR", str(storage))
+    monkeypatch.setenv("HOME_PLATFORM_WORKSPACE_DIR", str(storage))
+    monkeypatch.setenv("HOME_PLATFORM_MAX_WORKSPACE_UPLOAD_BYTES", "8")
+    password = "member password 1234"
+
+    with TestClient(create_app(tmp_path / "jobs.db")) as client:
+        client.post("/dashboard/login", json={"token": "test-secret"})
+        alice = client.post(
+            "/dashboard/api/users",
+            json={"username": "alice", "password": password, "role": "MEMBER"},
+        ).json()
+        workspace = storage / "users" / alice["id"] / "Workspace"
+        workspace.mkdir(parents=True)
+        (storage / "shared").mkdir()
+        client.post("/dashboard/logout")
+        client.post(
+            "/dashboard/login", json={"username": "alice", "password": password}
+        )
+
+        listing = client.get("/jobs-ui/api/storage", params={"path": "Home/Workspace"})
+        created = client.post(
+            "/jobs-ui/api/workspace/directories",
+            json={"path": "Home/Workspace/Projects"},
+        )
+        uploaded = client.post(
+            "/jobs-ui/api/workspace/uploads",
+            data={"directory": "Home/Workspace/Projects"},
+            files={"file": ("submit.hp", b"12345678")},
+        )
+        duplicate = client.post(
+            "/jobs-ui/api/workspace/uploads",
+            data={"directory": "Home/Workspace/Projects"},
+            files={"file": ("submit.hp", b"changed")},
+        )
+        too_large = client.post(
+            "/jobs-ui/api/workspace/uploads",
+            data={"directory": "Home/Workspace/Projects"},
+            files={"file": ("large.bin", b"123456789")},
+        )
+        escaped = client.post(
+            "/jobs-ui/api/workspace/directories",
+            json={"path": "Home/Workspace/../escape"},
+        )
+
+    assert listing.status_code == 200
+    assert listing.json()["workspace_writable"] is True
+    assert created.status_code == 201
+    assert uploaded.status_code == 201
+    assert uploaded.json()["path"] == "Home/Workspace/Projects/submit.hp"
+    assert (workspace / "Projects" / "submit.hp").read_bytes() == b"12345678"
+    assert duplicate.status_code in {409, 422}
+    assert (workspace / "Projects" / "submit.hp").read_bytes() == b"12345678"
+    assert too_large.status_code == 413
+    assert not (workspace / "Projects" / "large.bin").exists()
+    assert escaped.status_code == 422
+
+
 def running_job_with_lease(
     client: TestClient, *, provision_artifacts: bool = True
 ) -> tuple[dict, dict]:
@@ -2020,6 +2172,98 @@ def test_store_cap_evicts_the_least_recently_touched_job(
         new = client.get(f"/jobs/{second['id']}/artifacts")
 
     assert pushed.status_code == 201
-    assert pushed.json()["evicted_jobs"] == [first["id"]]
+    # Eviction reports the run directory it removed, which is derived from the
+    # job's name rather than its UUID.
+    assert pushed.json()["evicted_runs"] == [
+        run_directory_name(None, UUID(first["id"]))
+    ]
     assert old.json() == [], "the older job should have been evicted"
     assert [item["filename"] for item in new.json()] == ["new.bin"]
+
+
+def test_results_are_published_under_a_directory_named_after_the_job(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An owner browsing over SMB should recognise the run, not read UUIDs."""
+    artifacts = tmp_path / "artifacts"
+    monkeypatch.setenv("HOME_PLATFORM_ARTIFACT_DIR", str(artifacts))
+    with TestClient(create_app(tmp_path / "jobs.db")) as client:
+        created = create_sleep_job(client, name="SVM model")
+        enable_worker(client)
+        claimed = claim_job(client)
+        assert claimed is not None
+        pushed = client.post(
+            f"/jobs/{created['id']}/artifacts",
+            data={"worker_id": "mac-one", "lease_token": claimed["lease_token"]},
+            files={"file": ("metrics.json", b"{}")},
+        )
+        listed = client.get(f"/jobs/{created['id']}/artifacts")
+
+    assert pushed.status_code == 201
+    expected = artifacts / f"SVM-model-{UUID(created['id']).hex[:8]}"
+    assert (expected / "metrics.json").is_file()
+    # The job's UUID directory is not created alongside it.
+    assert not (artifacts / created["id"]).exists()
+    assert [item["filename"] for item in listed.json()] == ["metrics.json"]
+
+
+def test_group_results_use_the_parent_name_even_when_child_names_differ(
+    tmp_path: Path, monkeypatch
+) -> None:
+    artifacts = tmp_path / "artifacts"
+    monkeypatch.setenv("HOME_PLATFORM_ARTIFACT_DIR", str(artifacts))
+    with TestClient(create_app(tmp_path / "jobs.db")) as client:
+        created = client.post(
+            "/job-groups",
+            json={
+                "name": "Shared experiment",
+                "tasks": [
+                    {
+                        "task_id": "task-001",
+                        "job": {
+                            "name": "Different child label",
+                            "type": "sleep",
+                            "parameters": {"seconds": 1},
+                        },
+                    }
+                ],
+            },
+        )
+        assert created.status_code == 201
+        enable_worker(client)
+        claimed = claim_job(client)
+        assert claimed is not None
+        pushed = client.post(
+            f"/jobs/{claimed['id']}/artifacts",
+            data={"worker_id": "mac-one", "lease_token": claimed["lease_token"]},
+            files={"file": ("result.txt", b"done")},
+        )
+
+    assert pushed.status_code == 201
+    group_id = UUID(created.json()["id"])
+    expected = artifacts / run_directory_name("Shared experiment", group_id)
+    assert (expected / "task-001" / "result.txt").is_file()
+    assert not (
+        artifacts / run_directory_name("Different child label", group_id)
+    ).exists()
+
+
+def test_results_published_before_the_rename_stay_reachable(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Changing the layout must not strand already-completed work."""
+    artifacts = tmp_path / "artifacts"
+    monkeypatch.setenv("HOME_PLATFORM_ARTIFACT_DIR", str(artifacts))
+    with TestClient(create_app(tmp_path / "jobs.db")) as client:
+        created = create_sleep_job(client, name="legacy run")
+        # Stage results exactly as a pre-0.33.0 deployment left them.
+        legacy = artifacts / created["id"]
+        legacy.mkdir(parents=True)
+        (legacy / "report.txt").write_text("published before the rename")
+
+        listed = client.get(f"/jobs/{created['id']}/artifacts")
+        downloaded = client.get(f"/jobs/{created['id']}/artifacts/report.txt")
+
+    assert [item["filename"] for item in listed.json()] == ["report.txt"]
+    assert downloaded.status_code == 200
+    assert downloaded.text == "published before the rename"

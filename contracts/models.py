@@ -171,13 +171,13 @@ class StorageInputReference(BaseModel):
         return path.as_posix()
 
 
-DatasetSource = Annotated[
-    DatasetReference | UploadedDatasetReference,
+BatchInputSource = Annotated[
+    DatasetReference | UploadedInputReference | StorageInputReference,
     Field(union_mode="left_to_right"),
 ]
 
-BatchInputSource = Annotated[
-    DatasetReference | UploadedInputReference | StorageInputReference,
+DatasetSource = Annotated[
+    DatasetReference | UploadedDatasetReference | StorageInputReference,
     Field(union_mode="left_to_right"),
 ]
 

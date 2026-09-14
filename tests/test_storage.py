@@ -9,9 +9,12 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.storage import (
     StoragePolicyError,
+    is_logical_storage_path,
     member_storage_entries,
     member_storage_path,
     member_storage_path_allowed,
+    member_workspace_path,
+    resolve_logical_storage_path,
     resolve_storage_path,
 )
 
@@ -147,3 +150,48 @@ def test_member_storage_maps_only_home_and_shared(tmp_path: Path) -> None:
     )
     with pytest.raises(StoragePolicyError, match="Home or Shared"):
         member_storage_path(user_id, "users/someone-else/private.txt")
+
+    assert member_workspace_path(user_id, "Home/Workspace/Projects/demo") == (
+        f"users/{user_id}/Workspace/Projects/demo"
+    )
+    with pytest.raises(StoragePolicyError, match="Home/Workspace"):
+        member_workspace_path(user_id, "Home/Personal/demo")
+
+
+def test_logical_paths_resolve_the_same_way_for_members_and_administrators() -> None:
+    user_id = UUID("2f1b8c34-9a6d-4d2e-8a51-1c0f7b3d9e42")
+
+    # A member's Home is their own tree and needs no further qualification.
+    assert resolve_logical_storage_path("Home/notes.csv", user_id=user_id) == (
+        f"users/{user_id}/notes.csv"
+    )
+    # An administrator reaches every tree, so Home alone is ambiguous and the
+    # account has to be named in the path.
+    assert resolve_logical_storage_path(f"Home/{user_id}/notes.csv", user_id=None) == (
+        f"users/{user_id}/notes.csv"
+    )
+    with pytest.raises(StoragePolicyError, match="must name the account"):
+        resolve_logical_storage_path("Home", user_id=None)
+    with pytest.raises(StoragePolicyError, match="stable user ID"):
+        resolve_logical_storage_path("Home/not-a-uuid/notes.csv", user_id=None)
+
+    # Shared means the same directory to both callers.
+    for caller in (user_id, None):
+        assert resolve_logical_storage_path("Shared/ref.fa", user_id=caller) == (
+            "shared/ref.fa"
+        )
+
+    # Traversal is rejected before any filesystem access.
+    with pytest.raises(StoragePolicyError, match="stay inside Home or Shared"):
+        resolve_logical_storage_path("Shared/../users/other", user_id=None)
+
+
+def test_only_home_and_shared_prefixes_count_as_logical_paths() -> None:
+    assert is_logical_storage_path("Home/notes.csv")
+    assert is_logical_storage_path("shared/ref.fa")
+    assert is_logical_storage_path("SHARED")
+    # The transitional Pi share's own directories must keep working untouched.
+    assert not is_logical_storage_path("inputs/cohort.csv")
+    assert not is_logical_storage_path("projects/demo")
+    assert not is_logical_storage_path("users/abc/notes.csv")
+    assert not is_logical_storage_path("")

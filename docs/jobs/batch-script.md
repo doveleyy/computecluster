@@ -2,15 +2,15 @@
 
 **Job type:** `batch`  
 **Specification:** Home Platform Batch Script Standard, version 1  
-**Status:** numeric arrays plus uploaded, verified HTTPS, and HomeStorage file inputs
+**Status:** numeric arrays plus uploaded, verified HTTPS, and logical NAS file inputs
 
 This is the authoring standard for the general PBS-like Home Platform job. The
 live subset accepts a ZIP project, parses this wrapper, binds uploaded or
 verified-HTTPS files by logical name, creates numeric array children, and runs
-the wrapper with Bash inside the approved container. HomeStorage files use
-share-relative logical references; directory inputs, dependencies,
-alternate runtimes, single non-array batch jobs, nested artifact publication,
-and the Job Desk upload form remain pending.
+the wrapper with Bash inside the approved container. Job Desk can resolve
+member-safe `Home/...` and `Shared/...` defaults declared in the header.
+Directory inputs, dependencies, alternate runtimes, single non-array batch
+jobs, and nested artifact publication remain pending.
 
 The words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are requirements. An
 implementation MUST reject an invalid or unknown directive; it must not guess
@@ -26,7 +26,7 @@ what the author meant.
 #HP --cpus 2
 #HP --memory-mb 2048
 #HP --time-limit 02:00:00
-#HP --input cohort
+#HP --input cohort=Home/Workspace/Inputs/cohort.csv
 #HP --array 1-4
 
 set -euo pipefail
@@ -35,9 +35,10 @@ bash "$HOME_PLATFORM_PROJECT_DIR/run-one.sh" \
   "$HOME_PLATFORM_ARRAY_INDEX"
 ```
 
-The project submitted with this script must also contain `run-one.sh`. Submit
-the declared input separately with `--input cohort=PATH`; each child sees the
-same verified bytes at `$HOME_PLATFORM_INPUT_DIR/cohort`.
+The project submitted with this script must also contain `run-one.sh`. In Job
+Desk, the declared default is resolved under the signed-in member, reviewed,
+hashed, and exposed to every child at `$HOME_PLATFORM_INPUT_DIR/cohort`. An
+advanced override can replace it for one submission.
 
 ## What is uploaded
 
@@ -74,8 +75,9 @@ size and digest, and caches the content by digest. Array children normally
 hard-link that cache entry into their private run directories, avoiding one
 physical copy per child when cache and run storage share a filesystem.
 
-Files already copied into the Samba `HomeStorage` share may instead be bound
-with `--input-storage NAME=SHARE_RELATIVE_PATH`. The coordinator resolves and
+Files already on the NAS may instead be bound with
+`--input-storage NAME=LOGICAL_PATH`, using the same `Home/...` and `Shared/...`
+vocabulary as Job Desk and `#HP` defaults. The coordinator resolves and
 hashes the selected regular file without copying it into upload staging. The
 current Pi-attached implementation serves those bytes to the worker over its
 authenticated control-plane connection; the worker verifies the recorded size
@@ -127,7 +129,7 @@ must not execute or source a submitted file to read its headers.
 | `--memory-mb INTEGER` | exactly 1 | Hard memory limit in MiB |
 | `--time-limit HH:MM:SS` | exactly 1 | Hard wall-time limit |
 | `--input NAME` | 0 or more | Declare a logical input that must be bound when submitted |
-| `--input NAME=REFERENCE` | 0 or more | Planned default storage reference; rejected by the live parser |
+| `--input NAME=REFERENCE` | 0 or more | Safe default Job Desk reference rooted at `Home/...` or `Shared/...` |
 | `--env KEY=VALUE` | 0 or more | Set a non-secret environment value |
 | `--array START-END` | exactly 1 in the live subset | Create one child task for every integer in the inclusive range |
 | `--after-success ID` | 0 or more | Start only after the named job or group succeeds |
@@ -159,11 +161,14 @@ Names used by `--input` and keys used by `--env` MUST match
 NOT be supplied through `--env`. Secrets MUST NOT appear in a script header.
 Repeating an input name or environment key in the base header is invalid.
 
-The live parser accepts named `--input`, `--env`, `--array`, and `--worker`.
-Every declared input must have exactly one submission binding and undeclared
-bindings are rejected. Default references (`NAME=REFERENCE`) and
-`--after-success` remain unavailable. The only registered runtime is
-`scientific-python:1`.
+The live parser accepts named `--input`, default logical paths, `--env`,
+`--array`, and `--worker`. Every declared input must resolve to exactly one
+binding and undeclared bindings are rejected. A default must be a normalized
+`Home/...` or `Shared/...` logical path; absolute paths, traversal, and physical
+NAS paths are rejected. Session-authenticated Job Desk resolves defaults
+server-side. The operator CLI still supplies explicit bindings and may override
+a default. `--after-success` remains unavailable. The only registered runtime
+is `scientific-python:1`.
 
 A runtime ID names an operator-approved, versioned environment. It is not an
 arbitrary Docker image, registry URL, host path, or mutable `latest` tag. The
@@ -199,13 +204,20 @@ pixi run client --url CONTROL_PLANE_URL \
 
 Use `--worker ID` to override the header's optional worker choice.
 
-For a file already in HomeStorage:
+For a file already on the NAS, named by the same logical path Job Desk shows:
 
 ```bash
 pixi run client --url CONTROL_PLANE_URL \
   submit-batch ./forecast --entrypoint submit.hp \
-  --input-storage observations=inputs/observations.csv
+  --input-storage observations=Shared/Datasets/observations.csv
 ```
+
+`Shared/...` means the same directory to everyone. `Home/...` means the
+signed-in member's own tree, so the operator CLI — which authenticates as the
+administrator and can reach every tree — must name the account explicitly as
+`Home/USER_ID/...`. A `#HP` default cannot use `Home` at all from an
+administrator session, because a project header is written once and reused and
+so cannot know whose private tree a later run should read.
 
 For a linked input, repeat the same logical name across the URL, digest, and
 size options:
@@ -218,17 +230,19 @@ pixi run client --url CONTROL_PLANE_URL \
   --input-size-bytes observations=123456789
 ```
 
-Local, URL, and HomeStorage bindings cannot reuse the same name. Every declared `#HP --input`
-must have exactly one complete binding, and every supplied binding must be
-declared. Obtain the size and SHA-256 from a trusted copy or publisher; those
-fields are integrity requirements, not optional hints.
+Local, URL, and HomeStorage bindings cannot reuse the same name. Every declared
+`#HP --input` must have exactly one effective binding, and every supplied
+binding must be declared. Job Desk may derive that effective binding from a
+safe header default. Obtain the size and SHA-256 for URL inputs from a trusted
+copy or publisher; those fields are integrity requirements, not optional hints.
 
-Job Desk exposes the same contract. Choose **PBS-style project array**, select
-a project ZIP or a project folder already in HomeStorage, and enter one
-`NAME=SHARE_RELATIVE_PATH` input binding per line. The job name, resources, and
-array range come from `submit.hp`; the form does not create a second contract.
-HomeStorage project folders are snapshotted into the same bounded immutable ZIP
-used by CLI submissions.
+Job Desk exposes the same execution contract. Choose **PBS-style project
+array** and select a project ZIP or a project folder already in storage. For a
+storage folder it previews the job name, runtime, resources, array, and inputs.
+Safe `Home/...` and `Shared/...` defaults resolve automatically; **Input
+overrides** is needed only for a declaration without a default or a deliberate
+per-run replacement. HomeStorage project folders are snapshotted into the same
+bounded immutable ZIP used by CLI submissions.
 
 ## Filesystem contract
 
@@ -266,6 +280,17 @@ credentials, no Docker socket, and only the declared mounts.
   `CANCELLED_BY_USER`, or `WORKER_LOST`.
 - Every top-level regular file below `HOME_PLATFORM_OUTPUT_DIR` is currently an
   artifact candidate. Nested artifact trees remain planned.
+- Each array child publishes into its own directory beneath the submission's,
+  keyed by array index, so one run reads as one tree:
+
+  ```text
+  artifacts/<owner-id>/cohort-analysis-3b2e91c4/
+  ├── 1/result.txt
+  └── 2/result.txt
+  ```
+
+  The directory name comes from `#HP --name` plus a short group UUID. A script
+  cannot choose it, and two submissions sharing a name never collide.
 - Symlinks, devices, sockets, absolute paths, and paths containing traversal
   segments MUST NOT be published.
 - Standard output and error are diagnostic logs, not the result transport.
@@ -398,11 +423,16 @@ Before presenting a batch script, verify every item:
 - Use only directives listed in this document; never invent a PBS or Slurm flag.
 - Include the exact Bash shebang and all six required singleton directives.
 - Put every directive before the first executable statement.
-- Bind small local files with `--input NAME=PATH`, existing Samba files with
-  `--input-storage NAME=PATH`, or externally hosted large files with the URL,
-  SHA-256, and byte-size triple.
+- In Job Desk, declare ordinary NAS defaults as
+  `#HP --input NAME=Home/...` or `Shared/...`. Leave off the default only when
+  the submitter should choose a file for every run.
+- In the operator CLI, bind small local files with `--input NAME=PATH`, NAS
+  files with `--input-storage NAME=Shared/...` or `NAME=Home/USER_ID/...`, or
+  externally hosted large files with the URL, SHA-256, and byte-size triple.
 - Address project files through `HOME_PLATFORM_PROJECT_DIR` and write durable
   results only below `HOME_PLATFORM_OUTPUT_DIR`.
+- Give the submission a `#HP --name` worth reading later; it becomes the
+  directory its array children publish into.
 - Never embed credentials, device names, host paths, or private network details.
 - Do not install dependencies or download data during execution.
 - Use a named immutable runtime containing all dependencies.

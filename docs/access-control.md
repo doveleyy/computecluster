@@ -17,7 +17,8 @@ boundary that is being introduced separately.
 | Open the operations Dashboard | No | Yes |
 | Enable workers, change capacity, or control Pi power | No | Yes |
 | Create or disable member accounts | No | Yes |
-| Select files from the Samba storage tree | Not yet | Yes |
+| Select files from the NAS Home/Shared tree | Provisioned members | Yes |
+| Create folders or upload through Job Desk | Provisioned Workspace only | No |
 
 The API token is the elevated administrator and machine credential used by the
 CLI and workers. It must never be given to a member. Members authenticate with
@@ -72,19 +73,32 @@ the worker wire contract and does not expose the cross-user map to members.
 
 ## Storage boundary
 
-Application ownership is live before multi-user NAS access. Members may submit
-small uploaded files and self-contained project ZIPs, but Job Desk disables
-HomeStorage paths for member accounts. This is intentional: filtering a path in
-the browser would not protect the same file over SMB.
+Application ownership is live before multi-user NAS acceptance. Provisioned
+members may browse only virtual `Home` and `Shared` roots; unprovisioned members
+fail closed. Filtering a path in the browser is never treated as protection for
+the same file over SMB.
 
 The storage layer uses one private Synology location per stable user ID, a
 shared collaboration location, and an administrator view across all users.
 The initial DSM groups, service identity, directory tree, and first-member ACL
-matrix are provisioned, but cross-user denial and application cutover remain
-acceptance gates. DSM filesystem ACLs and Samba authentication enforce the disk
-boundary; the application candidate maps a member's logical paths only into
-their private tree or the shared tree and remains disabled until those tests
-pass. Application passwords and SMB passwords remain separate credentials.
+matrix are provisioned, but cross-user denial and full application cutover
+remain acceptance gates. DSM filesystem ACLs and Samba authentication enforce
+the disk boundary; the application maps a member's logical paths only into
+their private tree or the shared tree. Application passwords and SMB passwords
+remain separate credentials.
+
+Browser-originated workspace writes use a distinct, disabled-by-default service
+identity and mount. On NAS systems with a share-level SMB gate, that identity
+may need Read/Write at the share gate so the CIFS session can mount; directory
+ACLs must then provide the real least-privilege boundary. The accepted pilot
+grants traverse-only on the member parent, Read/Write on that member's
+`Workspace/` descendants, no write to `Shared`, and an explicit deny on
+`artifacts`. The API additionally binds every request to the session's immutable
+owner ID and accepts only `Home/Workspace/...`. Because the NAS sees the shared
+service identity rather than the human actor, this is application-enforced
+per-user isolation with a storage-level blast-radius limit—not true delegated
+NAS identity. Artifact publishing remains a separate credential and permission
+boundary. Cross-user denial still requires a second-member acceptance test.
 
 Do not expose Job Desk or SMB beyond the private network, and do not enable
 router forwarding or a public tunnel as a substitute for authorization.

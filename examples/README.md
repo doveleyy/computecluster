@@ -11,19 +11,34 @@ client submit-python-batch model-training/train.py \
 ## What a job script must do
 
 There is no framework and nothing to import. A job script is an ordinary Python
-file that reads two environment variables:
+file that reads a few environment variables:
 
 | Variable | Meaning |
 |---|---|
-| `HOME_PLATFORM_DATASET` | Absolute path to the input CSV, read-only |
+| `HOME_PLATFORM_DATASET` | Absolute path to the input file, read-only |
+| `HOME_PLATFORM_INPUT_DIR` | Read-only directory containing that input |
 | `HOME_PLATFORM_OUTPUT_DIR` | Write results here — anything left behind is published as an artifact |
 | `HOME_PLATFORM_CPU_LIMIT` | The CPU quota this job was given, as a float |
 | `HOME_PLATFORM_JOB_ID` | The job's UUID |
+| `HOME_PLATFORM_JOB_NAME` | The submitted job name, or the UUID when unnamed |
 
 The container has **no network access**, so everything must come from the
 dataset and the pre-installed libraries. Standard output is captured but
 truncated to the last 8000 characters; anything worth keeping belongs in a file
 in the output directory.
+
+Results are published under a directory named after the job — `quick-check-…`
+for the command above — so give a run a name you will recognise later. The
+script cannot choose that destination.
+
+The input can also be a file already on the NAS, using the same logical paths
+Job Desk shows:
+
+```bash
+client submit-python-batch model-training/train.py \
+                           --dataset-storage Shared/Datasets/training-data.csv \
+                           --name "quick check"
+```
 
 ## The examples
 

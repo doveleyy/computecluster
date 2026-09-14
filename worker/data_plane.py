@@ -45,6 +45,8 @@ def materialize_dataset(
 ) -> Path:
     if cancellation_event is not None and cancellation_event.is_set():
         raise RuntimeError("job cancelled while preparing its dataset")
+    if isinstance(reference, StorageInputReference):
+        return materialize_batch_input(reference, workspace, cancellation_event)
     if isinstance(reference, UploadedDatasetReference):
         if workspace.control_plane_url is None or workspace.api_token is None:
             raise DatasetPolicyError("uploaded dataset access is not configured")

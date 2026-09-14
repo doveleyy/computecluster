@@ -114,10 +114,44 @@ uploads repeated `--input NAME=PATH` bindings or attaches verified HTTPS files
 with matching `--input-url`, `--input-sha256`, and `--input-size-bytes`
 bindings, then submits the numeric array declared by its PBS-like entrypoint. The
 session-authenticated project and batch endpoints use the same backend contract.
-Job Desk now exposes the first batch form: it accepts a ZIP or share-relative
-project folder and one `NAME=PATH` HomeStorage file binding per declared input.
-A future storage picker should replace manual path entry without introducing
-state transitions that exist only in JavaScript.
+Job Desk accepts a ZIP or a visually selected Home/Shared project folder. For a
+storage project it previews the parsed name, runtime, resource request, array,
+and inputs. `#HP --input NAME=Home/...` and `Shared/...` defaults resolve on the
+server; the advanced binding control remains only for missing values and
+per-run overrides. A disabled-by-default workspace capability adds folder
+creation and bounded, non-overwriting uploads only under
+`Home/Workspace/...`. Its separately permissioned NAS mount is active for the
+provisioned pilot account; the global flag remains false while browser
+acceptance and multi-user isolation are pending.
+
+The submission form opens with *where your files go*, stated plainly rather than
+behind a disclosure: an explanation nobody reads is not an explanation. **Code**
+follows, meaning the same thing for every task type and sharing a shape, so
+switching task swaps controls rather than restructuring the page.
+
+Below that the form follows the job type instead of forcing a common skeleton. A
+`python_batch` job chooses one input from a source and sets its own run time,
+CPU and memory, so it has **Input** and **Limits** sections. A `batch` project
+declares all of that in `submit.hp`: it has no Limits section, because showing
+uneditable values would imply a choice that does not exist, and its declared
+name, run time, CPU, memory, array range and runtime appear beside the project
+as a property of the selected code. Its inputs are a single **Input files** card
+holding both the resolved declarations and the control for supplying one that
+has no default — one card for one concern, not a section plus a nested
+disclosure.
+
+Both interfaces and both job types now use one vocabulary for choosing files.
+`Home/...` and `Shared/...` are the logical roots everywhere — the Job Desk
+picker, `#HP` defaults, `--input-storage`, and `--dataset-storage`. The server
+resolves them: a member session's `Home` is its own tree, while the API token
+reaches every tree and so must name the account as `Home/USER_ID/...`. Physical
+share-relative paths remain accepted from the token API only, as a transitional
+form for the Pi share's `projects/` and `inputs/` directories.
+
+Results are symmetric. Neither interface offers an output destination, because
+a script choosing one could overwrite another run. The platform publishes each
+submission into its own directory named after the job, which Job Desk surfaces
+through the artifact list and an owner sees directly over SMB.
 
 ## Remaining refinements
 

@@ -20,7 +20,7 @@ def test_parser_builds_and_documents_every_command() -> None:
     assert "commands and their arguments:" in help_text
 
     # Every command must appear with its arguments, not just its name.
-    assert "submit-python-batch [--dataset-url DATASET_URL]" in help_text
+    assert "submit-python-batch [--dataset-storage PATH]" in help_text
     assert "submit-batch [--entrypoint ENTRYPOINT]" in help_text
     assert "--name NAME" in help_text
     assert "script [dataset]" in help_text
@@ -55,6 +55,14 @@ def test_every_subcommand_parses_and_has_its_own_help() -> None:
         ["submit-sleep", "5", "--worker", "windows-primary"],
         ["submit-sleep-group", "120", "4", "--name", "queue test"],
         ["submit-python-batch", "a.py", "b.csv", "--name", "run"],
+        [
+            "submit-python-batch",
+            "a.py",
+            "--name",
+            "stored run",
+            "--dataset-storage",
+            "inputs/data.csv",
+        ],
         ["submit-batch", "project", "--entrypoint", "submit.hp"],
         [
             "submit-batch",
@@ -164,6 +172,55 @@ def test_remote_dataset_uses_the_same_python_batch_contract(
         "sha256": "a" * 64,
         "size_bytes": 123,
     }
+    assert '"status": "QUEUED"' in capsys.readouterr().out
+
+
+def test_storage_dataset_uses_the_same_python_batch_contract(
+    monkeypatch, capsys
+) -> None:
+    submitted: dict = {}
+    storage_reference = {
+        "storage_id": "home-storage",
+        "path": "inputs/data.csv",
+        "sha256": "a" * 64,
+        "size_bytes": 123,
+    }
+    monkeypatch.setattr(client, "load_api_token", lambda **_: "secret")
+    monkeypatch.setattr(
+        client,
+        "upload_file",
+        lambda url, path, *, token: {
+            "upload_id": "00000000-0000-0000-0000-000000000001",
+            "sha256": "b" * 64,
+            "size_bytes": 10,
+        },
+    )
+
+    def capture_request(method, url, *, token, body=None, extra_headers=None):
+        if url.endswith("/storage/references"):
+            assert body == {"path": "inputs/data.csv"}
+            return storage_reference
+        submitted.update(body or {})
+        return {"id": "job-id", "status": "QUEUED"}
+
+    monkeypatch.setattr(client, "request", capture_request)
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "hp",
+            "--json",
+            "submit-python-batch",
+            "train.py",
+            "--name",
+            "stored",
+            "--dataset-storage",
+            "inputs/data.csv",
+        ],
+    )
+
+    client.main()
+
+    assert submitted["parameters"]["dataset"] == storage_reference
     assert '"status": "QUEUED"' in capsys.readouterr().out
 
 

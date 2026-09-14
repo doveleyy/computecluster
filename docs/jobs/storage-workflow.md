@@ -1,16 +1,18 @@
 # Getting Files Into a Batch Job
 
-> Administrator storage workflow. Member-safe Home/Shared browsing is
-> implemented behind a disabled feature flag and must remain disabled until
-> the Synology ACL acceptance test passes.
+> The member-safe Home/Shared picker and resolved input defaults are
+> implemented. Workspace create/upload is active only for the provisioned pilot
+> member after its separate NAS identity, mount, and ACL matrix were accepted;
+> browser and multi-user acceptance remain pending.
 
 The first storage-backed workflow uses the `HomeStorage` Samba share. It keeps
 projects and datasets out of browser upload forms while preserving the same
 PBS-style job contract that a future dedicated NAS will use.
 
-This Pi-hosted share is a migration bridge. In the end state the dedicated NAS
-is the only SMB server; the same logical project/input references resolve there
-without requiring a second general file share on the coordinator.
+The original Pi-hosted share is a migration bridge. The provisioned member's
+logical Home/Shared paths now resolve on the dedicated NAS, while artifacts
+remain on the Pi SSD until their separate cutover. In the end state the
+dedicated NAS is the only SMB server.
 
 ## Share layout
 
@@ -29,18 +31,23 @@ folders.
 
 ## Submit from Job Desk
 
-1. Copy the complete project folder into `projects/`.
-2. Copy each external input file into `inputs/` or `shared/`.
+1. Prepare the complete project folder in your private `Home` tree.
+2. Keep external personal inputs in `Home` and deliberate collaboration data in
+   `Shared`.
 3. Open Job Desk and choose **PBS-style project array**.
 4. Choose **HomeStorage project folder**, select **Browse**, and choose the
    project directory.
 5. Leave the entrypoint as `submit.hp`, unless the project uses another safe
    project-relative name.
-6. For every `#HP --input NAME` declaration, enter the declared name, choose
-   **Add file**, and select the matching regular file:
+6. Review the contract detected from `submit.hp`. A declaration such as:
 
-   `cohort` may point to `inputs/cohort.csv`, for example, while `reference`
-   may point to `shared/reference.fa`.
+   ```bash
+   #HP --input cohort=Home/Inputs/cohort.csv
+   #HP --input reference=Shared/References/reference.fa
+   ```
+
+   resolves automatically. Use **Input overrides** only for a declaration with
+   no default or to replace a default for this run.
 
 7. Choose automatic placement or a specific worker and submit.
 
@@ -56,22 +63,38 @@ The project may still be local while its data is already in HomeStorage:
 
 ```bash
 pixi run client submit-batch ./cohort-analysis \
-  --input-storage cohort=inputs/cohort.csv \
-  --input-storage reference=shared/reference.fa
+  --input-storage cohort=Home/USER_ID/Inputs/cohort.csv \
+  --input-storage reference=Shared/References/reference.fa
 ```
 
-CLI and Job Desk create the same `BatchSubmissionCreate` contract and the same
-parent/child records.
+CLI and Job Desk use one vocabulary and create the same
+`BatchSubmissionCreate` contract and the same parent/child records. The
+difference is whose `Home` is meant: a signed-in member's session supplies that
+implicitly, while the CLI authenticates as the administrator — whose reach
+spans every tree — and so must name the account as `Home/USER_ID/...`.
+`Shared/...` is identical for both.
+
+The same flag exists for Python script jobs as `--dataset-storage`:
+
+```bash
+pixi run client submit-python-batch train.py \
+  --dataset-storage Shared/Datasets/training-data.csv \
+  --name "cohort model"
+```
 
 ## Current boundaries
 
 - HomeStorage inputs are regular files. Directory inputs are the next storage
   contract extension.
-- Application member accounts are owner-scoped. Until Synology ACLs pass the
-  two-user denial test, their storage routes return `503` and the picker is
-  disabled. After the operator enables the feature, members see virtual
+- Application member accounts are owner-scoped. Provisioned members see virtual
   `Home/...` and `Shared/...` paths; the server maps `Home` to the signed-in
-  account's stable UUID and rejects paths outside those roots.
+  account's stable UUID and rejects paths outside those roots. Other accounts
+  fail closed until explicitly provisioned.
+- Job Desk folder creation and file upload are limited to
+  `Home/Workspace/...` and require a separate workspace service mount. Those
+  mutations are live for the provisioned pilot member after the separate mount
+  and NAS access matrix passed. The global flag remains false, and browser
+  create/upload acceptance plus second-member isolation are still pending.
 - Do not rename or edit an input after submission. If its bytes no longer match
   the recorded digest, the worker fails safely instead of running changed data.
 - Because the present SSD is physically attached to the coordinator, its

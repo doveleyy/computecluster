@@ -191,3 +191,38 @@ def test_storage_input_is_fetched_by_logical_path_and_verified(
         "Accept-Encoding": "identity",
         "X-API-Token": "worker-secret",
     }
+
+
+def test_python_dataset_can_use_the_same_storage_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    content = b"feature,target\n1,0\n"
+    reference = StorageInputReference(
+        storage_id="home-storage",
+        path="users/member/Workspace/Inputs/training.csv",
+        sha256=hashlib.sha256(content).hexdigest(),
+        size_bytes=len(content),
+    )
+    worker_workspace = WorkerWorkspace(
+        root=tmp_path / "worker-data",
+        allowed_dataset_hosts=frozenset(),
+        max_dataset_bytes=1024,
+        control_plane_url="https://control.example",
+        api_token="worker-secret",
+    )
+
+    def stream(*args: object, **kwargs: object) -> ResponseStream:
+        return ResponseStream(
+            httpx.Response(
+                200,
+                content=content,
+                headers={"Content-Length": str(len(content))},
+                request=httpx.Request("GET", str(args[1])),
+            )
+        )
+
+    monkeypatch.setattr("worker.data_plane.httpx.stream", stream)
+
+    materialized = materialize_dataset(reference, worker_workspace)
+
+    assert materialized.read_bytes() == content

@@ -50,6 +50,10 @@ must comfortably exceed the worker's heartbeat interval.
 | `HOME_PLATFORM_STORAGE_DIR` | `/srv/home-platform/storage/nas` | Root exposed as logical `home-storage`; Job Desk and CLI paths must remain relative to it |
 | `HOME_PLATFORM_MEMBER_STORAGE_ENABLED` | false | Enables member Home/Shared browsing only after the NAS cross-user ACL denial test passes |
 | `HOME_PLATFORM_MEMBER_STORAGE_USER_IDS` | empty | Comma-separated stable user UUIDs allowed during a limited, explicitly unaccepted pilot |
+| `HOME_PLATFORM_WORKSPACE_DIR` | unset | Separate CIFS mount used by the constrained Job Desk workspace writer |
+| `HOME_PLATFORM_MEMBER_WORKSPACE_ENABLED` | false | Globally enable member create/upload operations inside `Home/Workspace` only |
+| `HOME_PLATFORM_MEMBER_WORKSPACE_USER_IDS` | empty | Stable UUID pilot allowlist for workspace writes while the global flag stays false |
+| `HOME_PLATFORM_MAX_WORKSPACE_UPLOAD_BYTES` | `268435456` (256 MiB) | Maximum size of one browser-to-workspace upload |
 
 The project ceiling also bounds each arbitrary named input upload in the current
 batch implementation. These inputs are stored separately under generated IDs;
@@ -82,24 +86,47 @@ allow only explicitly provisioned UUIDs with
 replacement: NAS permissions still enforce the disk boundary, and a new member
 must not be added to the allowlist until their owner directories are ready.
 
+Workspace mutation is a separate privilege from storage browsing. The API uses
+`HOME_PLATFORM_WORKSPACE_DIR`, which should be a second mount authenticated as
+a dedicated workspace service identity. That identity receives read/write only
+on each provisioned `users/<id>/Workspace/` subtree; it must not replace the
+read-oriented storage mount or inherit artifact write privileges. A NAS may
+also require Read/Write at its share-level SMB gate before the mount can open;
+in that case, enforce least privilege with directory ACLs, including an explicit
+artifact deny, and prove the access matrix from the coordinator. The API maps
+every member mutation to its immutable UUID, accepts only `Home/Workspace/...`,
+rejects traversal and links, refuses overwrites, stages uploads under a hidden
+temporary name, and atomically promotes a completed upload. Keep the global
+flag false until multi-user acceptance; provisioned pilot UUIDs can be enabled
+individually only after their mount and ACL checks pass.
+
 ## Artifacts (published job results)
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `HOME_PLATFORM_ARTIFACT_DIR` | `data/artifacts` | Root of owner-keyed published results: `<owner-id>/<job-id>/` |
+| `HOME_PLATFORM_ARTIFACT_DIR` | `data/artifacts` | Root of owner-keyed published results: `<owner-id>/<job-name>-<short-id>/` |
 | `HOME_PLATFORM_MAX_ARTIFACT_BYTES` | `104857600` (100 MiB) | Per-file ceiling |
 | `HOME_PLATFORM_MAX_JOB_ARTIFACT_BYTES` | `536870912` (512 MiB) | Per-job total ceiling |
 | `HOME_PLATFORM_MAX_ARTIFACT_STORE_BYTES` | `53687091200` (50 GiB) | Whole-store ceiling — a backstop, not a policy |
 | `HOME_PLATFORM_ARTIFACT_REQUIRE_MOUNT` | unset (false) | Refuse to write unless the artifact directory is on a different device from `/` |
-| `HOME_PLATFORM_ARTIFACT_OWNER_SCOPED` | unset (false) | Use provisioned `<owner-id>/<job-id>/` directories; enable only with the NAS cutover |
+| `HOME_PLATFORM_ARTIFACT_OWNER_SCOPED` | unset (false) | Place runs under a provisioned `<owner-id>/` directory; enable only with the NAS cutover |
 
 Results never expire by age. The store ceiling only evicts least-recently-touched
-jobs if a runaway threatens the disk, and logs each eviction at `WARNING`.
+runs if a runaway threatens the disk, and logs each eviction at `WARNING`. The
+evicted unit is one submission, so an array's children go together.
 In owner-scoped mode, the server derives the owner directory from the immutable
 job record; workers cannot select it. An owner directory must be provisioned
 before publication, preventing a newly created account from inheriting an
 overly broad NAS ACL. The flag exists so the new code can be deployed safely
 before the legacy artifact tree is migrated and the storage path is cut over.
+
+The run directory beneath the owner is derived from the job's name so results
+are recognisable over SMB rather than a wall of UUIDs. Names are neither unique
+nor path-safe, so the server reduces the name to one safe segment and appends
+the first eight characters of the job's — or, for an array child, its group's —
+UUID. Nothing about this is worker-supplied. Results published before this
+layout are still served from their original `<job-id>/` directory, so the change
+strands no completed work; migrate them with the artifact migration helper.
 
 These limits also define the practical download system today. Each artifact is
 served as a streamed file response and may be downloaded through the API, CLI,

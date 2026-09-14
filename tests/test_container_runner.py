@@ -112,6 +112,8 @@ def test_python_batch_uses_isolated_limited_container(
     assert "no-new-privileges" in command
     assert command[command.index("--cpus") + 1] == "1.5"
     assert command[command.index("--memory") + 1] == "1024m"
+    assert "HOME_PLATFORM_INPUT_DIR=/workspace/input" in command
+    assert "HOME_PLATFORM_DATASET=/workspace/input/dataset.csv" in command
     assert "worker-secret" not in command
     assert result.stdout == "trained\n"
     assert result.artifact_uri == f"worker://windows-primary/{job_id}/"

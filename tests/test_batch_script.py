@@ -50,6 +50,37 @@ def test_parser_reads_numeric_array_and_resources() -> None:
     assert (parsed.array_start, parsed.array_end) == (3, 6)
     assert parsed.timeout_seconds == 2 * 3600 + 3 * 60 + 4
     assert parsed.environment == {"MODEL": "svm"}
+    assert [(item.name, item.default_path) for item in parsed.inputs] == [
+        ("cohort.csv", None)
+    ]
+
+
+def test_parser_accepts_safe_default_storage_input_paths() -> None:
+    parsed = parse_batch_script(
+        SCRIPT.replace(
+            "#HP --input cohort.csv",
+            '#HP --input "cohort.csv=Home/Inputs/cohort one.csv"',
+        )
+    )
+
+    assert [(item.name, item.default_path) for item in parsed.inputs] == [
+        ("cohort.csv", "Home/Inputs/cohort one.csv")
+    ]
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "dataset=/etc/passwd",
+        "dataset=../secret.csv",
+        "dataset=users/someone/secret.csv",
+        "dataset=Home",
+        r"dataset=Home\\secret.csv",
+    ],
+)
+def test_parser_rejects_unsafe_default_storage_input_paths(value: str) -> None:
+    with pytest.raises(BatchScriptError, match=r"Home/\.\.\. or Shared/\.\.\."):
+        parse_batch_script(SCRIPT.replace("cohort.csv", value))
 
 
 def test_parser_rejects_manifest_style_array() -> None:

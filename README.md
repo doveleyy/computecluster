@@ -27,12 +27,15 @@ data you did not produce, and running untrusted code without trusting it.
   Bash wrapper and its child scripts. An inclusive array range becomes one
   durable parent plus independently placed, retried, and collected children.
   Named inputs may be small uploads or verified HTTPS files downloaded directly
-  and cached by each selected worker. Projects and inputs already placed in the
-  Samba share can be selected by share-relative logical path.
+  and cached by each selected worker. Projects and inputs already on the NAS are
+  selected by logical `Home/...` or `Shared/...` path — the same vocabulary in
+  Job Desk, the CLI, and `#HP` defaults, for both job types.
 - **Result publishing** — a worker uploads its output files to the coordinator
   under the same lease that authorises completion, so a revived worker cannot
-  overwrite its replacement's results. Files are then downloadable and can be
-  previewed or downloaded from Job Desk, or exposed read-only to a file share.
+  overwrite its replacement's results. The coordinator, not the script, decides
+  where they land: one directory per submission, named after the job, with array
+  children nested inside it. Files are then downloadable and can be previewed or
+  downloaded from Job Desk, or exposed read-only to a file share.
 - **Deliberate throttling** — `cpu_limit` is a hard quota, not a priority, and
   accepts fractions. A long search at 0.5 CPU runs slowly and coolly on a laptop
   you are still using. Library thread pools are pinned to the quota, without
@@ -158,9 +161,11 @@ pixi run client submit-python-batch script.py --name "Large training run" \
 pixi run client submit-batch ./experiment \
   --input-url data=<https-url> --input-sha256 data=<sha256> \
   --input-size-bytes data=<bytes>
-# Or bind a file already copied into HomeStorage:
+# Or bind a file already on the NAS, by logical path:
 pixi run client submit-batch ./experiment \
-  --input-storage data=inputs/dataset.csv
+  --input-storage data=Shared/Datasets/dataset.csv
+pixi run client submit-python-batch script.py --name "From the NAS" \
+  --dataset-storage Shared/Datasets/dataset.csv
 pixi run client list
 pixi run client cancel <job-id>
 pixi run client artifacts <job-id>            # what the job produced

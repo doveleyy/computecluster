@@ -226,6 +226,7 @@ def run_python_batch(
     parameters: PythonBatchParameters,
     workspace: WorkerWorkspace,
     cancellation_event: threading.Event | None = None,
+    job_name: str | None = None,
 ) -> PythonBatchResult:
     if workspace.docker_executable is None:
         raise RuntimeError("Docker runtime is unavailable")
@@ -310,9 +311,13 @@ def run_python_batch(
         "--env",
         "HOME_PLATFORM_DATASET=/workspace/input/dataset.csv",
         "--env",
+        "HOME_PLATFORM_INPUT_DIR=/workspace/input",
+        "--env",
         "HOME_PLATFORM_OUTPUT_DIR=/workspace/output",
         "--env",
         f"HOME_PLATFORM_JOB_ID={job_id}",
+        "--env",
+        f"HOME_PLATFORM_JOB_NAME={job_name or job_id}",
         # Advertised so a script can size its own parallelism to the quota
         # rather than to the host, e.g. GridSearchCV(n_jobs=...).
         "--env",

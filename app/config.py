@@ -27,6 +27,10 @@ class Settings:
     storage_directory: Path
     member_storage_enabled: bool
     member_storage_user_ids: frozenset[UUID]
+    workspace_directory: Path | None
+    member_workspace_enabled: bool
+    member_workspace_user_ids: frozenset[UUID]
+    max_workspace_upload_bytes: int
     power_request_directory: Path | None
 
 
@@ -90,6 +94,21 @@ def load_settings() -> Settings:
         )
         if value.strip()
     )
+    workspace_value = os.environ.get("HOME_PLATFORM_WORKSPACE_DIR", "").strip()
+    workspace_directory = Path(workspace_value) if workspace_value else None
+    member_workspace_enabled = os.environ.get(
+        "HOME_PLATFORM_MEMBER_WORKSPACE_ENABLED", ""
+    ).strip().lower() in {"1", "true", "yes"}
+    member_workspace_user_ids = frozenset(
+        UUID(value.strip())
+        for value in os.environ.get(
+            "HOME_PLATFORM_MEMBER_WORKSPACE_USER_IDS", ""
+        ).split(",")
+        if value.strip()
+    )
+    max_workspace_upload_bytes = positive_int(
+        "HOME_PLATFORM_MAX_WORKSPACE_UPLOAD_BYTES", 256 * 1024**2
+    )
     power_request_value = os.environ.get("HOME_PLATFORM_POWER_REQUEST_DIR", "").strip()
     power_request_directory = Path(power_request_value) if power_request_value else None
     return Settings(
@@ -112,6 +131,10 @@ def load_settings() -> Settings:
         storage_directory=storage_directory,
         member_storage_enabled=member_storage_enabled,
         member_storage_user_ids=member_storage_user_ids,
+        workspace_directory=workspace_directory,
+        member_workspace_enabled=member_workspace_enabled,
+        member_workspace_user_ids=member_workspace_user_ids,
+        max_workspace_upload_bytes=max_workspace_upload_bytes,
         power_request_directory=power_request_directory,
     )
 

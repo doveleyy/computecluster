@@ -26,6 +26,12 @@ class BatchScriptError(ValueError):
 
 
 @dataclass(frozen=True)
+class BatchInputDeclaration:
+    name: str
+    default_path: str | None
+
+
+@dataclass(frozen=True)
 class ParsedBatchScript:
     name: str
     runtime: str
@@ -35,7 +41,7 @@ class ParsedBatchScript:
     array_start: int
     array_end: int
     environment: dict[str, str]
-    inputs: tuple[str, ...]
+    inputs: tuple[BatchInputDeclaration, ...]
     worker_id: str | None
 
 
@@ -73,27 +79,13 @@ def compile_batch_submission(
     _verify_reference(archive_path, submission)
     validate_project_archive(archive_path)
     entrypoint = _normalized_project_path(submission.entrypoint)
-    try:
-        with zipfile.ZipFile(archive_path) as archive:
-            try:
-                script_bytes = archive.read(entrypoint)
-            except KeyError as error:
-                raise BatchScriptError(
-                    f"entrypoint {entrypoint!r} is not present in the project"
-                ) from error
-    except zipfile.BadZipFile as error:
-        raise BatchScriptError("project must be a valid ZIP archive") from error
-    try:
-        script = script_bytes.decode("utf-8")
-    except UnicodeDecodeError as error:
-        raise BatchScriptError("batch entrypoint must be UTF-8 text") from error
-    parsed = parse_batch_script(script)
+    parsed = parse_batch_project(archive_path, entrypoint)
     if parsed.runtime != SUPPORTED_RUNTIME:
         raise BatchScriptError(
             f"runtime {parsed.runtime!r} is unavailable; use {SUPPORTED_RUNTIME!r}"
         )
     target_worker = submission.target_worker_id or parsed.worker_id
-    declared_inputs = set(parsed.inputs)
+    declared_inputs = {item.name for item in parsed.inputs}
     supplied_inputs = set(submission.inputs)
     if declared_inputs != supplied_inputs:
         missing = sorted(declared_inputs - supplied_inputs)
@@ -140,7 +132,7 @@ def parse_batch_script(script: str) -> ParsedBatchScript:
 
     singletons: dict[str, str] = {}
     environment: dict[str, str] = {}
-    declared_inputs: list[str] = []
+    declared_inputs: list[BatchInputDeclaration] = []
     executable_seen = False
     allowed_singletons = {
         "--version",
@@ -184,17 +176,17 @@ def parse_batch_script(script: str) -> ParsedBatchScript:
                 raise BatchScriptError(f"duplicate environment key {key!r}")
             environment[key] = item
         elif option == "--input":
-            if "=" in value:
-                raise BatchScriptError(
-                    "default #HP input references are not implemented; use --input NAME"
-                )
-            if re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{0,63}", value) is None:
-                raise BatchScriptError(f"invalid input name {value!r}")
-            if value in declared_inputs:
-                raise BatchScriptError(f"duplicate input name {value!r}")
+            name, separator, raw_path = value.partition("=")
+            if re.fullmatch(r"[A-Za-z][A-Za-z0-9._-]{0,63}", name) is None:
+                raise BatchScriptError(f"invalid input name {name!r}")
+            if any(item.name == name for item in declared_inputs):
+                raise BatchScriptError(f"duplicate input name {name!r}")
             if len(declared_inputs) >= 32:
                 raise BatchScriptError("at most 32 named inputs are allowed")
-            declared_inputs.append(value)
+            default_path = (
+                _normalized_logical_storage_path(raw_path) if separator else None
+            )
+            declared_inputs.append(BatchInputDeclaration(name, default_path))
         elif option == "--after-success":
             raise BatchScriptError(
                 f"{option} is planned but not implemented in this release"
@@ -273,6 +265,27 @@ def parse_batch_script(script: str) -> ParsedBatchScript:
     )
 
 
+def parse_batch_project(archive_path: Path, entrypoint: str) -> ParsedBatchScript:
+    """Read and validate one batch entrypoint without executing project code."""
+    normalized_entrypoint = _normalized_project_path(entrypoint)
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            try:
+                script_bytes = archive.read(normalized_entrypoint)
+            except KeyError as error:
+                raise BatchScriptError(
+                    f"entrypoint {normalized_entrypoint!r} is not present "
+                    "in the project"
+                ) from error
+    except zipfile.BadZipFile as error:
+        raise BatchScriptError("project must be a valid ZIP archive") from error
+    try:
+        script = script_bytes.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise BatchScriptError("batch entrypoint must be UTF-8 text") from error
+    return parse_batch_script(script)
+
+
 def _parse_array(value: str) -> tuple[int, int]:
     pieces = value.split("-", 1)
     if len(pieces) != 2:
@@ -310,6 +323,24 @@ def _normalized_project_path(value: str) -> str:
     path = PurePosixPath(value)
     if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
         raise BatchScriptError("entrypoint must be a normalized project-relative path")
+    return path.as_posix()
+
+
+def _normalized_logical_storage_path(value: str) -> str:
+    if not value or len(value) > 500 or "\\" in value:
+        raise BatchScriptError(
+            "default #HP input path must be a normalized Home/... or Shared/... path"
+        )
+    path = PurePosixPath(value)
+    if (
+        path.is_absolute()
+        or len(path.parts) < 2
+        or path.parts[0] not in {"Home", "Shared"}
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise BatchScriptError(
+            "default #HP input path must be a normalized Home/... or Shared/... path"
+        )
     return path.as_posix()
 
 

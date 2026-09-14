@@ -566,6 +566,7 @@ def execute(
             job.parameters,
             workspace,
             cancellation_event=cancellation_event,
+            job_name=job.name,
         )
     if job.type is JobType.BATCH:
         if not isinstance(job.parameters, BatchParameters):

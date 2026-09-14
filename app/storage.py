@@ -11,6 +11,8 @@ from app.batch_script import (
     MAX_EXPANDED_PROJECT_BYTES,
     MAX_PROJECT_FILES,
     BatchScriptError,
+    ParsedBatchScript,
+    parse_batch_script,
     validate_project_archive,
 )
 from contracts.models import StorageInputReference, UploadedProjectReference
@@ -73,8 +75,23 @@ def browse_storage(root: Path, relative_path: str = "") -> list[StorageEntry]:
     return entries
 
 
-def member_storage_path(user_id: UUID, logical_path: str) -> str:
-    """Map member-facing Home/Shared paths to stable provider paths."""
+def is_logical_storage_path(path: str) -> bool:
+    """Report whether a path uses the Home/Shared vocabulary.
+
+    The provider tree has no top-level `users` alias and its shared directory is
+    lowercase, so a leading `Home` or `Shared` segment identifies the logical
+    form without ambiguity. That lets the token API keep accepting the older
+    physical paths for the transitional Pi share, which has `projects/` and
+    `inputs/` directories with no logical equivalent.
+    """
+    normalized = path.strip().replace("\\", "/").strip("/")
+    if not normalized:
+        return False
+    return normalized.split("/", 1)[0].lower() in {"home", "shared"}
+
+
+def _split_logical_path(logical_path: str) -> tuple[str, list[str]]:
+    """Validate one logical path and split it into its root and remainder."""
     normalized = logical_path.strip().replace("\\", "/").strip("/")
     if not normalized:
         raise StoragePolicyError("choose Home or Shared")
@@ -82,13 +99,45 @@ def member_storage_path(user_id: UUID, logical_path: str) -> str:
     if any(part in {"..", ""} for part in path.parts):
         raise StoragePolicyError("storage path must stay inside Home or Shared")
     area, *remainder = path.parts
-    if area.lower() == "home":
-        physical = PurePosixPath("users", str(user_id), *remainder)
-    elif area.lower() == "shared":
-        physical = PurePosixPath("shared", *remainder)
-    else:
+    root = area.lower()
+    if root not in {"home", "shared"}:
         raise StoragePolicyError("member storage paths must start with Home or Shared")
-    return physical.as_posix()
+    return root, remainder
+
+
+def member_storage_path(user_id: UUID, logical_path: str) -> str:
+    """Map member-facing Home/Shared paths to stable provider paths."""
+    root, remainder = _split_logical_path(logical_path)
+    if root == "home":
+        return PurePosixPath("users", str(user_id), *remainder).as_posix()
+    return PurePosixPath("shared", *remainder).as_posix()
+
+
+def resolve_logical_storage_path(logical_path: str, *, user_id: UUID | None) -> str:
+    """Map a logical path onto the provider tree for either kind of caller.
+
+    A member session passes its own `user_id`, so `Home` means that account and
+    nothing else. An administrator — the API token — passes `None`, because its
+    authority spans every account and so `Home` alone would be ambiguous. It
+    must name the target as `Home/<user-id>/...`, which keeps one vocabulary
+    across both callers while making the wider reach visible in the path itself.
+    """
+    if user_id is not None:
+        return member_storage_path(user_id, logical_path)
+    root, remainder = _split_logical_path(logical_path)
+    if root == "shared":
+        return PurePosixPath("shared", *remainder).as_posix()
+    if not remainder:
+        raise StoragePolicyError(
+            "administrators must name the account: Home/<user-id>/..."
+        )
+    try:
+        owner = UUID(remainder[0])
+    except ValueError as error:
+        raise StoragePolicyError(
+            "administrator Home paths must name a stable user ID"
+        ) from error
+    return PurePosixPath("users", str(owner), *remainder[1:]).as_posix()
 
 
 def member_storage_entries(
@@ -123,6 +172,68 @@ def member_storage_path_allowed(user_id: UUID, physical_path: str) -> bool:
     return (len(parts) >= 2 and parts[:2] == ("users", str(user_id))) or (
         len(parts) >= 1 and parts[0] == "shared"
     )
+
+
+def member_workspace_path(user_id: UUID, logical_path: str) -> str:
+    """Map only the mutable virtual Home/Workspace subtree."""
+    normalized = logical_path.strip().replace("\\", "/").strip("/")
+    path = PurePosixPath(normalized)
+    if (
+        len(path.parts) < 2
+        or tuple(part.lower() for part in path.parts[:2]) != ("home", "workspace")
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise StoragePolicyError("workspace paths must stay inside Home/Workspace")
+    return PurePosixPath("users", str(user_id), "Workspace", *path.parts[2:]).as_posix()
+
+
+def create_workspace_directory(root: Path, user_id: UUID, logical_path: str) -> None:
+    physical_path = PurePosixPath(member_workspace_path(user_id, logical_path))
+    if len(physical_path.parts) <= 3:
+        raise StoragePolicyError("choose a new directory inside Home/Workspace")
+    parent = resolve_storage_path(root, physical_path.parent.as_posix())
+    if not parent.is_dir():
+        raise StoragePolicyError("workspace parent must be a directory")
+    name = physical_path.name
+    if (
+        name.startswith(".")
+        or len(name) > 100
+        or any(ord(character) < 32 for character in name)
+    ):
+        raise StoragePolicyError("workspace directory name is not allowed")
+    target = parent / name
+    try:
+        target.mkdir()
+    except FileExistsError as error:
+        raise StoragePolicyError("workspace path already exists") from error
+    except OSError as error:
+        raise StoragePolicyError("workspace directory could not be created") from error
+
+
+def workspace_upload_target(
+    root: Path,
+    user_id: UUID,
+    logical_directory: str,
+    filename: str,
+) -> Path:
+    physical_directory = member_workspace_path(user_id, logical_directory)
+    directory = resolve_storage_path(root, physical_directory)
+    if not directory.is_dir():
+        raise StoragePolicyError("workspace upload destination must be a directory")
+    if (
+        not filename
+        or filename in {".", ".."}
+        or filename.startswith(".")
+        or len(filename) > 200
+        or "/" in filename
+        or "\\" in filename
+        or any(ord(character) < 32 for character in filename)
+    ):
+        raise StoragePolicyError("workspace filename is not allowed")
+    target = directory / filename
+    if target.exists():
+        raise StoragePolicyError("workspace file already exists")
+    return target
 
 
 def storage_file_reference(root: Path, relative_path: str) -> StorageInputReference:
@@ -196,3 +307,48 @@ def package_storage_project(
         sha256=digest,
         size_bytes=size,
     )
+
+
+def inspect_storage_project(
+    root: Path,
+    relative_path: str,
+    entrypoint: str,
+) -> tuple[ParsedBatchScript, list[str]]:
+    """Inspect a storage project for UI review without executing its contents."""
+    source = resolve_storage_path(root, relative_path)
+    if not source.is_dir():
+        raise StoragePolicyError("project path must be a directory")
+    try:
+        entrypoint_path = resolve_storage_path(source, entrypoint)
+    except StoragePolicyError as error:
+        raise StoragePolicyError(f"invalid project entrypoint: {error}") from error
+    if not entrypoint_path.is_file():
+        raise StoragePolicyError("project entrypoint must be a regular file")
+    try:
+        parsed = parse_batch_script(entrypoint_path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError as error:
+        raise StoragePolicyError("batch entrypoint must be UTF-8 text") from error
+    except BatchScriptError as error:
+        raise StoragePolicyError(str(error)) from error
+    except OSError as error:
+        raise StoragePolicyError("batch entrypoint could not be read") from error
+
+    files: list[str] = []
+    expanded = 0
+    for path in sorted(source.rglob("*")):
+        if path.is_symlink():
+            raise StoragePolicyError("project directory cannot contain symbolic links")
+        if path.is_file():
+            files.append(path.relative_to(source).as_posix())
+            expanded += path.stat().st_size
+            if len(files) > MAX_PROJECT_FILES:
+                raise StoragePolicyError(
+                    f"project contains more than {MAX_PROJECT_FILES} files"
+                )
+            if expanded > MAX_EXPANDED_PROJECT_BYTES:
+                raise StoragePolicyError(
+                    "expanded project exceeds the 100 MiB safety limit"
+                )
+    if not files:
+        raise StoragePolicyError("project directory cannot be empty")
+    return parsed, files

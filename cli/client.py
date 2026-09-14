@@ -26,8 +26,8 @@ examples:
   %(prog)s submit-sleep 5 --name "pipeline check"
   %(prog)s submit-python-batch train.py data.csv --name "Experiment 1"
   %(prog)s submit-batch ./experiment --entrypoint submit.hp
-  %(prog)s submit-batch ./experiment \
-    --input-storage data=inputs/dataset.csv
+  %(prog)s submit-batch ./experiment \\
+    --input-storage data=Shared/Datasets/dataset.csv
   %(prog)s submit-python-batch train.py --name "Large run" \\
     --dataset-url https://data.example/input.csv \\
     --dataset-sha256 <sha256> --dataset-size-bytes <bytes>
@@ -105,14 +105,17 @@ def build_parser() -> argparse.ArgumentParser:
 
     batch_parser = subparsers.add_parser(
         "submit-python-batch",
-        help="run your own Python against a CSV in an isolated container",
+        help="run your own Python against one input file in an isolated container",
         description=(
-            "Uploads the script and either uploads a local CSV or records a "
-            "verified remote CSV reference, then creates one canonical job. "
+            "Uploads the script and either uploads a local CSV, selects a "
+            "NAS file by logical path, or records a verified HTTPS reference, "
+            "then creates one canonical job. "
             "The script runs in a fixed container with no network, a "
-            "read-only root and no credentials. It reads the CSV path from "
-            "HOME_PLATFORM_DATASET and writes results to HOME_PLATFORM_OUTPUT_DIR; "
-            "whatever it leaves there is collected as artifacts. Only a worker "
+            "read-only root and no credentials. It reads the input path from "
+            "HOME_PLATFORM_DATASET, may inspect HOME_PLATFORM_INPUT_DIR, and "
+            "writes results to HOME_PLATFORM_OUTPUT_DIR; "
+            "whatever it leaves there is published under a directory named "
+            "after the job. Only a worker "
             "that already has the container image will claim this. "
             "--cpus is a hard quota, so a fraction runs the job slowly and "
             "coolly rather than just deprioritising it; library thread pools "
@@ -128,8 +131,16 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         nargs="?",
         help=(
-            "path to a local .csv file; omit when using --dataset-url with its "
-            "checksum and size"
+            "path to a local .csv file; omit when using --dataset-storage or "
+            "--dataset-url with its checksum and size"
+        ),
+    )
+    batch_parser.add_argument(
+        "--dataset-storage",
+        metavar="PATH",
+        help=(
+            "logical path to an existing NAS file, as Shared/... or "
+            "Home/USER_ID/...; the same vocabulary the Job Desk picker uses"
         ),
     )
     batch_parser.add_argument(
@@ -221,8 +232,8 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="NAME=PATH",
         help=(
-            "bind a declared input to a file already stored in HomeStorage; "
-            "the path is relative to the share root"
+            "bind a declared input to a file already on the NAS, as "
+            "Shared/... or Home/USER_ID/...; overrides any #HP default"
         ),
     )
     general_batch_parser.add_argument(
@@ -500,13 +511,27 @@ def main() -> None:
             args.dataset_size_bytes,
         )
         if args.dataset is not None:
-            if any(value is not None for value in remote_dataset_fields):
+            if args.dataset_storage is not None or any(
+                value is not None for value in remote_dataset_fields
+            ):
                 parser.error(
                     "submit-python-batch accepts either a local dataset or "
-                    "--dataset-url/--dataset-sha256/--dataset-size-bytes, not both"
+                    "--dataset-storage or the complete verified URL fields, not "
+                    "more than one source"
                 )
             dataset = upload_file(
                 f"{base_url}/uploads/datasets", args.dataset, token=token
+            )
+        elif args.dataset_storage is not None:
+            if any(value is not None for value in remote_dataset_fields):
+                parser.error(
+                    "--dataset-storage cannot be combined with verified URL fields"
+                )
+            dataset = request(
+                "POST",
+                f"{base_url}/storage/references",
+                token=token,
+                body={"path": args.dataset_storage},
             )
         else:
             if any(value is None for value in remote_dataset_fields):

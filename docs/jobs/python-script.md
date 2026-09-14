@@ -3,14 +3,26 @@
 **Job type:** `python_batch`  
 **Status:** implemented, deployed, and live-verified
 
-Use this job type to run one Python file against one CSV input. The operator may
+Use this job type to run one Python file against one input file. The operator may
 submit both through Job Desk or the CLI and choose an eligible compute worker.
 
-Both interfaces create the same `python_batch` job. For a small CSV, either can
-upload the file through the coordinator. For a large CSV, either can submit its
-HTTPS URL together with the exact SHA-256 and byte size so the selected worker
-downloads and verifies it directly. Only the input transport differs; the
-container, script contract, limits, scheduling, and artifacts are identical.
+Both interfaces create the same `python_batch` job and accept the same three
+input sources:
+
+| Source | Job Desk | CLI |
+|---|---|---|
+| A file already on the NAS | **Choose from Home or Shared** | `--dataset-storage PATH` |
+| A small local CSV | **Upload a small CSV** | positional `dataset` argument |
+| A large externally hosted CSV | **Use a verified download link** | `--dataset-url` with `--dataset-sha256` and `--dataset-size-bytes` |
+
+NAS files are named by the same logical paths the batch job type uses —
+`Home/...` for your private tree and `Shared/...` for deliberately shared data.
+See [Getting files into a job](storage-workflow.md). A verified HTTPS file
+travels directly to the selected worker rather than through the coordinator;
+its SHA-256 and byte size are integrity requirements, not hints.
+
+Only the input transport differs. The container, script contract, limits,
+scheduling, and artifacts are identical across all three.
 
 ## The script contract
 
@@ -22,14 +34,21 @@ three ways:
 2. standard output and standard error provide short diagnostic logs; and
 3. regular files written to the output directory become downloadable artifacts.
 
-Four environment variables are available:
+Six environment variables are available. They are the same names the batch job
+type uses, so a script can move between the two without rewriting its I/O:
 
 | Variable | Contract |
 |---|---|
-| `HOME_PLATFORM_DATASET` | Absolute path to the read-only input CSV |
+| `HOME_PLATFORM_DATASET` | Absolute path to the read-only input file |
+| `HOME_PLATFORM_INPUT_DIR` | Read-only directory containing that input |
 | `HOME_PLATFORM_OUTPUT_DIR` | Writable directory for result artifacts |
 | `HOME_PLATFORM_JOB_ID` | Server-generated UUID for this run |
+| `HOME_PLATFORM_JOB_NAME` | The submitted job name, or the UUID when unnamed |
 | `HOME_PLATFORM_CPU_LIMIT` | CPU quota assigned to the container, as a float |
+
+Read the input through `HOME_PLATFORM_DATASET`. `HOME_PLATFORM_INPUT_DIR` is
+the directory that contains it and exists for parity with the batch contract;
+do not assume any other file is present in it.
 
 Minimal template:
 
@@ -57,8 +76,10 @@ print(f"processed {len(frame)} rows")
 ```
 
 Only files placed directly inside `HOME_PLATFORM_OUTPUT_DIR` are published.
-Use portable names beginning with a letter or number and containing only
-letters, numbers, dots, underscores, or hyphens, for example:
+A script cannot choose where results are stored; the platform decides that, so
+one run can never overwrite another's output. Use portable names beginning with
+a letter or number and containing only letters, numbers, dots, underscores, or
+hyphens, for example:
 
 ```text
 metrics.json
@@ -102,6 +123,22 @@ produces `FAILED / MEMORY_LIMIT_EXCEEDED`; crossing the time limit produces
 
 ## Outputs and limits
 
+Every run publishes into its own directory, named after the job so results are
+recognisable when browsing storage rather than only through the API:
+
+```text
+artifacts/<owner-id>/
+├── SVM_model-7dcf9099/
+│   ├── metrics.json
+│   └── model.joblib
+└── SVM_model-1a4be012/        a second run of the same script
+```
+
+Job names are not unique, so the directory carries the first eight characters
+of the job's UUID as well. Two runs sharing a name therefore stay separate —
+publication never overwrites an earlier result. The layout is identical for the
+[batch job type](batch-script.md), which nests array children one level deeper.
+
 Current defaults allow up to 100 MiB per artifact and 512 MiB across one job.
 The job result records at most 100 output filenames. Publication is intended
 for models, metrics, reports, plots, and modest result tables—not multi-gigabyte
@@ -127,11 +164,12 @@ available only after successful completion.
 
 - The script runs from top to bottom without interactive input.
 - It reads the input path from `HOME_PLATFORM_DATASET`.
-- It writes durable results to `HOME_PLATFORM_OUTPUT_DIR`.
+- It writes durable results to `HOME_PLATFORM_OUTPUT_DIR` and nowhere else.
 - It needs no network access, secrets, GPU, or unlisted package.
 - It derives parallelism from `HOME_PLATFORM_CPU_LIMIT`.
 - It has been tested locally against a small representative CSV.
 - Output files fit the documented artifact limits.
+- The job has a name worth reading later; it becomes the results directory.
 - The operator knows the expected CPU, memory, and maximum runtime.
 
 See the runnable examples under [`examples/`](../../examples/) and the complete

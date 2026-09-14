@@ -199,8 +199,20 @@ The data model uses a stable user ID and role. Jobs record an immutable
 than accepting an owner supplied by a worker. Human-readable usernames may
 change, so filesystem placement uses a stable storage key. Existing records are
 assigned to the administrator during migration. Published files use
-`artifacts/<owner-id>/<job-id>/`; the API refuses to create a missing owner root
-because doing so could inherit an unsafe share-level ACL.
+`artifacts/<owner-id>/<job-name>-<short-id>/` for standalone jobs. Array
+children are nested beneath `<group-name>-<short-group-id>/`; the API refuses to
+create a missing owner root because doing so could inherit an unsafe share-level
+ACL.
+
+The run directory is derived from the standalone job name or persisted parent
+group name, so an owner browsing the NAS over SMB recognises their work instead
+of reading UUIDs. That name is user-supplied, neither unique nor path-safe, so
+it is reduced to one safe segment and carries a short UUID suffix: two runs
+sharing a name stay separate, and a crafted name cannot escape the owner's
+root. The UUID remains the identity every API route resolves — the name is a
+browsing affordance, never a key and never an authorization boundary. Placement
+is computed by the server from immutable job and group records; a worker cannot
+influence where its output lands.
 
 ```text
 authenticated member
@@ -224,6 +236,14 @@ They may use matching stable account names for usability, but credentials are
 provisioned and stored separately. Worker credentials are service identities
 and never grant a worker end-user browsing rights.
 
+Browser workspace mutation uses a separate service identity from artifact
+publication. Its NAS authority is limited to provisioned
+`users/<owner-id>/Workspace/` trees, while the application maps every request
+from the signed session to exactly one owner tree. The NAS sees the workspace
+service identity rather than the human actor, so application authorization is
+still essential; the restricted NAS ACL limits the blast radius of a defect.
+Members' own SMB sessions continue to use their personal NAS identities.
+
 Schema migrations 13 and 14 implement the application boundary. They create
 stable `MEMBER`/`ADMIN` identities, backfill existing jobs/groups to the
 administrator, add salted password hashes and signed user sessions, make
@@ -231,12 +251,13 @@ ownership required and immutable, scope idempotency by owner, and register
 staged uploads to their uploader. List/detail/cancel/artifact routes enforce the
 same owner rule, and adversarial tests cover known foreign UUIDs.
 
-NAS access is the remaining half. The DSM groups, publisher identity, first
-member identity, directory tree, and first-member ACL matrix are provisioned.
-Members still cannot select HomeStorage paths in production: cross-user SMB
-denial, the NAS mount, application path cutover, and end-to-end publication
-must be accepted first. The local application candidate implements fail-closed
-virtual Home/Shared mapping behind a disabled feature flag.
+NAS access remains only partially accepted. The DSM groups, publisher identity,
+first member identity, directory tree, mount, and first-member ACL matrix are
+provisioned. The sole provisioned member can browse/select virtual Home/Shared
+paths through a pilot allowlist; cross-user denial and artifact publication
+cutover remain pending. The separate workspace identity, CIFS mount,
+first-member ACL, and pilot allowlist are live. Its positive/negative NAS access
+matrix passed; signed-in browser create/upload acceptance remains pending.
 
 ## End-state storage topology
 
@@ -392,10 +413,14 @@ retrieves them over its existing authenticated connection and verifies them
 again. Here the coordinator *is* in the byte path, which is why uploads are size
 capped and linked datasets remain the route for anything large.
 
-**HomeStorage files.** A user first copies a project and data into the guarded
-Samba share using an ordinary file client. Job Desk or the CLI selects a regular
-file by safe share-relative path; the coordinator records its exact size and
-SHA-256 rather than copying it into upload staging. Because the current disk is
+**NAS files.** A user first copies a project and data into the guarded share
+using an ordinary file client. Job Desk or the CLI then selects a regular file
+by logical path — `Home/...` for a private tree, `Shared/...` for deliberately
+shared data — and the coordinator maps that onto the provider tree, records its
+exact size and SHA-256, and does not copy it into upload staging. One
+vocabulary covers both interfaces and both job types; the caller's identity
+decides what `Home` means, so a member cannot name another member's tree and an
+administrator must say whose tree it wants. Because the current disk is
 attached to the Pi, workers retrieve the bytes through an authenticated API
 file response and verify them into the same content-addressed cache. This makes
 the workflow usable now but is not the desired high-throughput endpoint. When
@@ -408,11 +433,17 @@ does not match what arrived is a hard failure, not a warning.
 ### Publishing results
 
 Inputs travel to the compute; results travel back. A worker that finishes a job
-uploads its output files to the coordinator, which stores them under the job's
-identifier on durable storage. The job record keeps only metadata — exit code,
-truncated output streams, and file names.
+uploads its output files to the coordinator, which stores them in a directory it
+derives from the job record on durable storage. The job record keeps only
+metadata — exit code, truncated output streams, and file names.
 
-Three details make this work rather than merely function:
+Four details make this work rather than merely function:
+
+**The coordinator decides where results land, not the worker or the script.**
+A submission publishes into its own directory, so no run can overwrite another
+even when two share a name, and a script cannot aim its output somewhere it
+should not reach. Naming that directory after the job rather than its UUID is
+what makes the store legible to a person browsing it over SMB.
 
 **The upload is authorised by the same lease that authorises completion.**
 Publishing results mutates a job's output, so it demands the same proof as

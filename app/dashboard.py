@@ -49,7 +49,16 @@ from app.accounts import (
     decode_session,
     encode_session,
 )
-from app.batch_script import BatchScriptError, validate_project_archive
+from app.artifacts import (
+    job_artifact_relative_path,
+    legacy_artifact_relative_path,
+)
+from app.batch_script import (
+    BatchScriptError,
+    ParsedBatchScript,
+    parse_batch_project,
+    validate_project_archive,
+)
 from app.identity import ADMIN_USER_ID
 from app.job_http import (
     create_batch_submission,
@@ -77,12 +86,17 @@ from app.storage import (
     STORAGE_ID,
     StoragePolicyError,
     browse_storage,
+    create_workspace_directory,
+    inspect_storage_project,
+    is_logical_storage_path,
     member_storage_entries,
     member_storage_path,
     member_storage_path_allowed,
     package_storage_project,
+    resolve_logical_storage_path,
     resolve_storage_path,
     storage_file_reference,
+    workspace_upload_target,
 )
 from app.version import VERSION
 from contracts.models import (
@@ -92,6 +106,7 @@ from contracts.models import (
     JobGroupRead,
     JobRead,
     JobStatus,
+    PythonBatchParameters,
     StorageInputReference,
     UploadedDatasetReference,
     UploadedInputReference,
@@ -111,6 +126,14 @@ class StoragePathRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     path: str
+
+
+class StorageProjectPreviewRequest(StoragePathRequest):
+    entrypoint: str = "submit.hp"
+
+
+class WorkspaceDirectoryCreate(StoragePathRequest):
+    pass
 
 
 class PiPowerRequest(BaseModel):
@@ -599,6 +622,7 @@ def create_dashboard_router() -> APIRouter:
     )
     def jobs_portal_create(
         job_create: JobCreate,
+        request: Request,
         job_service: JobServiceDependency,
         identity: DashboardSession,
         account_store: Annotated[AccountStore, Depends(get_account_store)],
@@ -613,6 +637,29 @@ def create_dashboard_router() -> APIRouter:
         ] = None,
     ) -> JobRead:
         validate_upload_ownership(account_store, identity, [job_create])
+        if isinstance(job_create.parameters, PythonBatchParameters) and isinstance(
+            job_create.parameters.dataset, StorageInputReference
+        ):
+            require_member_storage(request, identity)
+            reference = job_create.parameters.dataset
+            if not identity.is_admin and not member_storage_path_allowed(
+                identity.id, reference.path
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Storage input not found",
+                )
+            try:
+                actual = storage_file_reference(
+                    request.app.state.settings.storage_directory, reference.path
+                )
+            except StoragePolicyError as error:
+                raise storage_error(error) from error
+            if actual != reference:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Storage input changed after selection",
+                )
         return create_job_from_client(
             job_service, job_create, idempotency_key, str(identity.id)
         )
@@ -790,6 +837,19 @@ def create_dashboard_router() -> APIRouter:
             detail=str(error),
         )
 
+    def administrator_storage_path(path: str) -> str:
+        """Accept the logical vocabulary on the token API, physical as legacy.
+
+        Job Desk, `#HP` defaults and the CLI all speak `Home/...` and
+        `Shared/...`; this is where an administrator's version of that is
+        resolved. Physical paths still pass through untouched because the
+        transitional Pi share has `projects/` and `inputs/` directories that
+        have no logical equivalent yet.
+        """
+        if not is_logical_storage_path(path):
+            return path
+        return resolve_logical_storage_path(path, user_id=None)
+
     def require_member_storage(request: Request, identity: SessionIdentity) -> None:
         if (
             not identity.is_admin
@@ -801,12 +861,86 @@ def create_dashboard_router() -> APIRouter:
                 detail="Personal NAS storage is not provisioned yet",
             )
 
+    def member_workspace_available(request: Request, identity: SessionIdentity) -> bool:
+        settings = request.app.state.settings
+        return bool(
+            not identity.is_admin
+            and settings.workspace_directory is not None
+            and (
+                settings.member_workspace_enabled
+                or identity.id in settings.member_workspace_user_ids
+            )
+        )
+
+    def require_member_workspace(request: Request, identity: SessionIdentity) -> Path:
+        if not member_workspace_available(request, identity):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Job Desk workspace editing is not provisioned yet",
+            )
+        return cast(Path, request.app.state.settings.workspace_directory)
+
     def scoped_storage_path(identity: SessionIdentity, logical_path: str) -> str:
         return (
             logical_path
             if identity.is_admin
             else member_storage_path(identity.id, logical_path)
         )
+
+    def default_storage_path(identity: SessionIdentity, logical_path: str) -> str:
+        """Resolve a `#HP --input NAME=PATH` default for the submitting session.
+
+        An administrator gets no implicit `Home`: a project header is written
+        once and reused, so it cannot name which account's private tree a run
+        should read. `Shared` is unambiguous and resolves for either caller.
+        """
+        if not identity.is_admin:
+            return member_storage_path(identity.id, logical_path)
+        if not is_logical_storage_path(logical_path):
+            raise StoragePolicyError(
+                "default #HP input paths must start with Home or Shared"
+            )
+        try:
+            return resolve_logical_storage_path(logical_path, user_id=None)
+        except StoragePolicyError as error:
+            raise StoragePolicyError(
+                "Home defaults require a member session; administrators must "
+                f"bind that input explicitly ({error})"
+            ) from error
+
+    def project_archive(request: Request, project: UploadedProjectReference) -> Path:
+        upload_directory = cast(Path, request.app.state.settings.upload_directory)
+        return upload_directory / "projects" / f"{project.upload_id}.zip"
+
+    def parsed_project(
+        request: Request,
+        project: UploadedProjectReference,
+        entrypoint: str,
+    ) -> ParsedBatchScript:
+        try:
+            return parse_batch_project(project_archive(request, project), entrypoint)
+        except BatchScriptError as error:
+            raise storage_error(StoragePolicyError(str(error))) from error
+
+    def resolve_default_storage_inputs(
+        submission: BatchSubmissionCreate,
+        request: Request,
+        identity: SessionIdentity,
+    ) -> BatchSubmissionCreate:
+        parsed = parsed_project(request, submission.project, submission.entrypoint)
+        inputs = dict(submission.inputs)
+        for declaration in parsed.inputs:
+            if declaration.name in inputs or declaration.default_path is None:
+                continue
+            require_member_storage(request, identity)
+            try:
+                inputs[declaration.name] = storage_file_reference(
+                    request.app.state.settings.storage_directory,
+                    default_storage_path(identity, declaration.default_path),
+                )
+            except StoragePolicyError as error:
+                raise storage_error(error) from error
+        return submission.model_copy(update={"inputs": inputs})
 
     @router.get("/jobs-ui/api/storage")
     def jobs_portal_storage(
@@ -828,7 +962,93 @@ def create_dashboard_router() -> APIRouter:
         return {
             "storage_id": STORAGE_ID,
             "path": path,
+            "workspace_writable": (
+                member_workspace_available(request, identity)
+                and (
+                    path.lower() == "home/workspace"
+                    or path.lower().startswith("home/workspace/")
+                )
+            ),
             "entries": [entry.__dict__ for entry in entries],
+        }
+
+    @router.post(
+        "/jobs-ui/api/workspace/directories",
+        status_code=status.HTTP_201_CREATED,
+    )
+    def jobs_portal_workspace_directory(
+        creation: WorkspaceDirectoryCreate,
+        request: Request,
+        identity: DashboardSession,
+    ) -> dict[str, str]:
+        workspace_root = require_member_workspace(request, identity)
+        try:
+            create_workspace_directory(workspace_root, identity.id, creation.path)
+        except StoragePolicyError as error:
+            raise storage_error(error) from error
+        return {"path": creation.path}
+
+    @router.post(
+        "/jobs-ui/api/workspace/uploads",
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def jobs_portal_workspace_upload(
+        request: Request,
+        identity: DashboardSession,
+        directory: Annotated[str, Form()],
+        file: Annotated[UploadFile, File()],
+    ) -> dict[str, Any]:
+        workspace_root = require_member_workspace(request, identity)
+        filename = file.filename or ""
+        try:
+            target = workspace_upload_target(
+                workspace_root, identity.id, directory, filename
+            )
+        except StoragePolicyError as error:
+            await file.close()
+            raise storage_error(error) from error
+
+        temporary = target.parent / f".{uuid4()}.part"
+        size = 0
+        reserved = False
+        try:
+            target.touch(exist_ok=False)
+            reserved = True
+            with temporary.open("xb") as output:
+                while chunk := await file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > request.app.state.settings.max_workspace_upload_bytes:
+                        raise HTTPException(
+                            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                            detail="Workspace upload exceeds the configured limit",
+                        )
+                    output.write(chunk)
+            if size == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail="Workspace file cannot be empty",
+                )
+            os.replace(temporary, target)
+            reserved = False
+        except FileExistsError as error:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Workspace file already exists",
+            ) from error
+        except OSError as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Workspace upload could not be stored",
+            ) from error
+        finally:
+            await file.close()
+            temporary.unlink(missing_ok=True)
+            if reserved:
+                target.unlink(missing_ok=True)
+        return {
+            "name": filename,
+            "path": f"{directory.rstrip('/')}/{filename}",
+            "size_bytes": size,
         }
 
     @router.post(
@@ -874,6 +1094,39 @@ def create_dashboard_router() -> APIRouter:
         account_store.record_upload(project.upload_id, identity.id, "project")
         return project
 
+    @router.post("/jobs-ui/api/storage/project-preview")
+    def jobs_portal_storage_project_preview(
+        selection: StorageProjectPreviewRequest,
+        request: Request,
+        identity: DashboardSession,
+    ) -> dict[str, Any]:
+        require_member_storage(request, identity)
+        try:
+            parsed, files = inspect_storage_project(
+                request.app.state.settings.storage_directory,
+                scoped_storage_path(identity, selection.path),
+                selection.entrypoint,
+            )
+        except StoragePolicyError as error:
+            raise storage_error(error) from error
+        return {
+            "project_path": selection.path,
+            "entrypoint": selection.entrypoint,
+            "name": parsed.name,
+            "runtime": parsed.runtime,
+            "cpu_limit": parsed.cpu_limit,
+            "memory_mb": parsed.memory_mb,
+            "timeout_seconds": parsed.timeout_seconds,
+            "array_start": parsed.array_start,
+            "array_end": parsed.array_end,
+            "worker_id": parsed.worker_id,
+            "files": files,
+            "inputs": [
+                {"name": item.name, "default_path": item.default_path}
+                for item in parsed.inputs
+            ],
+        }
+
     @router.post(
         "/jobs-ui/api/batch-submissions",
         response_model=JobGroupRead,
@@ -890,6 +1143,8 @@ def create_dashboard_router() -> APIRouter:
             Header(alias="Idempotency-Key", min_length=1, max_length=128),
         ] = None,
     ) -> JobGroupRead:
+        validate_upload_ids(account_store, identity, {submission.project.upload_id})
+        submission = resolve_default_storage_inputs(submission, request, identity)
         upload_ids = {submission.project.upload_id}
         for source in submission.inputs.values():
             if not identity.is_admin and isinstance(source, StorageInputReference):
@@ -1002,7 +1257,10 @@ def create_dashboard_router() -> APIRouter:
         path: str = "",
     ) -> dict[str, Any]:
         try:
-            entries = browse_storage(request.app.state.settings.storage_directory, path)
+            entries = browse_storage(
+                request.app.state.settings.storage_directory,
+                administrator_storage_path(path),
+            )
         except StoragePolicyError as error:
             raise storage_error(error) from error
         return {
@@ -1019,7 +1277,8 @@ def create_dashboard_router() -> APIRouter:
     ) -> StorageInputReference:
         try:
             return storage_file_reference(
-                request.app.state.settings.storage_directory, selection.path
+                request.app.state.settings.storage_directory,
+                administrator_storage_path(selection.path),
             )
         except StoragePolicyError as error:
             raise storage_error(error) from error
@@ -1038,7 +1297,7 @@ def create_dashboard_router() -> APIRouter:
         try:
             return package_storage_project(
                 settings.storage_directory,
-                selection.path,
+                administrator_storage_path(selection.path),
                 settings.upload_directory / "projects",
                 settings.max_project_upload_bytes,
             )
@@ -1053,7 +1312,8 @@ def create_dashboard_router() -> APIRouter:
     ) -> FileResponse:
         try:
             target = resolve_storage_path(
-                request.app.state.settings.storage_directory, file_path
+                request.app.state.settings.storage_directory,
+                administrator_storage_path(file_path),
             )
         except StoragePolicyError as error:
             raise storage_error(error) from error
@@ -1171,6 +1431,12 @@ def create_dashboard_router() -> APIRouter:
         write would silently fill the boot disk instead of failing. Comparing
         device IDs against `/` catches that regardless of how the path is
         arranged, which a path-shape check would not.
+
+        Results published before 0.33.0 live under the job's bare UUID. Those
+        directories are still served where they exist, so changing the layout
+        does not strand completed work. New jobs get the readable name-derived
+        directory, and because the first upload creates it, every later upload
+        for that job finds it and stays alongside the first.
         """
         settings = request.app.state.settings
         root: Path = settings.artifact_directory
@@ -1186,14 +1452,31 @@ def create_dashboard_router() -> APIRouter:
                     detail="Artifact storage is not mounted",
                 )
         if not settings.artifact_owner_scoped:
-            return root / str(job_id)
-        owner_directory = root / job_service.owner_user_id(job_id)
-        if not owner_directory.is_dir():
+            base = root
+        else:
+            base = root / job_service.owner_user_id(job_id)
+            if not base.is_dir():
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Artifact storage is not provisioned for this job owner",
+                )
+        legacy = base / legacy_artifact_relative_path(job_id)
+        job = job_service.get(job_id)
+        if job is None:
+            # A worker cannot publish to a job that does not exist, and a reader
+            # asking about one should not be told a directory name for it.
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Artifact storage is not provisioned for this job owner",
+                status_code=status.HTTP_404_NOT_FOUND, detail="Job not found"
             )
-        return owner_directory / str(job_id)
+        group_name = (
+            job_service.get_group(job.group_id).name
+            if job.group_id is not None and job.task_id is not None
+            else None
+        )
+        current = base / job_artifact_relative_path(job, group_name=group_name)
+        if not current.exists() and legacy.is_dir():
+            return legacy
+        return current
 
     def directory_size(directory: Path) -> int:
         return sum(
@@ -1201,42 +1484,46 @@ def create_dashboard_router() -> APIRouter:
         )
 
     def evict_artifacts_over_cap(request: Request) -> list[str]:
-        """Delete whole job directories until the store is back under its cap.
+        """Delete whole run directories until the store is back under its cap.
 
         Nothing expires because it is old. This is only a backstop against a
-        runaway filling the disk, so it evicts the least recently touched jobs
+        runaway filling the disk, so it evicts the least recently touched runs
         first and logs every removal loudly — losing results silently would be
         worse than running out of space.
+
+        The unit is one submission, not one job. An array's children live inside
+        their group's directory, so a four-child array is evicted whole rather
+        than leaving three orphaned indices behind.
         """
         settings = request.app.state.settings
         root: Path = settings.artifact_directory
         if not root.is_dir():
             return []
-        jobs = (
+        runs = (
             [item for item in root.iterdir() if item.is_dir()]
             if not settings.artifact_owner_scoped
             else [
-                job
+                run
                 for owner in root.iterdir()
                 if owner.is_dir()
-                for job in owner.iterdir()
-                if job.is_dir()
+                for run in owner.iterdir()
+                if run.is_dir()
             ]
         )
-        jobs.sort(key=lambda item: item.stat().st_mtime)
-        total = sum(directory_size(job) for job in jobs)
+        runs.sort(key=lambda item: item.stat().st_mtime)
+        total = sum(directory_size(run) for run in runs)
         evicted: list[str] = []
-        for job in jobs:
+        for run in runs:
             if total <= settings.max_artifact_store_bytes:
                 break
-            size = directory_size(job)
-            shutil.rmtree(job, ignore_errors=True)
+            size = directory_size(run)
+            shutil.rmtree(run, ignore_errors=True)
             total -= size
-            evicted.append(job.name)
+            evicted.append(run.name)
             logging.warning(
-                "artifact store over %s bytes; evicted job=%s freeing %s bytes",
+                "artifact store over %s bytes; evicted run=%s freeing %s bytes",
                 settings.max_artifact_store_bytes,
-                job.name,
+                run.name,
                 size,
             )
         return evicted
@@ -1331,7 +1618,7 @@ def create_dashboard_router() -> APIRouter:
             "filename": name,
             "size_bytes": size,
             "sha256": digest.hexdigest(),
-            "evicted_jobs": evicted,
+            "evicted_runs": evicted,
         }
 
     @router.get("/jobs/{job_id}/artifacts")

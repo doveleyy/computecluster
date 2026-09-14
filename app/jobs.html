@@ -47,9 +47,22 @@
     h2 { margin:4px 0 0; font:600 17px/1.2 var(--mono); }
     .count { color:var(--muted); font:11px var(--mono); white-space:nowrap; }
     .form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 18px; padding:20px; }
-    .form > #target-worker-field,.form > #sleep-fields,.form > #dataset-fields,.form > #batch-fields,.form > .form-actions,.form > .feedback { grid-column:1/-1; }
-    #dataset-fields:not(.hidden),#batch-fields:not(.hidden) { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 18px; padding-top:17px; border-top:1px solid var(--line); }
-    #resource-fields { grid-column:1/-1; }
+    .form > #target-worker-field,.form > #sleep-fields,.form > .form-section,.form > .file-flow,.form > .form-actions,.form > .feedback { grid-column:1/-1; }
+    /* Every task type renders the same sections in the same order. Only the
+       controls inside a section vary, so switching task swaps contents without
+       the form itself changing shape. */
+    .form-section { padding-top:15px; border-top:1px solid var(--line); }
+    .form-section-head { display:flex; align-items:baseline; gap:10px; margin-bottom:13px; }
+    .form-section-head h3 { margin:0; color:var(--text); font:600 11px var(--mono); letter-spacing:.13em; text-transform:uppercase; }
+    .form-section-note { min-width:0; color:var(--dim); font:10px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .form-section-body { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 18px; }
+    .form-section-body > .field-wide,.form-section-body > .advanced,.form-section-body > .storage-bindings,.form-section-body > .declared { grid-column:1/-1; }
+    /* Values a project declared for itself. Read-only on purpose: submit.hp is
+       the source of truth, and letting the form override it would create a
+       second contract. */
+    .declared { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:11px; padding:12px 13px; border:1px solid var(--line); border-radius:9px; background:#070707; }
+    .declared-value { margin-top:4px; color:var(--text); font:11px/1.4 var(--mono); overflow-wrap:anywhere; }
+    .declared-empty { grid-column:1/-1; color:var(--dim); font:10px/1.6 var(--mono); }
     .field { display:block; margin-bottom:15px; }
     .field input,.field select,.field textarea { width:100%; min-height:46px; margin-top:7px; padding:0 12px; border:1px solid var(--strong); border-radius:8px; outline:none; background:#050505; color:var(--text); }
     .field textarea { min-height:110px; padding:11px 12px; resize:vertical; font:12px/1.5 var(--mono); }
@@ -113,18 +126,40 @@
     .storage-binding span { min-width:0; overflow:hidden; font:11px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
     .storage-browser { padding:0 18px 18px; }
     .storage-path { margin:0 -18px 12px; padding:11px 18px; border-bottom:1px solid var(--line); color:var(--muted); font:11px var(--mono); overflow-wrap:anywhere; }
-    .storage-entries { display:grid; gap:7px; min-height:120px; max-height:50dvh; overflow:auto; }
+    /* align-content:start stops grid rows sharing out the spare height. Without
+       it a single entry stretches to fill min-height and one folder reads as a
+       120px slab; two would be 60px each. Rows keep their own height, leftover
+       space stays empty, and the list scrolls once it exceeds max-height. */
+    .storage-entries { display:grid; align-content:start; gap:7px; min-height:120px; max-height:50dvh; overflow:auto; }
     .storage-entry { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:10px; align-items:center; min-height:44px; padding:0 11px; border:1px solid var(--line); border-radius:8px; background:#080808; color:var(--text); cursor:pointer; text-align:left; }
     .storage-entry:hover { border-color:var(--strong); background:var(--raised); }
     .storage-entry-kind,.storage-entry-size { color:var(--dim); font:10px var(--mono); }
     .storage-browser-actions { display:flex; justify-content:space-between; gap:8px; margin-top:13px; }
+    /* Reference material about where files come from and go. It is explanation,
+       not input, so it stays collapsed and reads as a sequence rather than a row
+       of equally weighted cards competing with the fields above it. */
+    /* Flat, not a card. This already sits inside the submit panel, so giving it
+       its own border and fill nests a box in a box. A rule underneath is enough
+       to separate the explanation from the fields it introduces. */
+    .file-flow { grid-column:1/-1; margin-bottom:17px; padding-bottom:14px; border-bottom:1px solid var(--line); }
+    .file-flow-head { margin-bottom:9px; color:var(--text); font:600 11px var(--mono); letter-spacing:.13em; text-transform:uppercase; }
+    .flow-step { display:grid; grid-template-columns:auto minmax(0,1fr); gap:10px; padding:6px 0; }
+    .flow-marker { width:18px; color:var(--dim); font:600 10px/1.5 var(--mono); text-align:right; }
+    .flow-term { margin-bottom:3px; color:var(--text); font:600 11px var(--mono); letter-spacing:.06em; text-transform:uppercase; }
+    .flow-step.is-result .flow-term { color:var(--cyan); }
+    .flow-step p { margin:0 0 4px; color:var(--muted); font:10px/1.6 var(--mono); }
+    .flow-step p:last-child { margin-bottom:0; }
+    .flow-step code { color:var(--text); font-size:10px; overflow-wrap:anywhere; }
+    .project-review-row { display:grid; grid-column:1/-1; grid-template-columns:minmax(0,.65fr) minmax(0,1.35fr) auto; gap:8px; align-items:center; font:10px/1.45 var(--mono); }
+    .project-review-row span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .project-review-row .missing { color:var(--yellow); }
     @media(max-width:900px) { .layout{grid-template-columns:1fr} .submit-panel{order:0}.queue-panel{order:1} }
     @media(max-width:640px) {
       .shell{padding-left:12px;padding-right:12px}.topbar{align-items:flex-start;margin-bottom:20px}.context-line{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.panel{border-radius:10px}
-      .form,#dataset-fields:not(.hidden),#batch-fields:not(.hidden){grid-template-columns:1fr}.form>*,#dataset-fields>*,#batch-fields>*{grid-column:1/-1}
+      .form,.form-section-body{grid-template-columns:1fr}.form>*,.form-section-body>*{grid-column:1/-1}.declared{grid-template-columns:1fr}
       .job-head{grid-template-columns:1fr .75fr .8fr;padding:7px 9px}.head-type,.head-state,.head-worker{display:none}
       .job-row{grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;padding:15px}.job-name{grid-column:1;grid-row:1}.job-state{grid-column:2;grid-row:1;justify-self:end}.job-id{grid-column:1/-1;grid-row:2}.job-type{grid-column:1;grid-row:3}.job-worker{grid-column:1/-1;grid-row:4}.job-time{grid-column:2;grid-row:3;text-align:right}.job-worker::before{content:"worker  ";color:var(--dim)}
-      .dialog-body{grid-template-columns:1fr}.detail.wide{grid-column:auto}
+      .dialog-body{grid-template-columns:1fr}.detail.wide{grid-column:auto}.project-review-row{grid-template-columns:1fr}.project-review-row span{white-space:normal}
     }
     @media(max-width:390px) { .brand{font-size:22px}.ghost{min-height:38px;padding:0 10px} }
   </style>
@@ -136,33 +171,49 @@
     <nav class="page-nav" aria-label="Home Platform"><a class="admin-nav hidden" href="/dashboard">OVERVIEW</a><a class="admin-nav hidden" href="/dashboard/operations">OPERATIONS</a><a id="jobs-nav" href="/jobs-ui">JOBS</a><a id="submit-nav" href="/jobs-ui/new">SUBMIT</a></nav>
     <div id="workspace" class="layout one-page">
       <section id="submit-panel" class="panel submit-panel hidden" aria-labelledby="submit-title"><header class="panel-head"><div><div class="kicker">new run</div><h2 id="submit-title">Submit a job</h2></div></header><form id="job-form" class="form">
+        <div class="file-flow hidden" id="file-flow"><div class="file-flow-head">Where your files go</div>
+          <div class="flow-step"><div class="flow-marker">1</div><div><div class="flow-term">Choosing files</div><p><strong>Home</strong> is your private area. <strong>Shared</strong> is for files the household deliberately shares.</p><p id="flow-choose-detail"></p></div></div>
+          <div class="flow-step"><div class="flow-marker">2</div><div><div class="flow-term">Inside the job</div><p id="flow-inside-detail"></p></div></div>
+          <div class="flow-step is-result"><div class="flow-marker">3</div><div><div class="flow-term">Results</div><p>Anything written to <code>HOME_PLATFORM_OUTPUT_DIR</code> is published as an artifact.</p><p id="flow-result-detail"></p></div></div>
+        </div>
         <label id="job-name-field" class="field"><span class="label">Job name</span><input id="job-name" maxlength="100" placeholder="e.g. Family CSV report" required><span class="hint">Names can be reused. Every run still gets its own ID.</span></label>
         <label id="job-type-field" class="field"><span class="label">Task</span><select id="job-type"><option value="batch">PBS-style project array</option><option value="python_batch">Python single-script batch</option><option value="sleep">Connectivity check</option></select></label>
         <label id="target-worker-field" class="field"><span class="label">Run on</span><select id="target-worker"><option value="">Automatic · smallest capable worker</option></select><span class="hint">Automatic placement is deterministic best-fit. A target still cannot exceed that node's configured job ceiling.</span></label>
         <div id="sleep-fields"><label class="field"><span class="label">Run for</span><select id="seconds"><option value="1">1 second</option><option value="5" selected>5 seconds</option><option value="10">10 seconds</option><option value="30">30 seconds</option><option value="60">1 minute</option><option value="120">2 minutes</option><option value="300">5 minutes</option></select><span class="hint">A small test that confirms a worker can receive and finish a job.</span></label></div>
-        <div id="dataset-fields" class="hidden">
-          <div id="script-fields"><label class="field"><span class="label">Python script</span><input id="script-file" type="file" accept=".py,text/x-python"><span class="hint">The script and dataset are packaged together for an isolated worker container.</span></label></div>
-          <label class="field"><span class="label">Dataset source</span><select id="dataset-source"><option value="upload">Upload a small CSV</option><option value="url">Use an existing download link</option></select></label>
-          <div id="upload-fields"><label class="field"><span class="label">CSV file</span><input id="dataset-file" type="file" accept=".csv,text/csv"><span class="hint">Up to 10 MB. The Pi verifies and stages it for a worker.</span></label></div>
-          <div id="url-fields" class="hidden"><label class="field"><span class="label">CSV download link</span><input id="dataset-url" type="url" inputmode="url" placeholder="https://example.com/data.csv"></label>
-            <details class="advanced"><summary>DATASET VERIFICATION · REQUIRED</summary><div class="advanced-body">
-              <label class="field"><span class="label">SHA-256 checksum</span><input id="dataset-sha" minlength="64" maxlength="64" pattern="[0-9a-f]{64}" placeholder="64 lowercase characters"></label>
-              <label class="field"><span class="label">File size in bytes</span><input id="dataset-size" type="number" min="1" max="107374182400" inputmode="numeric" placeholder="e.g. 4096"></label>
-            </div></details><span class="hint">The worker downloads linked datasets directly; they do not travel through the Pi.</span>
-          </div>
-          <label class="field"><span class="label">Maximum run time</span><select id="timeout"><option value="60">1 minute</option><option value="300">5 minutes</option><option value="900">15 minutes</option><option value="1800" selected>30 minutes</option><option value="3600">1 hour</option><option value="7200">2 hours</option><option value="21600">6 hours</option><option value="43200">12 hours</option><option value="86400">1 day</option><option value="259200">3 days</option><option value="604800">7 days</option></select><span class="hint">A hard wall-time ceiling. Jobs may run for up to seven days.</span></label>
-          <div id="resource-fields"><details class="advanced"><summary>COMPUTE LIMITS</summary><div class="advanced-body">
-            <label class="field"><span class="label">CPU cores</span><select id="cpu-limit"><option value="1">1 core</option><option value="2" selected>2 cores</option><option value="4">4 cores</option></select><span class="hint">CPU is throttled to this quota.</span></label>
-            <label class="field"><span class="label">Memory</span><select id="memory-mb"><option value="1024">1 GB</option><option value="2048" selected>2 GB</option><option value="3072">3 GB</option><option value="4096">4 GB</option></select><span class="hint">A hard limit. Exceeding it cancels the container and records a memory-limit failure.</span></label>
-          </div></details></div>
-        </div>
-        <div id="batch-fields" class="hidden">
-          <label class="field"><span class="label">Project source</span><select id="batch-project-source"><option value="storage">HomeStorage project folder</option><option value="upload">Upload a project ZIP</option></select><span class="hint">The project contains submit.hp and every script or configuration it calls.</span></label>
-          <div id="batch-storage-project"><label class="field"><span class="label">Project folder</span><span class="storage-choice"><input id="batch-project-path" placeholder="Choose a project folder" readonly><button id="browse-project" class="ghost" type="button">BROWSE</button></span><span class="hint">Choose a NAS folder containing submit.hp and its project files.</span></label></div>
-          <div id="batch-upload-project" class="hidden"><label class="field"><span class="label">Project ZIP</span><input id="batch-project-file" type="file" accept=".zip,application/zip"><span class="hint">Up to 20 MiB compressed and 100 MiB expanded.</span></label></div>
-          <label class="field"><span class="label">Entrypoint</span><input id="batch-entrypoint" value="submit.hp" placeholder="submit.hp"><span class="hint">Project-relative PBS-style wrapper containing the #HP header.</span></label>
-          <div class="field"><span class="label">HomeStorage input bindings</span><span class="storage-choice"><input id="batch-input-name" maxlength="64" placeholder="Declared input name, e.g. dataset"><button id="browse-input" class="ghost" type="button">ADD FILE</button></span><div id="batch-storage-inputs" class="storage-bindings"></div><span id="batch-storage-hint" class="hint">Enter a declared #HP input name, then choose its file. Directories are not supported.</span></div>
-        </div>
+        <section id="section-code" class="form-section hidden"><div class="form-section-head"><h3>Code</h3><span id="code-note" class="form-section-note"></span></div><div class="form-section-body">
+          <div id="python-code" class="field-wide"><label class="field"><span class="label">Python script</span><input id="script-file" type="file" accept=".py,text/x-python"><span class="hint">Runs in an isolated container with no network. It reads its input through HOME_PLATFORM_DATASET.</span></label></div>
+          <div id="batch-code" class="field-wide hidden"><div class="form-section-body">
+            <label class="field"><span class="label">Project source</span><select id="batch-project-source"><option value="storage">Folder on the NAS</option><option value="upload">Upload a project ZIP</option></select><span class="hint">The project contains submit.hp and every script it calls.</span></label>
+            <label class="field"><span class="label">Entrypoint</span><input id="batch-entrypoint" value="submit.hp" placeholder="submit.hp"><span class="hint">Project-relative wrapper containing the #HP header.</span></label>
+            <div id="batch-storage-project" class="field-wide"><label class="field"><span class="label">Project folder</span><span class="storage-choice"><input id="batch-project-path" placeholder="Choose a project folder" readonly><button id="browse-project" class="ghost" type="button">BROWSE</button></span><span class="hint">A NAS folder containing submit.hp and its project files.</span></label></div>
+            <div id="batch-upload-project" class="field-wide hidden"><label class="field"><span class="label">Project ZIP</span><input id="batch-project-file" type="file" accept=".zip,application/zip"><span class="hint">Up to 20 MiB compressed and 100 MiB expanded.</span></label></div>
+            <div id="batch-declared" class="declared"></div>
+          </div></div>
+        </div></section>
+        <section id="section-input" class="form-section hidden"><div class="form-section-head"><h3>Input</h3><span id="input-note" class="form-section-note"></span></div><div class="form-section-body">
+          <div id="python-input" class="field-wide"><div class="form-section-body">
+            <label class="field"><span class="label">Input source</span><select id="dataset-source"><option value="storage">Choose from Home or Shared</option><option value="upload">Upload a small CSV</option><option value="url">Use a verified download link</option></select></label>
+            <div id="storage-dataset-fields"><label class="field"><span class="label">Input file</span><span class="storage-choice"><input id="dataset-storage-path" placeholder="Choose a NAS file" readonly><button id="browse-python-input" class="ghost" type="button">BROWSE</button></span><span class="hint">Personal files live under Home. Shared is for reusable household data.</span></label></div>
+            <div id="upload-fields"><label class="field"><span class="label">CSV file</span><input id="dataset-file" type="file" accept=".csv,text/csv"><span class="hint">Up to 10 MB. The Pi verifies and stages it for a worker.</span></label></div>
+            <div id="url-fields" class="field-wide hidden"><label class="field"><span class="label">CSV download link</span><input id="dataset-url" type="url" inputmode="url" placeholder="https://example.com/data.csv"><span class="hint">The worker downloads linked files directly; they do not travel through the Pi.</span></label>
+              <details class="advanced"><summary>DATASET VERIFICATION · REQUIRED</summary><div class="advanced-body">
+                <label class="field"><span class="label">SHA-256 checksum</span><input id="dataset-sha" minlength="64" maxlength="64" pattern="[0-9a-f]{64}" placeholder="64 lowercase characters"></label>
+                <label class="field"><span class="label">File size in bytes</span><input id="dataset-size" type="number" min="1" max="107374182400" inputmode="numeric" placeholder="e.g. 4096"></label>
+              </div></details>
+            </div>
+          </div></div>
+        </div></section>
+        <section id="section-limits" class="form-section hidden"><div class="form-section-head"><h3>Limits</h3><span id="limits-note" class="form-section-note"></span></div><div class="form-section-body">
+          <div id="python-limits" class="field-wide"><div class="form-section-body">
+            <label class="field"><span class="label">Maximum run time</span><select id="timeout"><option value="60">1 minute</option><option value="300">5 minutes</option><option value="900">15 minutes</option><option value="1800" selected>30 minutes</option><option value="3600">1 hour</option><option value="7200">2 hours</option><option value="21600">6 hours</option><option value="43200">12 hours</option><option value="86400">1 day</option><option value="259200">3 days</option><option value="604800">7 days</option></select><span class="hint">A hard wall-time ceiling. Jobs may run for up to seven days.</span></label>
+            <label class="field"><span class="label">CPU cores</span><select id="cpu-limit"><option value="1">1 core</option><option value="2" selected>2 cores</option><option value="4">4 cores</option></select><span class="hint">CPU is throttled to this quota, not merely deprioritised.</span></label>
+            <label class="field"><span class="label">Memory</span><select id="memory-mb"><option value="1024">1 GB</option><option value="2048" selected>2 GB</option><option value="3072">3 GB</option><option value="4096">4 GB</option></select><span class="hint">A hard limit. Exceeding it cancels the container.</span></label>
+          </div></div>
+        </div></section>
+        <section id="section-overrides" class="form-section hidden"><div class="form-section-head"><h3>Input files</h3><span id="batch-input-note" class="form-section-note"></span></div><div class="form-section-body">
+          <div id="project-review-inputs" class="declared"></div>
+          <div class="field field-wide"><span class="label">Missing or replacement input</span><span class="storage-choice"><input id="batch-input-name" maxlength="64" placeholder="Declared input name, e.g. dataset"><button id="browse-input" class="ghost" type="button">CHOOSE FILE</button></span><div id="batch-storage-inputs" class="storage-bindings"></div><span id="batch-storage-hint" class="hint">Paths declared as #HP --input NAME=Home/... resolve automatically. Use this only for a declaration without a default or to replace one for this run.</span></div>
+        </div></section>
         <div class="form-actions"><button id="submit" class="primary" type="submit">SUBMIT JOB</button></div><p id="feedback" class="feedback" aria-live="polite"></p>
       </form></section>
       <section id="queue-panel" class="panel queue-panel hidden" aria-labelledby="queue-title"><header class="panel-head"><div><div class="kicker">runs</div><h2 id="queue-title">Queue &amp; history</h2></div><span id="job-count" class="count">—</span></header><nav id="filters" class="filters" aria-label="Filter jobs by state"></nav><div class="job-head" role="row" aria-label="Sortable job columns"><button class="sort head-name" data-sort="name" type="button">Name</button><button class="sort head-id" data-sort="id" type="button">ID</button><button class="sort head-type" data-sort="type" type="button">Type</button><button class="sort head-state" data-sort="status" type="button">State</button><button class="sort head-worker" data-sort="worker_id" type="button">Worker</button><button class="sort head-time" data-sort="created_at" type="button">Created</button></div><div id="jobs"></div></section>
@@ -170,10 +221,10 @@
   </main>
   <dialog id="job-dialog"><header class="panel-head"><div><div class="kicker">job record</div><h2 id="dialog-title">Details</h2></div><button id="dialog-close" class="close" type="button" aria-label="Close">×</button></header><div id="job-detail" class="dialog-body"></div></dialog>
   <dialog id="account-dialog"><header class="panel-head"><div><div class="kicker">member account</div><h2>Change password</h2></div><button id="account-close" class="close" type="button" aria-label="Close">×</button></header><form id="account-form" class="account-form"><p class="dialog-copy">Changing your password signs out every browser using this account.</p><label class="field"><span class="label">Current password</span><input id="current-password" type="password" autocomplete="current-password" required></label><label class="field"><span class="label">New password</span><input id="new-password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><span class="hint">Use at least 12 characters and do not reuse your NAS password.</span></label><label class="field"><span class="label">Confirm new password</span><input id="confirm-password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></label><button id="account-submit" class="primary" type="submit">CHANGE PASSWORD</button><p id="account-feedback" class="feedback" aria-live="polite"></p></form></dialog>
-  <dialog id="storage-dialog"><header class="panel-head"><div><div class="kicker">home storage</div><h2 id="storage-title">Choose a file</h2></div><button id="storage-close" class="close" type="button" aria-label="Close">×</button></header><div class="storage-browser"><div id="storage-path" class="storage-path">/</div><div id="storage-entries" class="storage-entries"></div><p id="storage-error" class="feedback bad" aria-live="polite"></p><div class="storage-browser-actions"><button id="storage-up" class="ghost" type="button">UP</button><button id="storage-choose" class="primary hidden" type="button">CHOOSE THIS FOLDER</button></div></div></dialog>
+  <dialog id="storage-dialog"><header class="panel-head"><div><div class="kicker">home storage</div><h2 id="storage-title">Choose a file</h2></div><button id="storage-close" class="close" type="button" aria-label="Close">×</button></header><div class="storage-browser"><div id="storage-path" class="storage-path">/</div><div id="storage-entries" class="storage-entries"></div><p id="storage-error" class="feedback bad" aria-live="polite"></p><input id="workspace-upload-file" class="hidden" type="file"><div class="storage-browser-actions"><div class="topbar-button-row"><button id="storage-up" class="ghost" type="button">UP</button><button id="workspace-new-folder" class="ghost hidden" type="button">NEW FOLDER</button><button id="workspace-upload" class="ghost hidden" type="button">UPLOAD</button></div><button id="storage-choose" class="primary hidden" type="button">CHOOSE THIS FOLDER</button></div></div></dialog>
   <script>
     const $=selector=>document.querySelector(selector),states=["ALL","QUEUED","RUNNING","COMPLETED","FAILED"],labels={name:"Name",id:"ID",type:"Type",status:"State",worker_id:"Worker",created_at:"Created"},submitView=location.pathname.endsWith("/new");
-    let jobs=[],groups=[],workers=[],sessionIdentity=null,workloadOwners={jobs:{},groups:{}},activeFilter="ALL",jobSort={key:"created_at",direction:"desc"},storageBindings={},storagePicker={mode:"input",path:""};
+    let jobs=[],groups=[],workers=[],sessionIdentity=null,workloadOwners={jobs:{},groups:{}},activeFilter="ALL",jobSort={key:"created_at",direction:"desc"},storageBindings={},projectPreview=null,storagePicker={mode:"input",path:""};
     function element(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined&&text!==null)node.textContent=text;return node}
     function showLogin(message=""){$("#app").classList.add("hidden");$("#login-view").classList.remove("hidden");$("#login-error").textContent=message}
     function submissionKey(){if(globalThis.crypto&&typeof globalThis.crypto.randomUUID==="function")return globalThis.crypto.randomUUID();const random=Math.random().toString(36).slice(2);return"web-"+Date.now().toString(36)+"-"+random}
@@ -196,16 +247,137 @@
     function cancellationPanel(job){const panel=element("div","detail wide");if(!["QUEUED","RUNNING"].includes(job.status))return panel;const button=element("button","danger",job.cancellation_requested?"CANCELLATION REQUESTED":"CANCEL JOB");button.type="button";button.disabled=job.cancellation_requested;button.onclick=async()=>{if(!confirm("Cancel this job? Running computation will be stopped and partial outputs will not be published."))return;button.disabled=true;button.textContent="REQUESTING…";try{const updated=await api("/jobs-ui/api/jobs/"+encodeURIComponent(job.id)+"/cancel",{method:"POST"});await refresh();$("#job-dialog").close();openJob(updated)}catch(error){button.disabled=false;button.textContent="RETRY CANCEL"}};panel.append(element("div","label","Job control"),button);return panel}
     function openJob(job){const displayed=job.cancellation_requested&&job.status==="RUNNING"?"CANCELLING":job.status;$("#dialog-title").textContent=(job.name||"Unnamed job")+" / "+displayed;$("#job-detail").replaceChildren(detail("Name",job.name,true),detail("Owner",workloadOwners.jobs[job.id]||sessionIdentity.username),detail("Job ID",job.id,true),detail("Type",job.type),detail("Status",displayed),detail("Target",job.target_worker_id||"Any available worker"),detail("Worker",job.worker_id),detail("Attempt",job.attempt+" / "+job.max_attempts),detail("Created",timeLabel(job.created_at)),detail("Failure reason",job.failure_kind),detail("Parameters",job.parameters,true),detail("Result",job.result,true),detail("Error",job.error,true),cancellationPanel(job),artifactPanel(job));$("#job-dialog").showModal()}
     function parentStoragePath(path){const parts=path.split("/").filter(Boolean);parts.pop();return parts.join("/")}
-    function renderStorageBindings(){const rows=Object.entries(storageBindings).map(([name,path])=>{const row=element("div","storage-binding"),remove=element("button","ghost","REMOVE");remove.type="button";remove.onclick=()=>{delete storageBindings[name];renderStorageBindings()};row.append(element("span","",name),element("span","secondary",path),remove);return row});$("#batch-storage-inputs").replaceChildren(...rows)}
-    async function loadStorage(path=""){const list=$("#storage-entries"),error=$("#storage-error");error.textContent="";list.replaceChildren(element("div","empty","LOADING…"));try{const data=await api("/jobs-ui/api/storage?path="+encodeURIComponent(path));storagePicker.path=data.path;$("#storage-path").textContent="/"+(data.path||"");$("#storage-up").disabled=!data.path;$("#storage-choose").classList.toggle("hidden",storagePicker.mode!=="project"||!data.path);const rows=data.entries.map(entry=>{const row=element("button","storage-entry");row.type="button";row.append(element("span","storage-entry-kind",entry.kind==="directory"?"DIR":"FILE"),element("span","",entry.name),element("span","storage-entry-size",entry.size_bytes===null?"":formatBytes(entry.size_bytes)));row.onclick=()=>{if(entry.kind==="directory")loadStorage(entry.path);else if(storagePicker.mode==="input"){storageBindings[storagePicker.inputName]=entry.path;renderStorageBindings();$("#batch-input-name").value="";$("#storage-dialog").close()}};return row});list.replaceChildren(...rows.length?rows:[element("div","empty","EMPTY FOLDER")])}catch(reason){list.replaceChildren();error.textContent=reason.message}}
+    function renderStorageBindings(){const rows=Object.entries(storageBindings).map(([name,path])=>{const row=element("div","storage-binding"),remove=element("button","ghost","REMOVE");remove.type="button";remove.onclick=()=>{delete storageBindings[name];renderStorageBindings();renderProjectPreview()};row.append(element("span","",name),element("span","secondary",path),remove);return row});$("#batch-storage-inputs").replaceChildren(...rows)}
+    function reviewValue(label,value){const node=element("div");node.append(element("div","label",label),element("div","declared-value",value));return node}
+    function formatDuration(seconds){const h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),s=seconds%60;return [h,m,s].map(part=>String(part).padStart(2,"0")).join(":")}
+    // The parsed submit.hp feeds two sections: its declared inputs go under
+    // INPUT, its declared resources under LIMITS. Both are read-only — the file
+    // is the contract, and a second editable copy in the form would compete
+    // with it.
+    function renderProjectPreview(){
+      const inputs=$("#project-review-inputs"),declared=$("#batch-declared"),codeNote=$("#code-note");
+      if(!projectPreview){
+        inputs.replaceChildren(element("div","declared-empty","Choose a project to read the inputs it declares."));
+        declared.replaceChildren(element("div","declared-empty","Choose a project to read the contract it declares."));
+        codeNote.textContent="";
+        return;
+      }
+      codeNote.textContent=projectPreview.files.length+" file"+(projectPreview.files.length===1?"":"s")+" · "+projectPreview.name;
+      // Resources are part of what the chosen project *is*, not a decision the
+      // submitter makes, so they sit with the project rather than in a Limits
+      // section that would imply they can be changed here.
+      declared.replaceChildren(
+        reviewValue("Job name",projectPreview.name),
+        reviewValue("Run time",formatDuration(projectPreview.timeout_seconds)),
+        reviewValue("CPU",projectPreview.cpu_limit+(projectPreview.cpu_limit===1?" core":" cores")),
+        reviewValue("Memory",projectPreview.memory_mb+" MiB"),
+        reviewValue("Array",projectPreview.array_start+"–"+projectPreview.array_end+" · "+(projectPreview.array_end-projectPreview.array_start+1)+" tasks"),
+        reviewValue("Runtime",projectPreview.runtime));
+      if(!projectPreview.inputs.length){
+        inputs.replaceChildren(element("div","declared-empty","No external inputs · every required file travels inside the project."));
+        $("#batch-input-note").textContent="";
+        return;
+      }
+      const rows=projectPreview.inputs.map(input=>{
+        const override=storageBindings[input.name],path=override||input.default_path,state=override?"OVERRIDE":input.default_path?"AUTO":"REQUIRED",row=element("div","project-review-row");
+        row.append(element("span","",input.name),element("span",path?"secondary":"missing",path||"Choose a file before submitting"),element("span","storage-entry-kind",state));
+        return row;
+      });
+      const missing=projectPreview.inputs.filter(input=>!storageBindings[input.name]&&!input.default_path).length;
+      $("#batch-input-note").textContent=missing?missing+" still needs a file":"all resolved";
+      inputs.replaceChildren(...rows);
+    }
+    async function previewStorageProject(path){projectPreview=null;renderProjectPreview();const feedback=$("#feedback");feedback.className="feedback";feedback.textContent="READING submit.hp…";try{projectPreview=await api("/jobs-ui/api/storage/project-preview",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path,entrypoint:$("#batch-entrypoint").value})});renderProjectPreview();feedback.textContent="PROJECT READY · "+projectPreview.files.length+" FILE"+(projectPreview.files.length===1?"":"S")}catch(error){feedback.className="feedback bad";feedback.textContent=error.message}}
+    async function loadStorage(path=""){const list=$("#storage-entries"),error=$("#storage-error");error.textContent="";list.replaceChildren(element("div","empty","LOADING…"));try{const data=await api("/jobs-ui/api/storage?path="+encodeURIComponent(path));storagePicker.path=data.path;storagePicker.writable=data.workspace_writable;$("#storage-path").textContent="/"+(data.path||"");$("#storage-up").disabled=!data.path;$("#workspace-new-folder").classList.toggle("hidden",!data.workspace_writable);$("#workspace-upload").classList.toggle("hidden",!data.workspace_writable);$("#storage-choose").classList.toggle("hidden",storagePicker.mode!=="project"||!data.path);const rows=data.entries.map(entry=>{const row=element("button","storage-entry");row.type="button";row.append(element("span","storage-entry-kind",entry.kind==="directory"?"DIR":"FILE"),element("span","",entry.name),element("span","storage-entry-size",entry.size_bytes===null?"":formatBytes(entry.size_bytes)));row.onclick=()=>{if(entry.kind==="directory")loadStorage(entry.path);else if(storagePicker.mode==="input"){storageBindings[storagePicker.inputName]=entry.path;renderStorageBindings();renderProjectPreview();$("#batch-input-name").value="";$("#storage-dialog").close()}else if(storagePicker.mode==="python-input"){$("#dataset-storage-path").value=entry.path;$("#storage-dialog").close()}};return row});list.replaceChildren(...rows.length?rows:[element("div","empty","EMPTY FOLDER")])}catch(reason){list.replaceChildren();error.textContent=reason.message;$("#workspace-new-folder").classList.add("hidden");$("#workspace-upload").classList.add("hidden")}}
+    async function createWorkspaceFolder(){if(!storagePicker.writable)return;const name=prompt("New folder name");if(!name)return;const path=storagePicker.path.replace(/\/$/,"")+"/"+name;try{await api("/jobs-ui/api/workspace/directories",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path})});await loadStorage(storagePicker.path)}catch(error){$("#storage-error").textContent=error.message}}
+    async function uploadWorkspaceFile(file){if(!file||!storagePicker.writable)return;const form=new FormData();form.append("directory",storagePicker.path);form.append("file",file);$("#storage-error").className="feedback";$("#storage-error").textContent="UPLOADING "+file.name+"…";try{await api("/jobs-ui/api/workspace/uploads",{method:"POST",body:form});await loadStorage(storagePicker.path)}catch(error){$("#storage-error").className="feedback bad";$("#storage-error").textContent=error.message}finally{$("#workspace-upload-file").value=""}}
     function openStoragePicker(mode){if(!sessionIdentity?.storage_enabled)return;storagePicker={mode,path:"",inputName:""};if(mode==="input"){const name=$("#batch-input-name").value.trim();if(!/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(name)){const feedback=$("#feedback");feedback.className="feedback bad";feedback.textContent="Enter a valid declared input name before choosing a file.";return}if(storageBindings[name]&&!confirm("Replace the existing binding for "+name+"?"))return;storagePicker.inputName=name}$("#storage-title").textContent=mode==="project"?"Choose project folder":"Choose input file";$("#storage-dialog").showModal();loadStorage("")}
-    async function refresh(){try{sessionIdentity=await api("/jobs-ui/api/session");if(submitView){workers=await api("/jobs-ui/api/workers");renderWorkers()}else{[jobs,groups]=await Promise.all([api("/jobs-ui/api/jobs"),api("/jobs-ui/api/job-groups")]);workloadOwners=sessionIdentity.role==="ADMIN"?await api("/jobs-ui/api/workload-owners"):{jobs:{},groups:{}};renderFilters();renderJobs()}$("#login-view").classList.add("hidden");$("#app").classList.remove("hidden");$("#account").textContent=sessionIdentity.username+" · "+sessionIdentity.role;const member=sessionIdentity.role!=="ADMIN",storageReady=sessionIdentity.storage_enabled;$("#account-open").classList.toggle("hidden",!member);document.querySelectorAll(".admin-nav").forEach(link=>link.classList.toggle("hidden",member));if(submitView){const storageOption=$("#batch-project-source").querySelector('option[value="storage"]');storageOption.disabled=!storageReady;$("#browse-project").disabled=!storageReady;$("#browse-input").disabled=!storageReady;$("#batch-input-name").disabled=!storageReady;$("#batch-storage-hint").textContent=storageReady?"Enter a declared #HP input name, then choose its file.":"Personal NAS folders are enabled after the storage ACL acceptance.";if(!storageReady&&$("#batch-project-source").value==="storage")$("#batch-project-source").value="upload";updateDatasetFields()}$("#connection").classList.add("live");$("#updated").textContent="LIVE  "+new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}catch(error){if(error.message==="AUTH")showLogin();else{$("#connection").classList.remove("live");$("#updated").textContent="OFFLINE"}}}
-    function updateBatchProjectFields(){const batch=$("#job-type").value==="batch",storage=$("#batch-project-source").value==="storage";$("#batch-storage-project").classList.toggle("hidden",!storage);$("#batch-upload-project").classList.toggle("hidden",storage);$("#batch-project-path").required=batch&&storage;$("#batch-project-file").required=batch&&!storage}
-    function updateDatasetFields(){const type=$("#job-type").value,python=type==="python_batch",batch=type==="batch",upload=$("#dataset-source").value==="upload";$("#sleep-fields").classList.toggle("hidden",type!=="sleep");$("#dataset-fields").classList.toggle("hidden",!python);$("#batch-fields").classList.toggle("hidden",!batch);$("#job-name-field").classList.toggle("hidden",batch);$("#script-fields").classList.toggle("hidden",!python);$("#resource-fields").classList.toggle("hidden",!python);$("#upload-fields").classList.toggle("hidden",!upload);$("#url-fields").classList.toggle("hidden",upload);$("#job-name").required=!batch;$("#script-file").required=python;$("#dataset-file").required=python&&upload;["#dataset-url","#dataset-sha","#dataset-size"].forEach(id=>$(id).required=python&&!upload);$("#batch-entrypoint").required=batch;updateBatchProjectFields()}
+    async function refresh(){try{sessionIdentity=await api("/jobs-ui/api/session");if(submitView){workers=await api("/jobs-ui/api/workers");renderWorkers()}else{[jobs,groups]=await Promise.all([api("/jobs-ui/api/jobs"),api("/jobs-ui/api/job-groups")]);workloadOwners=sessionIdentity.role==="ADMIN"?await api("/jobs-ui/api/workload-owners"):{jobs:{},groups:{}};renderFilters();renderJobs()}$("#login-view").classList.add("hidden");$("#app").classList.remove("hidden");$("#account").textContent=sessionIdentity.username+" · "+sessionIdentity.role;const member=sessionIdentity.role!=="ADMIN",storageReady=sessionIdentity.storage_enabled;$("#account-open").classList.toggle("hidden",!member);document.querySelectorAll(".admin-nav").forEach(link=>link.classList.toggle("hidden",member));if(submitView){const storageOption=$("#batch-project-source").querySelector('option[value="storage"]'),pythonStorageOption=$("#dataset-source").querySelector('option[value="storage"]');storageOption.disabled=!storageReady;pythonStorageOption.disabled=!storageReady;$("#browse-project").disabled=!storageReady;$("#browse-input").disabled=!storageReady;$("#browse-python-input").disabled=!storageReady;$("#batch-input-name").disabled=!storageReady;$("#batch-storage-hint").textContent=storageReady?"Paths declared as #HP --input NAME=Home/... resolve automatically. Use this only for missing inputs or overrides.":"Personal NAS folders are enabled after the storage ACL acceptance.";if(!storageReady&&$("#batch-project-source").value==="storage")$("#batch-project-source").value="upload";if(!storageReady&&$("#dataset-source").value==="storage")$("#dataset-source").value="upload";updateDatasetFields()}$("#connection").classList.add("live");$("#updated").textContent="LIVE  "+new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}catch(error){if(error.message==="AUTH")showLogin();else{$("#connection").classList.remove("live");$("#updated").textContent="OFFLINE"}}}
+    function updateBatchProjectFields(){const batch=$("#job-type").value==="batch",storage=$("#batch-project-source").value==="storage";$("#batch-storage-project").classList.toggle("hidden",!storage);$("#batch-upload-project").classList.toggle("hidden",storage);$("#batch-project-path").required=batch&&storage;$("#batch-project-file").required=batch&&!storage;if(!storage){projectPreview=null;renderProjectPreview()}}
+    // Every task renders the same sections in the same order; only the controls
+    // inside them change. Switching task must never rebuild the form's shape,
+    // because that is what made this page feel like three unrelated screens.
+    const FLOW_COPY={
+      python_batch:{choose:"Pick one input file, upload a small CSV, or paste a verified link.",inside:"The input is staged read-only and read at HOME_PLATFORM_DATASET.",result:"It lands in a folder named after this job, so re-running never overwrites an earlier result. The script cannot choose another destination."},
+      batch:{choose:"Inputs declared as #HP --input NAME=Home/… in submit.hp are resolved for you; you only pick a file when one has no default.",inside:"The project is unpacked read-only at HOME_PLATFORM_PROJECT_DIR, and each named input appears at HOME_PLATFORM_INPUT_DIR/NAME.",result:"The submission gets one folder named after the job, and every array index gets its own folder inside it. Scripts cannot choose another destination."}
+    };
+    function updateDatasetFields(){
+      const type=$("#job-type").value,python=type==="python_batch",batch=type==="batch",runs=python||batch;
+      const source=$("#dataset-source").value,upload=source==="upload",url=source==="url",storage=source==="storage";
+      $("#sleep-fields").classList.toggle("hidden",type!=="sleep");
+      // Code and Input are the same question for both types, so they share a
+      // shape. Limits is not: a batch project fixes its own in submit.hp, so
+      // the section is absent rather than showing values you cannot change.
+      // Overrides are a batch-only escape hatch and sit outside Input.
+      $("#file-flow").classList.toggle("hidden",!runs);
+      $("#section-code").classList.toggle("hidden",!runs);
+      // Python picks one input from a source, so it gets an Input section.
+      // A batch project declares its own, so its single card carries both the
+      // resolved list and the control for filling or replacing one.
+      $("#section-input").classList.toggle("hidden",!python);
+      $("#section-limits").classList.toggle("hidden",!python);
+      $("#section-overrides").classList.toggle("hidden",!batch);
+      $("#python-code").classList.toggle("hidden",!python);
+      $("#batch-code").classList.toggle("hidden",!batch);
+      // A batch job takes its name from submit.hp, so the field would be a
+      // second source of truth.
+      $("#job-name-field").classList.toggle("hidden",batch);
+      $("#storage-dataset-fields").classList.toggle("hidden",!storage);
+      $("#upload-fields").classList.toggle("hidden",!upload);
+      $("#url-fields").classList.toggle("hidden",!url);
+      $("#job-name").required=!batch;
+      $("#script-file").required=python;
+      $("#dataset-storage-path").required=python&&storage;
+      $("#dataset-file").required=python&&upload;
+      ["#dataset-url","#dataset-sha","#dataset-size"].forEach(id=>$(id).required=python&&url);
+      $("#batch-entrypoint").required=batch;
+      if(runs){
+        const copy=FLOW_COPY[type];
+        $("#flow-choose-detail").textContent=copy.choose;
+        $("#flow-inside-detail").textContent=copy.inside;
+        $("#flow-result-detail").textContent=copy.result;
+      }
+      if(python){$("#code-note").textContent="one .py file";$("#input-note").textContent="one input file";$("#limits-note").textContent="this run only"}
+      // Batch notes come from the parsed project, so the renderer owns them.
+      else if(batch)renderProjectPreview();
+      updateBatchProjectFields();
+    }
     function parseStorageBindings(){return{...storageBindings}}
     $("#job-type").onchange=updateDatasetFields;$("#dataset-source").onchange=updateDatasetFields;$("#batch-project-source").onchange=updateBatchProjectFields;
-    $("#browse-project").onclick=()=>openStoragePicker("project");$("#browse-input").onclick=()=>openStoragePicker("input");$("#storage-up").onclick=()=>loadStorage(parentStoragePath(storagePicker.path));$("#storage-choose").onclick=()=>{$("#batch-project-path").value=storagePicker.path;$("#storage-dialog").close()};$("#storage-close").onclick=()=>$("#storage-dialog").close();$("#storage-dialog").onclick=event=>{if(event.target===$("#storage-dialog"))$("#storage-dialog").close()};
-    $("#job-form").onsubmit=async event=>{event.preventDefault();const button=$("#submit"),feedback=$("#feedback"),type=$("#job-type").value,isPython=type==="python_batch",isGeneral=type==="batch",isUpload=$("#dataset-source").value==="upload";button.disabled=true;button.textContent=(isPython&&isUpload)||isGeneral?"PREPARING…":"SUBMITTING…";feedback.className="feedback";feedback.textContent="";try{let created;if(isGeneral){let project;if($("#batch-project-source").value==="storage"){project=await api("/jobs-ui/api/storage/project-uploads",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:$("#batch-project-path").value})})}else{const projectForm=new FormData();projectForm.append("file",$("#batch-project-file").files[0]);project=await api("/jobs-ui/api/project-uploads",{method:"POST",body:projectForm})}const inputPaths=parseStorageBindings(),inputs={};button.textContent="VERIFYING INPUTS…";for(const [name,path] of Object.entries(inputPaths))inputs[name]=await api("/jobs-ui/api/storage/references",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path})});button.textContent="QUEUEING ARRAY…";created=await api("/jobs-ui/api/batch-submissions",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":submissionKey()},body:JSON.stringify({project,entrypoint:$("#batch-entrypoint").value,target_worker_id:$("#target-worker").value||null,inputs})});feedback.className="feedback good";feedback.textContent="QUEUED · "+created.tasks.length+" TASKS · "+created.id.slice(0,8);$("#batch-project-file").value="";$("#batch-project-path").value="";storageBindings={};renderStorageBindings()}else{let parameters;if(isPython){const scriptForm=new FormData();scriptForm.append("file",$("#script-file").files[0]);const script=await api("/jobs-ui/api/script-uploads",{method:"POST",body:scriptForm});let dataset;if(isUpload){const datasetForm=new FormData();datasetForm.append("file",$("#dataset-file").files[0]);dataset=await api("/jobs-ui/api/uploads",{method:"POST",body:datasetForm});button.textContent="QUEUEING…"}else dataset={url:$("#dataset-url").value,sha256:$("#dataset-sha").value,size_bytes:Number($("#dataset-size").value)};parameters={script,dataset,timeout_seconds:Number($("#timeout").value),cpu_limit:Number($("#cpu-limit").value),memory_mb:Number($("#memory-mb").value)}}else parameters={seconds:Number($("#seconds").value)};const body={name:$("#job-name").value,target_worker_id:$("#target-worker").value||null,type,parameters};created=await api("/jobs-ui/api/jobs",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":submissionKey()},body:JSON.stringify(body)});feedback.className="feedback good";feedback.textContent="QUEUED · "+created.id.slice(0,8);$("#job-name").value="";$("#script-file").value="";$("#dataset-file").value=""}await refresh()}catch(error){if(error.message==="AUTH")showLogin();else{feedback.className="feedback bad";feedback.textContent=error.message}}finally{button.disabled=false;button.textContent="SUBMIT JOB"}};
+    $("#browse-project").onclick=()=>openStoragePicker("project");$("#browse-input").onclick=()=>openStoragePicker("input");$("#browse-python-input").onclick=()=>openStoragePicker("python-input");$("#storage-up").onclick=()=>loadStorage(parentStoragePath(storagePicker.path));$("#workspace-new-folder").onclick=createWorkspaceFolder;$("#workspace-upload").onclick=()=>$("#workspace-upload-file").click();$("#workspace-upload-file").onchange=event=>uploadWorkspaceFile(event.target.files[0]);$("#storage-choose").onclick=()=>{$("#batch-project-path").value=storagePicker.path;$("#storage-dialog").close();previewStorageProject(storagePicker.path)};$("#storage-close").onclick=()=>$("#storage-dialog").close();$("#storage-dialog").onclick=event=>{if(event.target===$("#storage-dialog"))$("#storage-dialog").close()};$("#batch-entrypoint").onchange=()=>{const path=$("#batch-project-path").value;if(path)previewStorageProject(path)};
+    $("#job-form").onsubmit=async event=>{
+      event.preventDefault();
+      const button=$("#submit"),feedback=$("#feedback"),type=$("#job-type").value,isPython=type==="python_batch",isGeneral=type==="batch",datasetSource=$("#dataset-source").value,isUpload=datasetSource==="upload";
+      button.disabled=true;button.textContent=(isPython&&isUpload)||isGeneral?"PREPARING…":"SUBMITTING…";feedback.className="feedback";feedback.textContent="";
+      try{
+        let created;
+        if(isGeneral){
+          let project;
+          if($("#batch-project-source").value==="storage")project=await api("/jobs-ui/api/storage/project-uploads",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:$("#batch-project-path").value})});
+          else{const projectForm=new FormData();projectForm.append("file",$("#batch-project-file").files[0]);project=await api("/jobs-ui/api/project-uploads",{method:"POST",body:projectForm})}
+          const inputPaths=parseStorageBindings(),inputs={};button.textContent="RESOLVING INPUTS…";
+          for(const [name,path] of Object.entries(inputPaths))inputs[name]=await api("/jobs-ui/api/storage/references",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path})});
+          button.textContent="QUEUEING ARRAY…";
+          created=await api("/jobs-ui/api/batch-submissions",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":submissionKey()},body:JSON.stringify({project,entrypoint:$("#batch-entrypoint").value,target_worker_id:$("#target-worker").value||null,inputs})});
+          feedback.className="feedback good";feedback.textContent="QUEUED · "+created.tasks.length+" TASKS · "+created.id.slice(0,8);$("#batch-project-file").value="";$("#batch-project-path").value="";storageBindings={};projectPreview=null;renderStorageBindings();renderProjectPreview();
+        }else{
+          let parameters;
+          if(isPython){
+            const scriptForm=new FormData();scriptForm.append("file",$("#script-file").files[0]);const script=await api("/jobs-ui/api/script-uploads",{method:"POST",body:scriptForm});
+            let dataset;
+            if(datasetSource==="upload"){const datasetForm=new FormData();datasetForm.append("file",$("#dataset-file").files[0]);dataset=await api("/jobs-ui/api/uploads",{method:"POST",body:datasetForm})}
+            else if(datasetSource==="storage"){button.textContent="RESOLVING INPUT…";dataset=await api("/jobs-ui/api/storage/references",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:$("#dataset-storage-path").value})})}
+            else dataset={url:$("#dataset-url").value,sha256:$("#dataset-sha").value,size_bytes:Number($("#dataset-size").value)};
+            button.textContent="QUEUEING…";parameters={script,dataset,timeout_seconds:Number($("#timeout").value),cpu_limit:Number($("#cpu-limit").value),memory_mb:Number($("#memory-mb").value)};
+          }else parameters={seconds:Number($("#seconds").value)};
+          const body={name:$("#job-name").value,target_worker_id:$("#target-worker").value||null,type,parameters};
+          created=await api("/jobs-ui/api/jobs",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":submissionKey()},body:JSON.stringify(body)});
+          feedback.className="feedback good";feedback.textContent="QUEUED · "+created.id.slice(0,8);$("#job-name").value="";$("#script-file").value="";$("#dataset-file").value="";$("#dataset-storage-path").value="";
+        }
+        await refresh();
+      }catch(error){if(error.message==="AUTH")showLogin();else{feedback.className="feedback bad";feedback.textContent=error.message}}
+      finally{button.disabled=false;button.textContent="SUBMIT JOB"}
+    };
     document.querySelectorAll("[data-sort]").forEach(button=>button.onclick=()=>{const key=button.dataset.sort;if(jobSort.key===key)jobSort.direction=jobSort.direction==="asc"?"desc":"asc";else jobSort={key,direction:key==="created_at"?"desc":"asc"};renderJobs()});
     $("#login-form").onsubmit=async event=>{event.preventDefault();const token=$("#token").value,body=token?{token}:{username:$("#login-username").value,password:$("#login-password").value};try{await api("/dashboard/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});$("#token").value="";$("#login-password").value="";await refresh()}catch(error){showLogin(error.message==="AUTH"?"INVALID CREDENTIALS":"CONNECTION FAILED")}};
     $("#account-open").onclick=()=>{$("#account-feedback").textContent="";$("#account-dialog").showModal();$("#current-password").focus()};$("#account-close").onclick=()=>$("#account-dialog").close();$("#account-dialog").onclick=event=>{if(event.target===$("#account-dialog"))$("#account-dialog").close()};$("#account-form").onsubmit=async event=>{event.preventDefault();const button=$("#account-submit"),feedback=$("#account-feedback"),current=$("#current-password").value,next=$("#new-password").value,confirmation=$("#confirm-password").value;if(next!==confirmation){feedback.className="feedback bad";feedback.textContent="NEW PASSWORDS DO NOT MATCH";return}button.disabled=true;button.textContent="CHANGING…";try{await api("/jobs-ui/api/account/password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({current_password:current,new_password:next})});$("#account-dialog").close();$("#account-form").reset();showLogin("PASSWORD UPDATED · SIGN IN AGAIN")}catch(error){if(error.message==="AUTH"){$("#account-dialog").close();showLogin()}else{feedback.className="feedback bad";feedback.textContent=error.message}}finally{button.disabled=false;button.textContent="CHANGE PASSWORD"}};
