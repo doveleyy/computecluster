@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
@@ -234,6 +235,104 @@ def workspace_upload_target(
     if target.exists():
         raise StoragePolicyError("workspace file already exists")
     return target
+
+
+def _workspace_entry(root: Path, user_id: UUID, logical_path: str) -> Path:
+    physical_path = member_workspace_path(user_id, logical_path)
+    workspace_root = resolve_storage_path(
+        root, PurePosixPath("users", str(user_id), "Workspace").as_posix()
+    )
+    target = resolve_storage_path(root, physical_path)
+    if target == workspace_root:
+        raise StoragePolicyError("the Workspace root cannot be changed")
+    return target
+
+
+def _workspace_destination(root: Path, user_id: UUID, logical_path: str) -> Path:
+    physical_path = PurePosixPath(member_workspace_path(user_id, logical_path))
+    if len(physical_path.parts) <= 3:
+        raise StoragePolicyError("choose a destination inside Home/Workspace")
+    parent = resolve_storage_path(root, physical_path.parent.as_posix())
+    if not parent.is_dir():
+        raise StoragePolicyError("workspace destination must be inside a directory")
+    name = physical_path.name
+    if (
+        name.startswith(".")
+        or len(name) > 200
+        or any(ord(character) < 32 for character in name)
+    ):
+        raise StoragePolicyError("workspace destination name is not allowed")
+    target = parent / name
+    if target.exists():
+        raise StoragePolicyError("workspace destination already exists")
+    return target
+
+
+def workspace_entry_size(path: Path) -> int:
+    if path.is_file():
+        return path.stat().st_size
+    total = 0
+    for item in path.rglob("*"):
+        if item.is_symlink():
+            raise StoragePolicyError("workspace trees cannot contain symbolic links")
+        if item.is_file():
+            total += item.stat().st_size
+    return total
+
+
+def move_workspace_entry(
+    root: Path, user_id: UUID, source_path: str, destination_path: str
+) -> None:
+    source = _workspace_entry(root, user_id, source_path)
+    destination = _workspace_destination(root, user_id, destination_path)
+    if source.is_dir() and destination.parent.is_relative_to(source):
+        raise StoragePolicyError("a directory cannot be moved inside itself")
+    try:
+        source.rename(destination)
+    except OSError as error:
+        raise StoragePolicyError("workspace entry could not be moved") from error
+
+
+def copy_workspace_entry(
+    root: Path,
+    user_id: UUID,
+    source_path: str,
+    destination_path: str,
+    *,
+    max_bytes: int,
+) -> int:
+    source = _workspace_entry(root, user_id, source_path)
+    destination = _workspace_destination(root, user_id, destination_path)
+    if source.is_dir() and destination.parent.is_relative_to(source):
+        raise StoragePolicyError("a directory cannot be copied inside itself")
+    size = workspace_entry_size(source)
+    if size > max_bytes:
+        raise StoragePolicyError("workspace copy exceeds the configured limit")
+    try:
+        if source.is_dir():
+            shutil.copytree(source, destination)
+        else:
+            shutil.copy2(source, destination)
+    except OSError as error:
+        if destination.is_dir():
+            shutil.rmtree(destination, ignore_errors=True)
+        else:
+            destination.unlink(missing_ok=True)
+        raise StoragePolicyError("workspace entry could not be copied") from error
+    return size
+
+
+def delete_workspace_entry(root: Path, user_id: UUID, logical_path: str) -> int:
+    target = _workspace_entry(root, user_id, logical_path)
+    size = workspace_entry_size(target)
+    try:
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+    except OSError as error:
+        raise StoragePolicyError("workspace entry could not be deleted") from error
+    return size
 
 
 def storage_file_reference(root: Path, relative_path: str) -> StorageInputReference:

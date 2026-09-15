@@ -1,33 +1,101 @@
-# Getting Files Into a Batch Job
+# Files In and Out of a Job
+
+How a member's files are organised, how the platform resolves them, and how they
+reach a job and come back as published output.
 
 > The member-safe Home/Shared picker and resolved input defaults are
 > implemented. Workspace create/upload is active only for the provisioned pilot
 > member after its separate NAS identity, mount, and ACL matrix were accepted;
 > browser and multi-user acceptance remain pending.
 
-The first storage-backed workflow uses the `HomeStorage` Samba share. It keeps
-projects and datasets out of browser upload forms while preserving the same
-PBS-style job contract that a future dedicated NAS will use.
+Files reach a job through the `HomeStorage` share rather than a browser upload
+form, which keeps projects and datasets off the coordinator while preserving the
+same PBS-style job contract. The original Pi-hosted Samba share is a migration
+bridge: member `Home` and `Shared` paths already resolve on the dedicated
+Synology NAS, while published output stays on the Pi SSD until its separate
+cutover. In the end state the NAS is the only SMB server.
 
-The original Pi-hosted share is a migration bridge. The provisioned member's
-logical Home/Shared paths now resolve on the dedicated NAS, while artifacts
-remain on the Pi SSD until their separate cutover. In the end state the
-dedicated NAS is the only SMB server.
+Directory names below are real; account identifiers are placeholders.
+
+## File areas
+
+A member never addresses storage by its real location. Three logical areas are
+presented instead, each resolved against the signed-in account:
+
+```text
+Home/                        private to you
+├── Workspace/               the only area the browser may write to
+│   ├── Inputs/              files you supply for jobs to read
+│   └── Projects/            submit.hp and the scripts it calls
+└── ...                      anything else you add over SMB
+
+Shared/                      common to every member; read-only in the browser
+└── ...                      reference data worth reusing across accounts
+
+Artifacts/                   published output of the jobs you own
+└── <job-name>-<short-id>/   one directory per submission
+    ├── 1/  metrics.json …   one per array index, for a PBS-style array
+    └── 2/  metrics.json …
+```
+
+| Area | Read | Browser writes | SMB writes | Others see it |
+|---|---|---|---|---|
+| `Home` | you | `Home/Workspace` only | you | no |
+| `Shared` | every member | no | every member | yes, by design |
+| `Artifacts` | your own jobs | delete only | read-only | no |
+
+Deleting artifacts removes bytes, never the job record — status, failure reason
+and file names survive. It is refused while one of your jobs is running.
+
+### How they resolve
+
+`Home` and `Shared` are path rewrites: one logical path, one stored path.
+
+```text
+Home/notes.csv     ──►  HomeStorage/users/<stable-user-id>/notes.csv
+Shared/ref.fa      ──►  HomeStorage/shared/ref.fa
+```
+
+`Artifacts` is not. Published output is stored flat, so every member's runs are
+siblings under one root and a path cannot establish who may read it. The
+readable set is assembled from the jobs a member owns — which stays correct if
+the prepared per-owner layout is enabled later. A run appears only if you own
+the job **and** it published files.
 
 ## Share layout
 
+This is the structure the logical areas are built from. An administrator sees it
+directly, as `Storage/` and `Artifacts/`, because administrative scope spans
+every account:
+
 ```text
 HomeStorage/
-├── projects/   project folders containing submit.hp and called scripts
-├── inputs/     administrator-managed workload inputs during the transition
-├── shared/     deliberately reusable household files
-└── artifacts/  completed job output; read-only through Samba
+├── users/                        one directory per member, keyed by account ID
+│   ├── <stable-user-id>/         a member's private Home
+│   │   └── Workspace/            the only browser-writable subtree
+│   │       ├── Inputs/
+│   │       └── Projects/
+│   └── <stable-user-id>/         another member; mutually unreadable
+├── shared/                       common to every member
+├── projects/                     transitional: operator-managed project folders
+├── inputs/                       transitional: operator-managed job inputs
+└── artifacts/                    published job output
+    ├── <job-name>-<short-id>/    one directory per submission
+    │   ├── 1/                    one per array index, for a PBS-style array
+    │   └── 2/
+    └── <job-name>-<short-id>/    a different member's run, side by side
 ```
 
-Connect to the share with Finder, Windows Explorer, or the iOS/iPadOS Files app
-using the private server name supplied by the operator. Uploads happen through
-SMB, not through Job Desk, so ordinary file-copy tools handle large files and
-folders.
+Note that `users/<a>/` and `users/<b>/` are siblings: the path shape prevents
+nothing. The `Home` mapping confines a member to their own tree, and filesystem
+permissions enforce the same boundary independently for anyone on SMB.
+`artifacts/` is flat for the same reason `Artifacts` is derived from ownership;
+setting `HOME_PLATFORM_ARTIFACT_OWNER_SCOPED` inserts an `<owner-id>/` level but
+does not change who sees what.
+
+Two ways in: connect over SMB with Finder, Explorer, or the iOS Files app for
+large trees, or use **Files** in Job Desk for browsing, downloads, and bounded
+`Home/Workspace` edits.
 
 ## Submit from Job Desk
 
@@ -35,8 +103,8 @@ folders.
 2. Keep external personal inputs in `Home` and deliberate collaboration data in
    `Shared`.
 3. Open Job Desk and choose **PBS-style project array**.
-4. Choose **HomeStorage project folder**, select **Browse**, and choose the
-   project directory.
+4. Choose **Folder on the NAS**, select **Browse**, and choose the project
+   directory.
 5. Leave the entrypoint as `submit.hp`, unless the project uses another safe
    project-relative name.
 6. Review the contract detected from `submit.hp`. A declaration such as:

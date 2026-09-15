@@ -9,11 +9,14 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 from app.storage import (
     StoragePolicyError,
+    copy_workspace_entry,
+    delete_workspace_entry,
     is_logical_storage_path,
     member_storage_entries,
     member_storage_path,
     member_storage_path_allowed,
     member_workspace_path,
+    move_workspace_entry,
     resolve_logical_storage_path,
     resolve_storage_path,
 )
@@ -195,3 +198,46 @@ def test_only_home_and_shared_prefixes_count_as_logical_paths() -> None:
     assert not is_logical_storage_path("projects/demo")
     assert not is_logical_storage_path("users/abc/notes.csv")
     assert not is_logical_storage_path("")
+
+
+def test_workspace_file_operations_stay_inside_the_member_tree(tmp_path: Path) -> None:
+    user_id = UUID("00000000-0000-0000-0000-000000000123")
+    other_id = UUID("00000000-0000-0000-0000-000000000999")
+    root = tmp_path / "nas"
+    workspace = root / "users" / str(user_id) / "Workspace"
+    other = root / "users" / str(other_id) / "Workspace"
+    (workspace / "project").mkdir(parents=True)
+    other.mkdir(parents=True)
+    (workspace / "project" / "run.py").write_text("print('ok')\n")
+    (other / "private.txt").write_text("secret")
+
+    move_workspace_entry(
+        root,
+        user_id,
+        "Home/Workspace/project/run.py",
+        "Home/Workspace/project/train.py",
+    )
+    copied = copy_workspace_entry(
+        root,
+        user_id,
+        "Home/Workspace/project",
+        "Home/Workspace/project-copy",
+        max_bytes=1024,
+    )
+    freed = delete_workspace_entry(root, user_id, "Home/Workspace/project-copy")
+
+    assert copied == len("print('ok')\n")
+    assert freed == copied
+    assert (workspace / "project" / "train.py").is_file()
+    assert not (workspace / "project-copy").exists()
+    assert (other / "private.txt").read_text() == "secret"
+
+    with pytest.raises(StoragePolicyError, match="Home/Workspace"):
+        move_workspace_entry(
+            root,
+            user_id,
+            f"Home/Workspace/../../{other_id}/Workspace/private.txt",
+            "Home/Workspace/stolen.txt",
+        )
+    with pytest.raises(StoragePolicyError, match="cannot be changed"):
+        delete_workspace_entry(root, user_id, "Home/Workspace")

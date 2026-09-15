@@ -1,6 +1,6 @@
 # Web Interfaces
 
-The system has four responsive routes grouped into two purposeful browser
+The system has five responsive routes grouped into two purposeful browser
 areas. They share the same control-plane API and authenticated session and stay
 deliberately small: plain HTML, CSS, and JavaScript, with no front-end build
 chain.
@@ -46,11 +46,25 @@ than guessed from the network.
 
 ### Job Desk
 
-Job Desk also has two views:
+Job Desk has three views:
 
 - **Jobs** at `/jobs-ui` is the queue, history, detail, cancellation, and
   artifact surface. It polls jobs every 10 seconds and no longer fetches worker
   placement data.
+- **Files** at `/jobs-ui/files` browses and downloads the signed-in member's
+  virtual `Home`, common read-only `Shared`, and owner-scoped job `Artifacts`.
+  Members never receive another account's directory, and this view never
+  renders the UUID used for either physical provider. Provisioned members may
+  create folders, upload, rename, move, copy, and permanently delete entries
+  under `Home/Workspace`. They may permanently delete individual artifact files,
+  artifact directories, or all Artifacts; job history remains. Deletion is
+  refused while that member has a running job.
+
+  `Home` and `Shared` are path rewrites keyed on the session; `Artifacts` is
+  assembled from the jobs the member owns, because the artifact store is flat
+  and a path alone cannot establish who may read it. See
+  [files in and out of a job](jobs/storage-workflow.md) for the full model and
+  the share layout it is built from.
 - **Submit** at `/jobs-ui/new` is the focused creation workflow. It fetches
   worker choices and refreshes them every 30 seconds, but does not fetch the
   complete job history.
@@ -87,9 +101,10 @@ a new login; neither changes the separate DSM/SMB credential.
 The sanitized image records the established history presentation; submission
 now lives on its own route rather than beside that table.
 
-All four routes use the same 1240 px maximum content shell, safe-area-aware
+All five routes use the same 1240 px maximum content shell, safe-area-aware
 outer spacing, panel geometry, and Overview / Operations / Jobs / Submit
-navigation order. Their header frame also keeps the brand, context line,
+navigation order, with Files between Jobs and Submit. Their header frame also
+keeps the brand, context line,
 connection status, and right-aligned logout action in fixed positions while
 the page identity changes. The Submit view uses the available shell width
 instead of a narrow centered column: related fields form two columns on tablet
@@ -100,58 +115,62 @@ Current uploads are intentionally small because they pass through the
 coordinator. Current artifacts are streamed individually, with default ceilings
 of 100 MiB per file and 512 MiB per job.
 
+Home/Shared downloads are streamed from the authenticated Synology mount;
+Artifacts are streamed from the current artifact provider. Neither is copied into
+SQLite or a per-session workspace. Mounted filesystems can serve many sessions
+because authorization and logical-to-physical path mapping happen independently
+for every request. User count is therefore not a reason to create one mount per
+browser session, although the Pi and storage providers remain the throughput
+boundary for many simultaneous large downloads.
+
 Both screenshots use synthetic identifiers and history. They demonstrate the
 interface without publishing live deployment details.
 
 ### CLI
 
-The CLI is the stable automation surface. It supports worker inspection and
-scheduling control, job submission, listing and cancellation, and artifact
-listing, download, and deletion. `python_batch` accepts either a local CSV to
-upload or a verified URL plus its SHA-256 and byte size, matching Job Desk's two
-dataset choices. `submit-batch` packages a project directory or accepts a ZIP,
-uploads repeated `--input NAME=PATH` bindings or attaches verified HTTPS files
-with matching `--input-url`, `--input-sha256`, and `--input-size-bytes`
-bindings, then submits the numeric array declared by its PBS-like entrypoint. The
-session-authenticated project and batch endpoints use the same backend contract.
-Job Desk accepts a ZIP or a visually selected Home/Shared project folder. For a
-storage project it previews the parsed name, runtime, resource request, array,
-and inputs. `#HP --input NAME=Home/...` and `Shared/...` defaults resolve on the
-server; the advanced binding control remains only for missing values and
-per-run overrides. A disabled-by-default workspace capability adds folder
-creation and bounded, non-overwriting uploads only under
-`Home/Workspace/...`. Its separately permissioned NAS mount is active for the
-provisioned pilot account; the global flag remains false while browser
-acceptance and multi-user isolation are pending.
+The CLI is the stable automation surface: worker inspection and scheduling
+control, job submission, listing, cancellation, and artifact listing, download
+and deletion.
 
-The submission form opens with *where your files go*, stated plainly rather than
-behind a disclosure: an explanation nobody reads is not an explanation. **Code**
-follows, meaning the same thing for every task type and sharing a shape, so
+- `submit-python-batch` takes a local CSV, a NAS file (`--dataset-storage`), or
+  a verified URL with its SHA-256 and byte size.
+- `submit-batch` packages a project directory or accepts a ZIP, binds inputs
+  with `--input`, `--input-storage`, or the verified-URL triple, then submits
+  the numeric array declared by its PBS-like entrypoint.
+
+Job Desk and the CLI share one backend contract; only the credential differs —
+API token versus HttpOnly session.
+
+## One vocabulary for files
+
+`Home/...` and `Shared/...` are the logical roots everywhere: the Job Desk
+picker, `#HP` defaults, `--input-storage`, and `--dataset-storage`. The server
+resolves them per caller — a member session's `Home` is its own tree, while the
+API token reaches every tree and so must name the account as
+`Home/USER_ID/...`. Physical share-relative paths are still accepted from the
+token API as a transitional form. See
+[files in and out of a job](jobs/storage-workflow.md).
+
+## Submission form
+
+The form opens with *where your files go*, stated plainly rather than behind a
+disclosure. **Code** follows and means the same thing for every task type, so
 switching task swaps controls rather than restructuring the page.
 
-Below that the form follows the job type instead of forcing a common skeleton. A
-`python_batch` job chooses one input from a source and sets its own run time,
-CPU and memory, so it has **Input** and **Limits** sections. A `batch` project
-declares all of that in `submit.hp`: it has no Limits section, because showing
-uneditable values would imply a choice that does not exist, and its declared
-name, run time, CPU, memory, array range and runtime appear beside the project
-as a property of the selected code. Its inputs are a single **Input files** card
-holding both the resolved declarations and the control for supplying one that
-has no default — one card for one concern, not a section plus a nested
-disclosure.
+Below that the form follows the job type rather than forcing a common skeleton:
 
-Both interfaces and both job types now use one vocabulary for choosing files.
-`Home/...` and `Shared/...` are the logical roots everywhere — the Job Desk
-picker, `#HP` defaults, `--input-storage`, and `--dataset-storage`. The server
-resolves them: a member session's `Home` is its own tree, while the API token
-reaches every tree and so must name the account as `Home/USER_ID/...`. Physical
-share-relative paths remain accepted from the token API only, as a transitional
-form for the Pi share's `projects/` and `inputs/` directories.
+| | `python_batch` | `batch` |
+|---|---|---|
+| Input | source + file | one **Input files** card |
+| Limits | run time, CPU, memory | none — `submit.hp` fixes them |
 
-Results are symmetric. Neither interface offers an output destination, because
-a script choosing one could overwrite another run. The platform publishes each
-submission into its own directory named after the job, which Job Desk surfaces
-through the artifact list and an owner sees directly over SMB.
+A `batch` project's declared name, run time, CPU, memory, array and runtime
+appear beside the project as a property of the selected code. It has no Limits
+section because uneditable values would imply a choice that does not exist.
+
+Neither interface offers an output destination. A script choosing one could
+overwrite another run, so the platform publishes each submission into its own
+directory named after the job.
 
 ## Remaining refinements
 
@@ -161,7 +180,7 @@ It should preserve the existing routes and progressively improve presentation.
 Priorities, in order:
 
 1. Preserve the shared 1240 px shell, navigation order, black terminal-inspired
-   visual system, and Overview / Operations / Jobs / Submit purposes.
+   visual system, and Overview / Operations / Jobs / Files / Submit purposes.
 2. Make mobile the constraining layout. Important state must fit an iPhone
    without horizontal table scrolling; dense tables may become cards or
    disclosure rows at narrow widths.
@@ -184,6 +203,9 @@ Priorities, in order:
 9. Add separate project and named-input staging for the general batch form.
    Reusing an immutable upload reference across tasks must not duplicate bytes;
    large verified inputs continue to bypass the coordinator.
+10. Stop round-tripping physical storage references through member submission
+    responses. The Files view is fully logical, but the older job-submission
+    adapter still returns its verified provider reference for the next request.
 
 ## Design constraints
 

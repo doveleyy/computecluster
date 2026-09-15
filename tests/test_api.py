@@ -922,10 +922,18 @@ def test_dashboard_requires_login_and_exposes_operational_data(
         operations_page = client.get("/dashboard/operations")
         jobs_page = client.get("/jobs-ui")
         submit_page = client.get("/jobs-ui/new")
+        files_page = client.get("/jobs-ui/files")
         unauthenticated = client.get("/dashboard/api/system")
         unauthenticated_jobs = client.get("/jobs-ui/api/jobs")
         unauthenticated_groups = client.get("/jobs-ui/api/job-groups")
         unauthenticated_artifacts = client.get(f"/jobs-ui/api/jobs/{uuid4()}/artifacts")
+        unauthenticated_storage_download = client.get(
+            "/jobs-ui/api/storage/download", params={"path": "Shared/common.txt"}
+        )
+        unauthenticated_files = client.get("/jobs-ui/api/files")
+        unauthenticated_file_download = client.get(
+            "/jobs-ui/api/files/download", params={"path": "Artifacts/report.txt"}
+        )
         unauthenticated_submit = client.post(
             "/jobs-ui/api/jobs",
             json={
@@ -1040,7 +1048,9 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert 'api("/dashboard/api/jobs")' not in page.text
     assert jobs_page.status_code == 200
     assert submit_page.status_code == 200
+    assert files_page.status_code == 200
     assert 'href="/jobs-ui/new"' in jobs_page.text
+    assert 'href="/jobs-ui/files"' in jobs_page.text
     assert 'href="/dashboard/operations"' in jobs_page.text
     assert 'aria-label="Home Platform"' in jobs_page.text
     assert "width:min(1240px,100%)" in jobs_page.text
@@ -1052,8 +1062,10 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert 'id="account-dialog"' in jobs_page.text
     assert 'api("/jobs-ui/api/account/password"' in jobs_page.text
     assert 'submitView=location.pathname.endsWith("/new")' in jobs_page.text
+    assert 'filesView=location.pathname.endsWith("/files")' in jobs_page.text
     assert 'id="submit-panel" class="panel submit-panel hidden"' in jobs_page.text
     assert 'id="queue-panel" class="panel queue-panel hidden"' in jobs_page.text
+    assert 'id="files-panel" class="panel hidden"' in jobs_page.text
     assert "Submit a job" in jobs_page.text
     assert "Queue &amp; history" in jobs_page.text
     assert '"Idempotency-Key":submissionKey()' in jobs_page.text
@@ -1070,7 +1082,13 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert "job ceiling" in page.text
     assert '"label","Artifacts"' in jobs_page.text
     assert '"DOWNLOAD"' in jobs_page.text
-    assert "setInterval(refresh,submitView?30000:10000)" in jobs_page.text
+    assert "new URLSearchParams({path})" in jobs_page.text
+    assert 'api("/jobs-ui/api/files?path="' in jobs_page.text
+    assert 'fileMutation("/jobs-ui/api/files","DELETE"' in jobs_page.text
+    assert "Artifacts contains this account's published job outputs" in jobs_page.text
+    assert (
+        "setInterval(refresh,submitView?30000:filesView?60000:10000)" in jobs_page.text
+    )
     assert 'id="login-username"' in jobs_page.text
     assert 'id="login-password"' in jobs_page.text
     assert 'api("/jobs-ui/api/session")' in jobs_page.text
@@ -1096,6 +1114,9 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert unauthenticated_jobs.status_code == 401
     assert unauthenticated_groups.status_code == 401
     assert unauthenticated_artifacts.status_code == 401
+    assert unauthenticated_storage_download.status_code == 401
+    assert unauthenticated_files.status_code == 401
+    assert unauthenticated_file_download.status_code == 401
     assert unauthenticated_submit.status_code == 401
     assert wrong.status_code == 401
     assert registered.status_code == 200
@@ -1553,6 +1574,9 @@ def test_member_storage_routes_expose_only_home_and_shared(
     uploads = tmp_path / "uploads"
     monkeypatch.setenv("HOME_PLATFORM_STORAGE_DIR", str(storage))
     monkeypatch.setenv("HOME_PLATFORM_UPLOAD_DIR", str(uploads))
+    artifacts = tmp_path / "artifacts"
+    monkeypatch.setenv("HOME_PLATFORM_ARTIFACT_DIR", str(artifacts))
+    monkeypatch.setenv("HOME_PLATFORM_ARTIFACT_OWNER_SCOPED", "true")
     password = "member password 1234"
 
     with TestClient(create_app(tmp_path / "jobs.db")) as client:
@@ -1579,6 +1603,50 @@ def test_member_storage_routes_expose_only_home_and_shared(
         (bob_home / "secret.txt").write_text("bob")
         (shared / "common.txt").write_text("shared")
 
+        # Artifacts are derived from job ownership, not from whatever happens to
+        # sit in the artifact tree, so each run needs a real owned job behind it.
+        def member_job(name: str) -> dict:
+            created = client.post(
+                "/jobs-ui/api/jobs",
+                json={"name": name, "type": "sleep", "parameters": {"seconds": 1}},
+                headers={"Idempotency-Key": f"key-{name.replace(' ', '-')}"},
+            )
+            assert created.status_code == 201, created.text
+            return created.json()
+
+        def publish(owner_id: str, job: dict, filename: str, body: str) -> Path:
+            directory = (
+                artifacts / owner_id / run_directory_name(job["name"], UUID(job["id"]))
+            )
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / filename).write_text(body)
+            return directory
+
+        client.post("/dashboard/logout")
+        assert (
+            client.post(
+                "/dashboard/login",
+                json={"username": "alice", "password": password},
+            ).status_code
+            == 204
+        )
+        alice_model = member_job("model run")
+        alice_old = member_job("old run")
+        client.post("/dashboard/logout")
+        assert (
+            client.post(
+                "/dashboard/login",
+                json={"username": "bob", "password": password},
+            ).status_code
+            == 204
+        )
+        bob_private = member_job("private run")
+        publish(alice["id"], alice_model, "metrics.json", '{"accuracy": 0.9}\n')
+        publish(alice["id"], alice_old, "report.txt", "old")
+        bob_results = publish(bob["id"], bob_private, "secret.txt", "bob result")
+        model_run = run_directory_name(alice_model["name"], UUID(alice_model["id"]))
+        old_run = run_directory_name(alice_old["name"], UUID(alice_old["id"]))
+
         client.post("/dashboard/logout")
         assert (
             client.post(
@@ -1600,6 +1668,59 @@ def test_member_storage_routes_expose_only_home_and_shared(
         escaped = client.get(
             "/jobs-ui/api/storage", params={"path": f"users/{bob['id']}"}
         )
+        own_download = client.get(
+            "/jobs-ui/api/storage/download", params={"path": "Home/input.txt"}
+        )
+        shared_download = client.get(
+            "/jobs-ui/api/storage/download", params={"path": "Shared/common.txt"}
+        )
+        foreign_download = client.get(
+            "/jobs-ui/api/storage/download",
+            params={"path": f"users/{bob['id']}/secret.txt"},
+        )
+        directory_download = client.get(
+            "/jobs-ui/api/storage/download", params={"path": "Home/project"}
+        )
+        files_root = client.get("/jobs-ui/api/files")
+        results = client.get("/jobs-ui/api/files", params={"path": "Artifacts"})
+        result_files = client.get(
+            "/jobs-ui/api/files", params={"path": f"Artifacts/{model_run}"}
+        )
+        result_download = client.get(
+            "/jobs-ui/api/files/download",
+            params={"path": f"Artifacts/{model_run}/metrics.json"},
+        )
+        foreign_result = client.get(
+            "/jobs-ui/api/files/download",
+            params={"path": f"Artifacts/../{bob['id']}/private-run/secret.txt"},
+        )
+        deleted_result = client.request(
+            "DELETE",
+            "/jobs-ui/api/files",
+            json={"path": f"Artifacts/{model_run}/metrics.json"},
+        )
+        cleared_results = client.request(
+            "DELETE", "/jobs-ui/api/files", json={"path": "Artifacts"}
+        )
+        client.post("/dashboard/logout")
+        assert (
+            client.post(
+                "/dashboard/login",
+                json={"username": "bob", "password": password},
+            ).status_code
+            == 204
+        )
+        bob_root = client.get("/jobs-ui/api/storage")
+        bob_home_listing = client.get("/jobs-ui/api/storage", params={"path": "Home"})
+        bob_own_download = client.get(
+            "/jobs-ui/api/storage/download", params={"path": "Home/secret.txt"}
+        )
+        bob_shared_download = client.get(
+            "/jobs-ui/api/storage/download", params={"path": "Shared/common.txt"}
+        )
+        bob_results_listing = client.get(
+            "/jobs-ui/api/files", params={"path": "Artifacts"}
+        )
 
     assert session.status_code == 200
     assert session.json()["storage_enabled"] is True
@@ -1615,6 +1736,143 @@ def test_member_storage_routes_expose_only_home_and_shared(
     assert reference.json()["path"] == f"users/{alice['id']}/input.txt"
     assert project.status_code == 201
     assert escaped.status_code == 422
+    assert own_download.status_code == 200
+    assert own_download.content == b"alice"
+    assert "input.txt" in own_download.headers["content-disposition"]
+    assert shared_download.status_code == 200
+    assert shared_download.content == b"shared"
+    assert foreign_download.status_code == 422
+    assert directory_download.status_code == 422
+    assert [entry["path"] for entry in files_root.json()["entries"]] == [
+        "Home",
+        "Shared",
+        "Artifacts",
+    ]
+    assert [entry["path"] for entry in results.json()["entries"]] == [
+        f"Artifacts/{model_run}",
+        f"Artifacts/{old_run}",
+    ]
+    assert [entry["path"] for entry in result_files.json()["entries"]] == [
+        f"Artifacts/{model_run}/metrics.json"
+    ]
+    assert result_download.content == b'{"accuracy": 0.9}\n'
+    assert foreign_result.status_code == 422
+    assert deleted_result.status_code == 200
+    assert cleared_results.status_code == 200
+    assert list((artifacts / alice["id"]).iterdir()) == []
+    assert (bob_results / "secret.txt").exists()
+    assert alice["id"] not in root.text
+    assert alice["id"] not in home.text
+    assert bob["id"] not in root.text
+    assert bob["id"] not in home.text
+    assert [entry["path"] for entry in bob_root.json()["entries"]] == [
+        "Home",
+        "Shared",
+    ]
+    assert [entry["path"] for entry in bob_home_listing.json()["entries"]] == [
+        "Home/secret.txt"
+    ]
+    assert bob_own_download.content == b"bob"
+    assert bob_shared_download.content == b"shared"
+    assert [entry["path"] for entry in bob_results_listing.json()["entries"]] == [
+        "Artifacts/" + run_directory_name(bob_private["name"], UUID(bob_private["id"]))
+    ]
+    assert alice["id"] not in bob_root.text
+    assert alice["id"] not in bob_home_listing.text
+    assert bob["id"] not in bob_root.text
+    assert bob["id"] not in bob_home_listing.text
+
+
+def test_results_are_owner_scoped_in_the_flat_artifact_layout(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The live store is flat: every member's runs sit side by side.
+
+    `HOME_PLATFORM_ARTIFACT_OWNER_SCOPED` is off in production, so there is no
+    per-owner directory to hide behind. Artifacts must therefore be filtered by
+    job ownership. An earlier implementation looked inside `artifacts/<member>/`,
+    which does not exist in this layout — it showed nothing at all, and would
+    have shown everything had that directory ever been created by other means.
+    """
+    monkeypatch.setenv("HOME_PLATFORM_API_TOKEN", "test-secret")
+    artifacts = tmp_path / "artifacts"
+    monkeypatch.setenv("HOME_PLATFORM_ARTIFACT_DIR", str(artifacts))
+    monkeypatch.delenv("HOME_PLATFORM_ARTIFACT_OWNER_SCOPED", raising=False)
+    password = "member password 1234"
+
+    with TestClient(create_app(tmp_path / "jobs.db")) as client:
+        assert (
+            client.post("/dashboard/login", json={"token": "test-secret"}).status_code
+            == 204
+        )
+        for username in ("alice", "bob"):
+            client.post(
+                "/dashboard/api/users",
+                json={"username": username, "password": password, "role": "MEMBER"},
+            )
+
+        def as_member(username: str) -> None:
+            client.post("/dashboard/logout")
+            assert (
+                client.post(
+                    "/dashboard/login",
+                    json={"username": username, "password": password},
+                ).status_code
+                == 204
+            )
+
+        def own_run(username: str, name: str, body: str) -> str:
+            as_member(username)
+            created = client.post(
+                "/jobs-ui/api/jobs",
+                json={"name": name, "type": "sleep", "parameters": {"seconds": 1}},
+                headers={"Idempotency-Key": f"key-{name}"},
+            )
+            assert created.status_code == 201, created.text
+            job = created.json()
+            run = run_directory_name(job["name"], UUID(job["id"]))
+            # Flat: straight under the root, no owner directory between.
+            (artifacts / run).mkdir(parents=True)
+            (artifacts / run / "out.txt").write_text(body)
+            return run
+
+        alice_run = own_run("alice", "alice-run", "alice result")
+        bob_run = own_run("bob", "bob-run", "bob result")
+        assert {item.name for item in artifacts.iterdir()} == {alice_run, bob_run}
+
+        as_member("alice")
+        listing = client.get("/jobs-ui/api/files", params={"path": "Artifacts"})
+        own = client.get(
+            "/jobs-ui/api/files/download",
+            params={"path": f"Artifacts/{alice_run}/out.txt"},
+        )
+        foreign_listing = client.get(
+            "/jobs-ui/api/files", params={"path": f"Artifacts/{bob_run}"}
+        )
+        foreign_download = client.get(
+            "/jobs-ui/api/files/download",
+            params={"path": f"Artifacts/{bob_run}/out.txt"},
+        )
+        foreign_delete = client.request(
+            "DELETE", "/jobs-ui/api/files", json={"path": f"Artifacts/{bob_run}"}
+        )
+        cleared = client.request(
+            "DELETE", "/jobs-ui/api/files", json={"path": "Artifacts"}
+        )
+
+    # Alice sees her own run and no trace of Bob's, despite them being siblings.
+    assert [entry["path"] for entry in listing.json()["entries"]] == [
+        f"Artifacts/{alice_run}"
+    ]
+    assert own.status_code == 200
+    assert own.content == b"alice result"
+    assert foreign_listing.status_code == 422
+    assert foreign_download.status_code == 422
+    assert foreign_delete.status_code == 422
+    # Clearing removes only what she owns.
+    assert cleared.status_code == 200
+    assert not (artifacts / alice_run).exists()
+    assert (artifacts / bob_run / "out.txt").read_text() == "bob result"
 
 
 def test_member_storage_pilot_allowlist_enables_only_provisioned_member(
@@ -1652,6 +1910,20 @@ def test_member_storage_pilot_allowlist_enables_only_provisioned_member(
         client.post("/dashboard/login", json={"username": "bob", "password": password})
         assert client.get("/jobs-ui/api/session").json()["storage_enabled"] is False
         assert client.get("/jobs-ui/api/storage").status_code == 503
+        assert [
+            entry["path"]
+            for entry in client.get("/jobs-ui/api/files").json()["entries"]
+        ] == ["Artifacts"]
+        assert (
+            client.get("/jobs-ui/api/files", params={"path": "Home"}).status_code == 503
+        )
+        assert (
+            client.get(
+                "/jobs-ui/api/storage/download",
+                params={"path": "Shared/common.txt"},
+            ).status_code
+            == 503
+        )
 
 
 def test_member_project_preview_and_submission_resolve_header_input_defaults(
@@ -1791,15 +2063,52 @@ def test_member_workspace_create_and_upload_are_scoped_and_non_overwriting(
             "/jobs-ui/api/workspace/directories",
             json={"path": "Home/Workspace/../escape"},
         )
+        original_after_duplicate = (workspace / "Projects" / "submit.hp").read_bytes()
+        renamed = client.post(
+            "/jobs-ui/api/files/move",
+            json={
+                "source": "Home/Workspace/Projects/submit.hp",
+                "destination": "Home/Workspace/Projects/job.hp",
+            },
+        )
+        copied = client.post(
+            "/jobs-ui/api/files/copy",
+            json={
+                "source": "Home/Workspace/Projects/job.hp",
+                "destination": "Home/Workspace/job-copy.hp",
+            },
+        )
+        deleted = client.request(
+            "DELETE",
+            "/jobs-ui/api/files",
+            json={"path": "Home/Workspace/job-copy.hp"},
+        )
+        protected_root = client.request(
+            "DELETE",
+            "/jobs-ui/api/files",
+            json={"path": "Home/Workspace"},
+        )
+        shared_delete = client.request(
+            "DELETE",
+            "/jobs-ui/api/files",
+            json={"path": "Shared/common.txt"},
+        )
 
     assert listing.status_code == 200
     assert listing.json()["workspace_writable"] is True
     assert created.status_code == 201
     assert uploaded.status_code == 201
     assert uploaded.json()["path"] == "Home/Workspace/Projects/submit.hp"
-    assert (workspace / "Projects" / "submit.hp").read_bytes() == b"12345678"
+    assert original_after_duplicate == b"12345678"
     assert duplicate.status_code in {409, 422}
-    assert (workspace / "Projects" / "submit.hp").read_bytes() == b"12345678"
+    assert renamed.status_code == 200
+    assert copied.status_code == 201
+    assert copied.json()["copied_bytes"] == 8
+    assert deleted.status_code == 200
+    assert (workspace / "Projects" / "job.hp").read_bytes() == b"12345678"
+    assert not (workspace / "job-copy.hp").exists()
+    assert protected_root.status_code == 422
+    assert shared_delete.status_code == 422
     assert too_large.status_code == 413
     assert not (workspace / "Projects" / "large.bin").exists()
     assert escaped.status_code == 422

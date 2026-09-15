@@ -61,6 +61,12 @@ individual widget:
   scheduling switches, account management, and guarded Pi power.
 - **Jobs** (`/jobs-ui`) is the workload history/result view: filter and sort
   jobs, inspect details, cancel work, and retrieve outputs.
+- **Files** (`/jobs-ui/files`) is the member-safe file browser: each member sees
+  a virtual private `Home`, common `Shared`, and owner-scoped job `Artifacts`,
+  without seeing the physical account UUID used by either storage provider.
+  `Home` and `Shared` are path rewrites; `Artifacts` is derived from owned job
+  records, because published output is stored flat. The share layout and the
+  reasoning are in [files in and out of a job](jobs/storage-workflow.md).
 - **Submit** (`/jobs-ui/new`) is the focused job-creation workflow for uploaded,
   linked, Python, connectivity, and PBS-style work.
 - **CLI** remains the primary automation interface and exposes the same API

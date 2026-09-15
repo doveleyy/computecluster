@@ -50,4 +50,4 @@ live-verified, including automatic numeric `#HP --array` expansion. See the
 group state and cancellation contract.
 
 For the practical upload/select/submit sequence, see
-[Getting files into a batch job](storage-workflow.md).
+[Files in and out of a job](storage-workflow.md).

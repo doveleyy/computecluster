@@ -290,7 +290,11 @@ credentials, no Docker socket, and only the declared mounts.
   ```
 
   The directory name comes from `#HP --name` plus a short group UUID. A script
-  cannot choose it, and two submissions sharing a name never collide.
+  cannot choose it, and two submissions sharing a name never collide. The
+  `<owner-id>/` level is the prepared owner-scoped layout; the current
+  deployment stores runs flat directly under the artifact root, and access is
+  derived from job ownership in both — see
+  [files in and out of a job](storage-workflow.md).
 - Symlinks, devices, sockets, absolute paths, and paths containing traversal
   segments MUST NOT be published.
 - Standard output and error are diagnostic logs, not the result transport.

@@ -17,7 +17,7 @@ input sources:
 
 NAS files are named by the same logical paths the batch job type uses —
 `Home/...` for your private tree and `Shared/...` for deliberately shared data.
-See [Getting files into a job](storage-workflow.md). A verified HTTPS file
+See [Files in and out of a job](storage-workflow.md). A verified HTTPS file
 travels directly to the selected worker rather than through the coordinator;
 its SHA-256 and byte size are integrity requirements, not hints.
 
@@ -135,7 +135,11 @@ artifacts/<owner-id>/
 ```
 
 Job names are not unique, so the directory carries the first eight characters
-of the job's UUID as well. Two runs sharing a name therefore stay separate —
+of the job's UUID as well. The `<owner-id>/` level is the prepared owner-scoped
+layout; the current deployment stores runs flat directly under the artifact
+root. Either way access is derived from job ownership, so the layout does not
+decide who can read a run — see
+[files in and out of a job](storage-workflow.md). Two runs sharing a name therefore stay separate —
 publication never overwrites an earlier result. The layout is identical for the
 [batch job type](batch-script.md), which nests array children one level deeper.
 

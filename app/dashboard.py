@@ -8,7 +8,7 @@ import socket
 import sqlite3
 import subprocess
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from secrets import compare_digest, token_urlsafe
 from typing import Annotated, Any, cast
 from uuid import UUID, uuid4
@@ -86,12 +86,15 @@ from app.storage import (
     STORAGE_ID,
     StoragePolicyError,
     browse_storage,
+    copy_workspace_entry,
     create_workspace_directory,
+    delete_workspace_entry,
     inspect_storage_project,
     is_logical_storage_path,
     member_storage_entries,
     member_storage_path,
     member_storage_path_allowed,
+    move_workspace_entry,
     package_storage_project,
     resolve_logical_storage_path,
     resolve_storage_path,
@@ -134,6 +137,13 @@ class StorageProjectPreviewRequest(StoragePathRequest):
 
 class WorkspaceDirectoryCreate(StoragePathRequest):
     pass
+
+
+class FileTransferRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: str
+    destination: str
 
 
 class PiPowerRequest(BaseModel):
@@ -471,6 +481,10 @@ def create_dashboard_router() -> APIRouter:
 
     @router.get("/jobs-ui/new", response_class=HTMLResponse)
     def jobs_submit_page() -> str:
+        return JOBS_HTML
+
+    @router.get("/jobs-ui/files", response_class=HTMLResponse)
+    def jobs_files_page() -> str:
         return JOBS_HTML
 
     @router.get("/dashboard/api/system")
@@ -850,12 +864,16 @@ def create_dashboard_router() -> APIRouter:
             return path
         return resolve_logical_storage_path(path, user_id=None)
 
+    def member_storage_available(request: Request, identity: SessionIdentity) -> bool:
+        settings = request.app.state.settings
+        return bool(
+            identity.is_admin
+            or settings.member_storage_enabled
+            or identity.id in settings.member_storage_user_ids
+        )
+
     def require_member_storage(request: Request, identity: SessionIdentity) -> None:
-        if (
-            not identity.is_admin
-            and not request.app.state.settings.member_storage_enabled
-            and identity.id not in request.app.state.settings.member_storage_user_ids
-        ):
+        if not member_storage_available(request, identity):
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Personal NAS storage is not provisioned yet",
@@ -886,6 +904,131 @@ def create_dashboard_router() -> APIRouter:
             if identity.is_admin
             else member_storage_path(identity.id, logical_path)
         )
+
+    def artifact_filesystem_root(request: Request) -> Path:
+        """Return the artifact provider only when its configured disk is safe."""
+        settings = request.app.state.settings
+        root: Path = settings.artifact_directory
+        if settings.artifact_requires_mount:
+            probe = root if root.exists() else root.parent
+            try:
+                on_root_filesystem = probe.stat().st_dev == Path("/").stat().st_dev
+            except OSError:
+                on_root_filesystem = True
+            if on_root_filesystem:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Artifact storage is not mounted",
+                )
+        return root
+
+    def member_artifact_runs(
+        request: Request, job_service: JobService, identity: SessionIdentity
+    ) -> dict[str, Path]:
+        """Map every artifact directory this member owns to its physical path.
+
+        Ownership is derived from the job records, never from the directory
+        layout. The live store is still flat — every run sits directly under the
+        artifact root whoever owns it — so a path on its own cannot say who may
+        read it. Reading the set from owned jobs is correct under that flat
+        layout and under the prepared `<owner-id>/` one, and it cannot silently
+        widen if `HOME_PLATFORM_ARTIFACT_OWNER_SCOPED` is flipped.
+        """
+        settings = request.app.state.settings
+        root = artifact_filesystem_root(request)
+        base = root / str(identity.id) if settings.artifact_owner_scoped else root
+        if not base.is_dir():
+            return {}
+        group_names: dict[UUID, str | None] = {}
+        runs: dict[str, Path] = {}
+        for job in job_service.list(str(identity.id)):
+            group_name: str | None = None
+            if job.group_id is not None and job.task_id is not None:
+                if job.group_id not in group_names:
+                    try:
+                        group_names[job.group_id] = job_service.get_group(
+                            job.group_id
+                        ).name
+                    except JobGroupNotFoundError:
+                        group_names[job.group_id] = None
+                group_name = group_names[job.group_id]
+            current = base / job_artifact_relative_path(job, group_name=group_name)
+            legacy = base / legacy_artifact_relative_path(job.id)
+            directory = current if current.exists() else legacy
+            if not directory.is_dir():
+                continue
+            # A run is the top-level entry under the base. An array child lives
+            # one level deeper, inside its group's directory, so both map to the
+            # same run.
+            run = directory.relative_to(base).parts[0]
+            runs[run] = base / run
+        return runs
+
+    def logical_file_location(
+        request: Request,
+        identity: SessionIdentity,
+        logical_path: str,
+        job_service: JobService,
+    ) -> tuple[Path, str, str]:
+        """Resolve one Files-page path to (provider root, relative path, area)."""
+        normalized = logical_path.strip().replace("\\", "/").strip("/")
+        if not normalized:
+            raise StoragePolicyError("choose a file area")
+        logical = PurePosixPath(normalized)
+        if any(part in {"", ".", ".."} for part in logical.parts):
+            raise StoragePolicyError("file path must stay inside its area")
+        area, *remainder = logical.parts
+        area_key = area.lower()
+        relative = PurePosixPath(*remainder).as_posix() if remainder else ""
+
+        if identity.is_admin:
+            if area_key == "storage":
+                return request.app.state.settings.storage_directory, relative, "Storage"
+            if area_key == "artifacts":
+                return artifact_filesystem_root(request), relative, "Artifacts"
+            raise StoragePolicyError("choose Storage or Artifacts")
+
+        if area_key in {"home", "shared"}:
+            require_member_storage(request, identity)
+            physical = member_storage_path(identity.id, normalized)
+            return request.app.state.settings.storage_directory, physical, area.title()
+        if area_key == "artifacts":
+            runs = member_artifact_runs(request, job_service, identity)
+            if not remainder:
+                # The caller lists owned runs directly; there is no single
+                # directory that holds exactly this member's results.
+                raise StoragePolicyError("choose one of your artifacts")
+            run = runs.get(remainder[0])
+            if run is None:
+                raise StoragePolicyError("artifact not found")
+            return run.parent, relative, "Artifacts"
+        raise StoragePolicyError("choose Home, Shared or Artifacts")
+
+    def virtual_file_entries(
+        provider_root: Path,
+        relative_path: str,
+        logical_path: str,
+    ) -> list[dict[str, Any]]:
+        if not provider_root.exists() and not relative_path:
+            return []
+        entries = browse_storage(provider_root, relative_path)
+        return [
+            {
+                "name": entry.name,
+                "path": (PurePosixPath(logical_path) / entry.name).as_posix(),
+                "kind": entry.kind,
+                "size_bytes": entry.size_bytes,
+            }
+            for entry in entries
+        ]
+
+    def remove_permanently(target: Path) -> int:
+        size = directory_size(target) if target.is_dir() else target.stat().st_size
+        if target.is_dir():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+        return size
 
     def default_storage_path(identity: SessionIdentity, logical_path: str) -> str:
         """Resolve a `#HP --input NAME=PATH` default for the submitting session.
@@ -971,6 +1114,261 @@ def create_dashboard_router() -> APIRouter:
             ),
             "entries": [entry.__dict__ for entry in entries],
         }
+
+    @router.get(
+        "/jobs-ui/api/storage/download",
+        response_class=FileResponse,
+    )
+    def jobs_portal_storage_download(
+        path: str,
+        request: Request,
+        identity: DashboardSession,
+    ) -> FileResponse:
+        """Stream an authorized Home/Shared file through the Job Desk session.
+
+        Members submit only logical paths. Their immutable session identity is
+        mapped to the physical UUID-keyed tree here, so neither the browser nor
+        a caller-controlled path can select another member's directory.
+        """
+        require_member_storage(request, identity)
+        try:
+            target = resolve_storage_path(
+                request.app.state.settings.storage_directory,
+                scoped_storage_path(identity, path),
+            )
+        except StoragePolicyError as error:
+            raise storage_error(error) from error
+        if not target.is_file():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="choose a regular file to download",
+            )
+        return FileResponse(
+            target,
+            media_type="application/octet-stream",
+            filename=target.name,
+        )
+
+    @router.get("/jobs-ui/api/files")
+    def jobs_portal_files(
+        request: Request,
+        identity: DashboardSession,
+        job_service: JobServiceDependency,
+        path: str = "",
+    ) -> dict[str, Any]:
+        normalized = path.strip().replace("\\", "/").strip("/")
+        if not normalized:
+            areas = (
+                ["Storage", "Artifacts"]
+                if identity.is_admin
+                else (
+                    ["Home", "Shared", "Artifacts"]
+                    if member_storage_available(request, identity)
+                    else ["Artifacts"]
+                )
+            )
+            return {
+                "path": "",
+                "can_manage": False,
+                "can_clear_artifacts": False,
+                "can_delete_artifacts": False,
+                "entries": [
+                    {
+                        "name": area,
+                        "path": area,
+                        "kind": "directory",
+                        "size_bytes": None,
+                    }
+                    for area in areas
+                ],
+            }
+        lower = normalized.lower()
+        if lower == "artifacts" and not identity.is_admin:
+            # Built from owned jobs rather than a directory walk: in the live
+            # flat layout the artifact root holds every member's runs together.
+            runs = member_artifact_runs(request, job_service, identity)
+            return {
+                "path": normalized,
+                "can_manage": False,
+                "can_clear_artifacts": bool(runs),
+                "can_delete_artifacts": True,
+                "entries": [
+                    {
+                        "name": name,
+                        "path": f"Artifacts/{name}",
+                        "kind": "directory",
+                        "size_bytes": None,
+                    }
+                    for name in sorted(runs)
+                ],
+            }
+        try:
+            provider_root, relative, area = logical_file_location(
+                request, identity, normalized, job_service
+            )
+            entries = virtual_file_entries(provider_root, relative, normalized)
+        except StoragePolicyError as error:
+            raise storage_error(error) from error
+        return {
+            "path": normalized,
+            "can_manage": bool(
+                not identity.is_admin
+                and (lower == "home/workspace" or lower.startswith("home/workspace/"))
+            ),
+            "can_clear_artifacts": bool(
+                not identity.is_admin and area == "Artifacts" and not relative
+            ),
+            "can_delete_artifacts": bool(not identity.is_admin and area == "Artifacts"),
+            "entries": entries,
+        }
+
+    @router.get(
+        "/jobs-ui/api/files/download",
+        response_class=FileResponse,
+    )
+    def jobs_portal_file_download(
+        path: str,
+        request: Request,
+        identity: DashboardSession,
+        job_service: JobServiceDependency,
+    ) -> FileResponse:
+        try:
+            provider_root, relative, _ = logical_file_location(
+                request, identity, path, job_service
+            )
+            target = resolve_storage_path(provider_root, relative)
+        except StoragePolicyError as error:
+            raise storage_error(error) from error
+        if not target.is_file():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="choose a regular file to download",
+            )
+        return FileResponse(
+            target,
+            media_type="application/octet-stream",
+            filename=target.name,
+        )
+
+    @router.post("/jobs-ui/api/files/move")
+    def jobs_portal_file_move(
+        transfer: FileTransferRequest,
+        request: Request,
+        identity: DashboardSession,
+    ) -> dict[str, Any]:
+        workspace_root = require_member_workspace(request, identity)
+        try:
+            move_workspace_entry(
+                workspace_root,
+                identity.id,
+                transfer.source,
+                transfer.destination,
+            )
+        except StoragePolicyError as error:
+            raise storage_error(error) from error
+        logging.info(
+            "workspace entry moved owner=%s source=%s destination=%s",
+            identity.id,
+            transfer.source,
+            transfer.destination,
+        )
+        return {"source": transfer.source, "path": transfer.destination}
+
+    @router.post("/jobs-ui/api/files/copy", status_code=status.HTTP_201_CREATED)
+    def jobs_portal_file_copy(
+        transfer: FileTransferRequest,
+        request: Request,
+        identity: DashboardSession,
+    ) -> dict[str, Any]:
+        workspace_root = require_member_workspace(request, identity)
+        try:
+            copied = copy_workspace_entry(
+                workspace_root,
+                identity.id,
+                transfer.source,
+                transfer.destination,
+                max_bytes=request.app.state.settings.max_workspace_upload_bytes,
+            )
+        except StoragePolicyError as error:
+            raise storage_error(error) from error
+        logging.info(
+            "workspace entry copied owner=%s source=%s destination=%s bytes=%d",
+            identity.id,
+            transfer.source,
+            transfer.destination,
+            copied,
+        )
+        return {
+            "source": transfer.source,
+            "path": transfer.destination,
+            "copied_bytes": copied,
+        }
+
+    @router.delete("/jobs-ui/api/files")
+    def jobs_portal_file_delete(
+        selection: StoragePathRequest,
+        request: Request,
+        identity: DashboardSession,
+        job_service: JobServiceDependency,
+    ) -> dict[str, Any]:
+        if identity.is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Use an owner-scoped job or member session for deletion",
+            )
+        normalized = selection.path.strip().replace("\\", "/").strip("/")
+        lower = normalized.lower()
+        try:
+            if lower.startswith("home/workspace/"):
+                workspace_root = require_member_workspace(request, identity)
+                freed = delete_workspace_entry(workspace_root, identity.id, normalized)
+            elif lower == "artifacts" or lower.startswith("artifacts/"):
+                if any(
+                    job.status is JobStatus.RUNNING
+                    for job in job_service.list(owner_scope(identity))
+                ):
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Wait for running jobs before deleting artifacts",
+                    )
+                runs = member_artifact_runs(request, job_service, identity)
+                if lower == "artifacts":
+                    # Only this member's own runs, even though the flat store
+                    # holds everyone's side by side.
+                    freed = 0
+                    for run in runs.values():
+                        if run.is_symlink():
+                            raise StoragePolicyError(
+                                "artifact trees cannot contain symbolic links"
+                            )
+                        if run.is_dir():
+                            freed += remove_permanently(run)
+                else:
+                    parts = PurePosixPath(normalized).parts[1:]
+                    selected = runs.get(parts[0]) if parts else None
+                    if selected is None:
+                        raise StoragePolicyError("artifact not found")
+                    relative = PurePosixPath(*parts)
+                    target = resolve_storage_path(selected.parent, relative.as_posix())
+                    freed = remove_permanently(target)
+            else:
+                raise StoragePolicyError(
+                    "only Home/Workspace and your Artifacts can be deleted"
+                )
+        except StoragePolicyError as error:
+            raise storage_error(error) from error
+        except OSError as error:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="file could not be deleted",
+            ) from error
+        logging.info(
+            "file entry permanently deleted owner=%s path=%s bytes=%d",
+            identity.id,
+            normalized,
+            freed,
+        )
+        return {"deleted": normalized, "freed_bytes": freed}
 
     @router.post(
         "/jobs-ui/api/workspace/directories",
@@ -1439,18 +1837,7 @@ def create_dashboard_router() -> APIRouter:
         for that job finds it and stays alongside the first.
         """
         settings = request.app.state.settings
-        root: Path = settings.artifact_directory
-        if settings.artifact_requires_mount:
-            probe = root if root.exists() else root.parent
-            try:
-                on_root_filesystem = probe.stat().st_dev == Path("/").stat().st_dev
-            except OSError:
-                on_root_filesystem = True
-            if on_root_filesystem:
-                raise HTTPException(
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                    detail="Artifact storage is not mounted",
-                )
+        root = artifact_filesystem_root(request)
         if not settings.artifact_owner_scoped:
             base = root
         else:

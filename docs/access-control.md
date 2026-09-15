@@ -18,7 +18,10 @@ boundary that is being introduced separately.
 | Enable workers, change capacity, or control Pi power | No | Yes |
 | Create or disable member accounts | No | Yes |
 | Select files from the NAS Home/Shared tree | Provisioned members | Yes |
+| Browse or download NAS files | Own Home and Shared only | All provider paths |
 | Create folders or upload through Job Desk | Provisioned Workspace only | No |
+| Rename, move, copy, or delete working files | Own Workspace only | No |
+| Browse or permanently delete job results | Own only | Via job/operator APIs |
 
 The API token is the elevated administrator and machine credential used by the
 CLI and workers. It must never be given to a member. Members authenticate with
@@ -86,6 +89,24 @@ remain acceptance gates. DSM filesystem ACLs and Samba authentication enforce
 the disk boundary; the application maps a member's logical paths only into
 their private tree or the shared tree. Application passwords and SMB passwords
 remain separate credentials.
+
+The Files browser uses logical paths. A request for `Home/Projects/model.py` is
+mapped on the server to the signed-in member's stable storage directory; its
+listings and download URLs never contain the physical UUID. `Shared/...` maps
+to the common tree. Download authorization repeats this mapping for every
+request rather than trusting a path previously rendered by JavaScript. The
+current web mutation surface remains limited to `Home/Workspace`; Shared is
+read-only. The older job-submission adapter still round-trips a verified
+provider reference and is a separate remaining cleanup.
+
+`Artifacts` is a separate virtual provider assembled from the jobs a member
+owns, not a directory the member is pointed at. The live artifact store is flat,
+so every member's runs sit side by side under one root and a path cannot
+establish who may read it; the set of readable directories is therefore derived
+from owner-scoped job records. Access is never granted by guessing a job or
+directory UUID. Members may delete their own artifact files or clear their
+entire Artifacts tree permanently, but the application refuses this while one of
+their jobs is running. Deleting bytes does not delete the durable job record.
 
 Browser-originated workspace writes use a distinct, disabled-by-default service
 identity and mount. On NAS systems with a share-level SMB gate, that identity
