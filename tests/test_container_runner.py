@@ -79,7 +79,7 @@ def test_python_batch_uses_isolated_limited_container(
 
     monkeypatch.setattr(
         "worker.container_runner.materialize_script",
-        lambda _parameters, _workspace: source_script,
+        lambda _parameters, _workspace, **_kwargs: source_script,
     )
     monkeypatch.setattr(
         "worker.container_runner.materialize_dataset",
@@ -133,7 +133,7 @@ def test_python_batch_timeout_force_removes_only_its_container(
 
     monkeypatch.setattr(
         "worker.container_runner.materialize_script",
-        lambda _parameters, _workspace: source_script,
+        lambda _parameters, _workspace, **_kwargs: source_script,
     )
     monkeypatch.setattr(
         "worker.container_runner.materialize_dataset",
@@ -225,7 +225,7 @@ def test_python_batch_reports_memory_limit_separately(
 
     monkeypatch.setattr(
         "worker.container_runner.materialize_script",
-        lambda _parameters, _workspace: source_script,
+        lambda _parameters, _workspace, **_kwargs: source_script,
     )
     monkeypatch.setattr(
         "worker.container_runner.materialize_dataset",
@@ -299,7 +299,8 @@ def test_thread_pools_are_matched_to_the_cpu_quota(tmp_path: Path, monkeypatch) 
         "worker.container_runner.materialize_dataset", lambda *a: tmp_path / "d.csv"
     )
     monkeypatch.setattr(
-        "worker.container_runner.materialize_script", lambda *a: tmp_path / "s.py"
+        "worker.container_runner.materialize_script",
+        lambda *a, **kw: tmp_path / "s.py",
     )
     (tmp_path / "d.csv").write_text("a\n1\n")
     (tmp_path / "s.py").write_text("print(1)")
@@ -347,7 +348,8 @@ def test_fractional_cpu_limits_still_get_one_thread(
         "worker.container_runner.materialize_dataset", lambda *a: tmp_path / "d.csv"
     )
     monkeypatch.setattr(
-        "worker.container_runner.materialize_script", lambda *a: tmp_path / "s.py"
+        "worker.container_runner.materialize_script",
+        lambda *a, **kw: tmp_path / "s.py",
     )
     (tmp_path / "d.csv").write_text("a\n1\n")
     (tmp_path / "s.py").write_text("print(1)")

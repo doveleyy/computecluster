@@ -6,10 +6,25 @@ but is not subscriptable at runtime. Static analysis cannot catch that; building
 the parser can.
 """
 
+import hashlib
+from pathlib import Path
+
+import httpx
 import pytest
 
 from cli import client, render
 from cli.client import build_parser
+
+
+class ResponseStream:
+    def __init__(self, response: httpx.Response) -> None:
+        self.response = response
+
+    def __enter__(self) -> httpx.Response:
+        return self.response
+
+    def __exit__(self, *_: object) -> None:
+        self.response.close()
 
 
 def test_parser_builds_and_documents_every_command() -> None:
@@ -25,6 +40,7 @@ def test_parser_builds_and_documents_every_command() -> None:
     assert "--name NAME" in help_text
     assert "script [dataset]" in help_text
     assert "download [--output OUTPUT] job_id filename" in help_text
+    assert "pull [--destination DESTINATION] job_id" in help_text
 
     # Argument-less commands should not leak argparse's own flag.
     assert "health [-h]" not in help_text
@@ -41,6 +57,7 @@ def test_every_subcommand_parses_and_has_its_own_help() -> None:
         ["cancel", "job-id"],
         ["artifacts", "job-id"],
         ["download", "job-id", "model.joblib"],
+        ["pull", "job-id", "--destination", "results"],
         ["worker-enable", "mac-primary"],
         ["worker-disable", "mac-primary"],
         [
@@ -103,6 +120,43 @@ def test_json_flag_and_url_default() -> None:
     parser = build_parser()
     assert parser.parse_args(["--json", "list"]).json is True
     assert parser.parse_args(["list"]).url.startswith("http")
+
+
+def test_pull_artifact_resumes_and_verifies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    content = b"complete artifact"
+    partial = tmp_path / ".result.bin.part"
+    partial.write_bytes(content[:8])
+    captured_headers: dict[str, str] = {}
+
+    def stream(*args: object, **kwargs: object) -> ResponseStream:
+        captured_headers.update(kwargs["headers"])
+        return ResponseStream(
+            httpx.Response(
+                206,
+                content=content[8:],
+                headers={"Content-Range": f"bytes 8-{len(content) - 1}/{len(content)}"},
+                request=httpx.Request("GET", str(args[1])),
+            )
+        )
+
+    monkeypatch.setattr("cli.client.httpx.stream", stream)
+    target = client.pull_artifact(
+        "https://control.example",
+        "job-id",
+        {
+            "filename": "result.bin",
+            "size_bytes": len(content),
+            "sha256": hashlib.sha256(content).hexdigest(),
+        },
+        tmp_path,
+        token="secret",
+    )
+
+    assert captured_headers["Range"] == "bytes=8-"
+    assert target.read_bytes() == content
+    assert not partial.exists()
 
 
 def test_missing_required_argument_is_rejected() -> None:

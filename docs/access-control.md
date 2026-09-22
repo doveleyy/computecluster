@@ -1,8 +1,8 @@
 # Accounts and access control
 
 Home Platform has two human roles and one separate machine credential. The
-roles control application records; Synology and Samba permissions are a second
-boundary that is being introduced separately.
+roles control application records; Synology DSM ACLs and SMB authentication are
+a second boundary.
 
 ## Roles
 
@@ -83,9 +83,9 @@ the same file over SMB.
 
 The storage layer uses one private Synology location per stable user ID, a
 shared collaboration location, and an administrator view across all users.
-The initial DSM groups, service identity, directory tree, and first-member ACL
-matrix are provisioned, but cross-user denial and full application cutover
-remain acceptance gates. DSM filesystem ACLs and Samba authentication enforce
+The DSM groups, service identities, directory tree, first-member ACL matrix,
+and application storage cutover are live. A second-member cross-user acceptance
+test remains pending. DSM filesystem ACLs and SMB authentication enforce
 the disk boundary; the application maps a member's logical paths only into
 their private tree or the shared tree. Application passwords and SMB passwords
 remain separate credentials.
@@ -99,14 +99,12 @@ current web mutation surface remains limited to `Home/Workspace`; Shared is
 read-only. The older job-submission adapter still round-trips a verified
 provider reference and is a separate remaining cleanup.
 
-`Artifacts` is a separate virtual provider assembled from the jobs a member
-owns, not a directory the member is pointed at. The live artifact store is flat,
-so every member's runs sit side by side under one root and a path cannot
-establish who may read it; the set of readable directories is therefore derived
-from owner-scoped job records. Access is never granted by guessing a job or
+`Artifacts` is a virtual provider assembled from the jobs a member owns. Its
+Synology layout is also owner-scoped, but filesystem placement never replaces
+the database authorization check. Access is not granted by guessing a job or
 directory UUID. Members may delete their own artifact files or clear their
-entire Artifacts tree permanently, but the application refuses this while one of
-their jobs is running. Deleting bytes does not delete the durable job record.
+entire Artifacts tree permanently, but the application refuses this while one
+of their jobs is running. Deleting bytes does not delete the durable job record.
 
 Browser-originated workspace writes use a distinct, disabled-by-default service
 identity and mount. On NAS systems with a share-level SMB gate, that identity

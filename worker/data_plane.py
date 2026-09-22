@@ -32,10 +32,69 @@ class WorkerWorkspace:
     root: Path
     allowed_dataset_hosts: frozenset[str]
     max_dataset_bytes: int
+    max_cache_bytes: int = 20 * 1024**3
     control_plane_url: str | None = None
     api_token: str | None = None
     docker_executable: str | None = None
     container_image: str = "home-platform-ml:0.1"
+
+
+CACHE_DIRECTORIES = ("cache", "inputs", "projects", "scripts")
+
+
+def prune_cache(
+    workspace: WorkerWorkspace,
+    *,
+    required_bytes: int = 0,
+    protected: frozenset[Path] = frozenset(),
+) -> tuple[int, int]:
+    """Evict least-recently-used immutable inputs until a new item will fit.
+
+    Workers execute one job at a time. A materialized input is protected while
+    it is being prepared; inputs already linked into a run have a link count
+    greater than one and are protected as well. Partial downloads are never
+    treated as reusable cache entries.
+    """
+    if required_bytes > workspace.max_cache_bytes:
+        raise DatasetPolicyError(
+            f"input requires {required_bytes} cache bytes but worker limit is "
+            f"{workspace.max_cache_bytes}"
+        )
+    entries: list[tuple[int, Path, int]] = []
+    total = 0
+    resolved_protected = {item.resolve() for item in protected}
+    for directory_name in CACHE_DIRECTORIES:
+        directory = workspace.root / directory_name
+        if not directory.is_dir():
+            continue
+        for item in directory.iterdir():
+            if not item.is_file() or item.name.endswith(".part"):
+                continue
+            stat = item.stat()
+            total += stat.st_size
+            if item.resolve() in resolved_protected or stat.st_nlink > 1:
+                continue
+            entries.append((stat.st_mtime_ns, item, stat.st_size))
+
+    removed_files = 0
+    removed_bytes = 0
+    for _, item, size in sorted(entries):
+        if total + required_bytes <= workspace.max_cache_bytes:
+            break
+        item.unlink(missing_ok=True)
+        total -= size
+        removed_files += 1
+        removed_bytes += size
+        logging.info("cache=evicted path=%s bytes=%s", item, size)
+    if total + required_bytes > workspace.max_cache_bytes:
+        raise DatasetPolicyError(
+            "worker cache is full and its remaining entries are in use"
+        )
+    return removed_files, removed_bytes
+
+
+def record_cache_use(path: Path) -> None:
+    path.touch(exist_ok=True)
 
 
 def materialize_dataset(
@@ -78,11 +137,13 @@ def materialize_dataset(
     cache_directory.mkdir(parents=True, exist_ok=True)
     target = cache_directory / reference.sha256
     if target.is_file() and _matches_reference(target, reference):
+        record_cache_use(target)
         logging.info("dataset=%s cache=hit", reference.sha256)
         return target
     if target.exists():
         target.unlink()
 
+    prune_cache(workspace, required_bytes=reference.size_bytes)
     temporary = cache_directory / f".{reference.sha256}.{uuid4().hex}.part"
     digest = hashlib.sha256()
     received = 0
@@ -146,7 +207,10 @@ def materialize_project(
     archive_path = cache_directory / f"{reference.sha256}.zip"
     if not archive_path.is_file() or not _matches_reference(archive_path, reference):
         archive_path.unlink(missing_ok=True)
+        prune_cache(workspace, required_bytes=reference.size_bytes)
         _download_project(reference, workspace, archive_path, cancellation_event)
+    else:
+        record_cache_use(archive_path)
 
     destination.mkdir(parents=True, exist_ok=True)
     expanded = 0
@@ -202,8 +266,10 @@ def materialize_batch_input(
     cache_directory.mkdir(parents=True, exist_ok=True)
     target = cache_directory / reference.sha256
     if target.is_file() and _matches_reference(target, reference):
+        record_cache_use(target)
         return target
     target.unlink(missing_ok=True)
+    prune_cache(workspace, required_bytes=reference.size_bytes)
     temporary = cache_directory / f".{reference.sha256}.{uuid4().hex}.part"
     digest = hashlib.sha256()
     received = 0

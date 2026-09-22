@@ -46,6 +46,7 @@ class WorkerSettings:
     data_directory: Path
     allowed_dataset_hosts: frozenset[str]
     max_dataset_bytes: int
+    max_cache_bytes: int
     docker_executable: str | None
     container_image: str
 
@@ -454,6 +455,7 @@ def load_settings(
     data_directory: Path | None = None,
     allowed_dataset_hosts: list[str] | None = None,
     max_dataset_bytes: int | None = None,
+    max_cache_bytes: int | None = None,
 ) -> WorkerSettings:
     resolved_token_file = token_file or Path(
         os.environ.get(
@@ -519,6 +521,13 @@ def load_settings(
     )
     if resolved_max_dataset_bytes <= 0:
         raise ValueError("maximum dataset bytes must be greater than zero")
+    resolved_max_cache_bytes = (
+        max_cache_bytes
+        if max_cache_bytes is not None
+        else int(os.environ.get("HOME_PLATFORM_MAX_CACHE_BYTES", str(20 * 1024**3)))
+    )
+    if resolved_max_cache_bytes <= 0:
+        raise ValueError("maximum cache bytes must be greater than zero")
     container_image = os.environ.get(
         "HOME_PLATFORM_CONTAINER_IMAGE", "home-platform-ml:0.1"
     )
@@ -532,6 +541,7 @@ def load_settings(
         data_directory=resolved_data_directory,
         allowed_dataset_hosts=resolved_hosts,
         max_dataset_bytes=resolved_max_dataset_bytes,
+        max_cache_bytes=resolved_max_cache_bytes,
         docker_executable=docker_executable,
         container_image=container_image,
     )
@@ -793,6 +803,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         help="maximum declared size accepted by this worker",
     )
+    parser.add_argument(
+        "--max-cache-bytes",
+        type=int,
+        help="combined ceiling for reusable dataset, input, and project caches",
+    )
     return parser
 
 
@@ -828,12 +843,14 @@ def main() -> None:
         data_directory=args.data_dir,
         allowed_dataset_hosts=args.dataset_hosts,
         max_dataset_bytes=args.max_dataset_bytes,
+        max_cache_bytes=args.max_cache_bytes,
     )
     client = ControlPlaneClient(settings)
     workspace = WorkerWorkspace(
         root=settings.data_directory,
         allowed_dataset_hosts=settings.allowed_dataset_hosts,
         max_dataset_bytes=settings.max_dataset_bytes,
+        max_cache_bytes=settings.max_cache_bytes,
         control_plane_url=settings.api_url,
         api_token=settings.api_token,
         docker_executable=settings.docker_executable,

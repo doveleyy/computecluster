@@ -1034,9 +1034,18 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert 'operationsView=location.pathname.endsWith("/operations")' in page.text
     assert 'id="members-section" class="section panel hidden"' in page.text
     assert 'id="reset-dialog"' in page.text
-    assert 'element("button","ghost-button","COPY KEY")' in page.text
-    assert 'element("button","ghost-button","RESET")' in page.text
+    assert 'actionMenu("Actions for "+user.username' in page.text
+    assert 'user.role+" · storage "+user.id' in page.text
+    assert 'state=status(user.disabled?"DISABLED":"ACTIVE")' in page.text
+    assert 'status(user.disabled?"OFFLINE":"ONLINE")' not in page.text
     assert "body:not(.operations-view) .worker-control" in page.text
+    assert 'primary.append(element("div","worker-meta",platform+ceiling))' in page.text
+    assert 'worker.supported_types.join(" · ")' not in page.text
+    assert 'state.classList.add("account-state")' in page.text
+    assert (
+        ".account-state { min-width:78px; min-height:30px; justify-content:center;"
+        in page.text
+    )
     assert "response.status===403" in page.text
     assert "ADMINISTRATOR SESSION REQUIRED" in page.text
     assert "Control plane</div>" not in page.text
@@ -1049,6 +1058,7 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert jobs_page.status_code == 200
     assert submit_page.status_code == 200
     assert files_page.status_code == 200
+    assert 'href="/jobs-ui/files"' in page.text
     assert 'href="/jobs-ui/new"' in jobs_page.text
     assert 'href="/jobs-ui/files"' in jobs_page.text
     assert 'href="/dashboard/operations"' in jobs_page.text
@@ -1066,6 +1076,7 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert 'id="submit-panel" class="panel submit-panel hidden"' in jobs_page.text
     assert 'id="queue-panel" class="panel queue-panel hidden"' in jobs_page.text
     assert 'id="files-panel" class="panel hidden"' in jobs_page.text
+    assert 'actionMenu("Actions for "+entry.name,items)' in jobs_page.text
     assert "Submit a job" in jobs_page.text
     assert "Queue &amp; history" in jobs_page.text
     assert '"Idempotency-Key":submissionKey()' in jobs_page.text
@@ -1096,9 +1107,10 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert "/dashboard/api/system" not in jobs_page.text
     assert "/dashboard/api/workers" not in jobs_page.text
     assert "sort-button" not in page.text
-    assert "Pi SSD Samba" in page.text
+    assert "Pi SSD Samba" not in page.text
     assert "Synology NAS" in page.text
-    assert "Network storage" in page.text
+    assert "Network storage" not in page.text
+    assert 'id="synology-state"' not in page.text
     assert 'id="storage-service-state"' in page.text
     assert "CREATE MEMBER" in page.text
     assert "GPU thermal" in page.text
@@ -1140,7 +1152,6 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert {
         "control_plane",
         "database",
-        "nas",
         "synology_nas",
     } == services.json().keys()
     assert jobs.status_code == 200
@@ -1154,7 +1165,13 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert portal_workers.json()[0]["id"] == "mac-one"
     assert portal_jobs.json()[0]["id"] == portal_submit.json()["id"]
     assert portal_artifacts.status_code == 200
-    assert portal_artifacts.json() == [{"filename": "metrics.json", "size_bytes": 19}]
+    assert portal_artifacts.json() == [
+        {
+            "filename": "metrics.json",
+            "size_bytes": 19,
+            "sha256": hashlib.sha256(b'{"accuracy": 0.95}\n').hexdigest(),
+        }
+    ]
     assert portal_artifact_download.status_code == 200
     assert portal_artifact_download.content == b'{"accuracy": 0.95}\n'
     assert retired_job.status_code == 422
@@ -2154,6 +2171,10 @@ def test_artifacts_upload_list_and_download(tmp_path: Path, monkeypatch) -> None
         )
         listing = client.get(f"/jobs/{created['id']}/artifacts")
         download = client.get(f"/jobs/{created['id']}/artifacts/model.joblib")
+        resumed = client.get(
+            f"/jobs/{created['id']}/artifacts/model.joblib",
+            headers={"Range": "bytes=3-"},
+        )
         missing = client.get(f"/jobs/{created['id']}/artifacts/absent.bin")
 
     assert first.status_code == 201
@@ -2164,7 +2185,11 @@ def test_artifacts_upload_list_and_download(tmp_path: Path, monkeypatch) -> None
         "metrics.json",
         "model.joblib",
     ]
+    assert listing.json()[1]["sha256"] == hashlib.sha256(b"weights").hexdigest()
     assert download.content == b"weights"
+    assert resumed.status_code == 206
+    assert resumed.content == b"ghts"
+    assert resumed.headers["content-range"] == "bytes 3-6/7"
     assert missing.status_code == 404
 
 

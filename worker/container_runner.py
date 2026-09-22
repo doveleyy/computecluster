@@ -26,6 +26,8 @@ from worker.data_plane import (
     materialize_batch_input,
     materialize_dataset,
     materialize_project,
+    prune_cache,
+    record_cache_use,
 )
 
 
@@ -232,13 +234,18 @@ def run_python_batch(
         raise RuntimeError("Docker runtime is unavailable")
     if cancellation_event is None:
         dataset_path = materialize_dataset(parameters.dataset, workspace)
-        script_path = materialize_script(parameters, workspace)
+        script_path = materialize_script(
+            parameters, workspace, protected_cache_entries=frozenset({dataset_path})
+        )
     else:
         dataset_path = materialize_dataset(
             parameters.dataset, workspace, cancellation_event=cancellation_event
         )
         script_path = materialize_script(
-            parameters, workspace, cancellation_event=cancellation_event
+            parameters,
+            workspace,
+            cancellation_event=cancellation_event,
+            protected_cache_entries=frozenset({dataset_path}),
         )
 
     run_directory = workspace.root / "runs" / str(job_id)
@@ -487,6 +494,7 @@ def materialize_script(
     parameters: PythonBatchParameters,
     workspace: WorkerWorkspace,
     cancellation_event: threading.Event | None = None,
+    protected_cache_entries: frozenset[Path] = frozenset(),
 ) -> Path:
     if cancellation_event is not None and cancellation_event.is_set():
         raise RuntimeError("job cancelled while preparing its script")
@@ -497,8 +505,14 @@ def materialize_script(
     cache_directory.mkdir(parents=True, exist_ok=True)
     target = cache_directory / f"{reference.sha256}.py"
     if target.is_file() and _matches(target, reference.sha256, reference.size_bytes):
+        record_cache_use(target)
         return target
     target.unlink(missing_ok=True)
+    prune_cache(
+        workspace,
+        required_bytes=reference.size_bytes,
+        protected=protected_cache_entries,
+    )
     temporary = cache_directory / f".{reference.sha256}.{uuid4().hex}.part"
     url = (
         f"{workspace.control_plane_url.rstrip('/')}/scripts/uploads/"

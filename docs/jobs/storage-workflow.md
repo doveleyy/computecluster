@@ -3,17 +3,14 @@
 How a member's files are organised, how the platform resolves them, and how they
 reach a job and come back as published output.
 
-> The member-safe Home/Shared picker and resolved input defaults are
-> implemented. Workspace create/upload is active only for the provisioned pilot
-> member after its separate NAS identity, mount, and ACL matrix were accepted;
-> browser and multi-user acceptance remain pending.
+> Home/Shared selection, owner-scoped artifacts, and Workspace mutations are
+> live for the provisioned member. A second-member cross-user acceptance test
+> remains pending; other members fail closed until provisioned.
 
-Files reach a job through the `HomeStorage` share rather than a browser upload
-form, which keeps projects and datasets off the coordinator while preserving the
-same PBS-style job contract. The original Pi-hosted Samba share is a migration
-bridge: member `Home` and `Shared` paths already resolve on the dedicated
-Synology NAS, while published output stays on the Pi SSD until its separate
-cutover. In the end state the NAS is the only SMB server.
+Files reach a job through the Synology `HomeStorage` share rather than a browser
+upload form, which keeps projects and datasets out of SQLite while preserving
+the same PBS-style job contract. Synology is also the owner-scoped artifact
+provider and the only SMB server; optional Pi-attached storage is local-only.
 
 Directory names below are real; account identifiers are placeholders.
 
@@ -56,11 +53,10 @@ Home/notes.csv     ──►  HomeStorage/users/<stable-user-id>/notes.csv
 Shared/ref.fa      ──►  HomeStorage/shared/ref.fa
 ```
 
-`Artifacts` is not. Published output is stored flat, so every member's runs are
-siblings under one root and a path cannot establish who may read it. The
-readable set is assembled from the jobs a member owns — which stays correct if
-the prepared per-owner layout is enabled later. A run appears only if you own
-the job **and** it published files.
+`Artifacts` is owner-scoped on disk as well as in the database. The readable
+set is still assembled from the jobs a member owns, so a guessed path or UUID
+never grants access. A run appears only if you own the job **and** it published
+files.
 
 ## Share layout
 
@@ -69,7 +65,7 @@ directly, as `Storage/` and `Artifacts/`, because administrative scope spans
 every account:
 
 ```text
-HomeStorage/
+HomePlatform/
 ├── users/                        one directory per member, keyed by account ID
 │   ├── <stable-user-id>/         a member's private Home
 │   │   └── Workspace/            the only browser-writable subtree
@@ -80,18 +76,18 @@ HomeStorage/
 ├── projects/                     transitional: operator-managed project folders
 ├── inputs/                       transitional: operator-managed job inputs
 └── artifacts/                    published job output
-    ├── <job-name>-<short-id>/    one directory per submission
-    │   ├── 1/                    one per array index, for a PBS-style array
-    │   └── 2/
-    └── <job-name>-<short-id>/    a different member's run, side by side
+    ├── <stable-user-id>/         one ACL-isolated owner root
+    │   └── <job-name>-<short-id>/
+    │       ├── 1/                one per array index, for a PBS-style array
+    │       └── 2/
+    └── <stable-user-id>/         another owner's isolated results
 ```
 
 Note that `users/<a>/` and `users/<b>/` are siblings: the path shape prevents
 nothing. The `Home` mapping confines a member to their own tree, and filesystem
 permissions enforce the same boundary independently for anyone on SMB.
-`artifacts/` is flat for the same reason `Artifacts` is derived from ownership;
-setting `HOME_PLATFORM_ARTIFACT_OWNER_SCOPED` inserts an `<owner-id>/` level but
-does not change who sees what.
+`artifacts/` repeats the owner boundary in DSM ACLs. Application authorization
+still checks the immutable job owner on every browse, download, and delete.
 
 Two ways in: connect over SMB with Finder, Explorer, or the iOS Files app for
 large trees, or use **Files** in Job Desk for browsing, downloads, and bounded
@@ -165,10 +161,9 @@ pixi run client submit-python-batch train.py \
   create/upload acceptance plus second-member isolation are still pending.
 - Do not rename or edit an input after submission. If its bytes no longer match
   the recorded digest, the worker fails safely instead of running changed data.
-- Because the present SSD is physically attached to the coordinator, its
-  authenticated API serves selected file bytes to workers. They are streamed
-  rather than placed in SQLite or copied to microSD staging. A dedicated NAS
-  should later resolve the same logical reference directly to workers.
+- The coordinator currently streams selected Synology file bytes to workers.
+  They are not placed in SQLite or copied to microSD staging. Direct
+  worker-to-NAS resolution is a later data-plane optimisation.
 - Project archives remain limited to 20 MiB compressed, 100 MiB expanded, and
   1,000 entries. Put large data in named inputs, not inside the project.
 

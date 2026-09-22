@@ -1,7 +1,7 @@
 [workspace]
 channels = ["conda-forge"]
 name = "personal-home-platform"
-platforms = ["osx-arm64", "linux-aarch64", "win-64"]
+platforms = ["osx-arm64", "linux-aarch64", "linux-64", "win-64"]
 version = "0.20.0"
 
 [tasks]
@@ -13,7 +13,7 @@ worker = "python -m worker.main"
 test = "python -m pytest"
 lint = "ruff check ."
 format-check = "ruff format --check ."
-typecheck = "mypy app worker contracts cli"
+typecheck = "mypy app worker contracts cli ops"
 
 [tasks.check]
 depends-on = ["lint", "format-check", "typecheck", "test"]

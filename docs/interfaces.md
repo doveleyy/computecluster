@@ -16,6 +16,14 @@ The owner area is restricted to an administrator and has two views:
 - **Operations** at `/dashboard/operations` contains worker scheduling controls,
   member creation/enable/disable, and guarded Pi reboot or shutdown.
 
+Member rows show `ACTIVE` when an account is permitted to authenticate and
+`DISABLED` when access has been revoked. This is account state, not live user
+presence: the platform does not claim that an active member currently has Job
+Desk open. Contextual member actions sit in the three-dot menu immediately to
+the left of that state badge. Account states occupy one fixed, right-aligned
+chip so rows remain scannable regardless of username or role; the chip centres
+both its indicator and label, with the action trigger immediately beside it.
+
 This separation keeps routine monitoring away from destructive or
 state-changing controls without creating a page for every service card.
 
@@ -28,21 +36,23 @@ It refreshes every 15 seconds. That is intentionally much slower than the
 worker's 5-second lease heartbeat: browser freshness is a usability choice;
 lease renewal is a correctness mechanism.
 
+Compute Fleet cards keep their identity line concise: worker platform, logical
+core count, and configured per-job CPU/RAM ceiling. Supported job-type lists
+belong to submission and scheduling logic rather than the monitoring summary.
+The metadata baseline aligns with the worker's last-seen timestamp.
+
 Pi power control is deliberately stricter than an ordinary reboot button. It
 requires the authenticated owner session, refuses the request while any worker
 can claim work or any job is running, and sends only a fixed action marker to a
-root-owned system service. That service stops the API and Samba, flushes writes,
-and unmounts removable storage first. An unmount failure aborts the power action
-and brings the services back.
+root-owned system service. That service stops the API, flushes writes, and
+unmounts local removable storage first. An unmount failure aborts the power
+action and brings the API back.
 
-The Network Storage card contains two endpoint panels with different roles.
-**Pi SSD Samba** is the current live `home-storage` backend and artifact store.
-**Synology NAS** is monitored as the intended primary storage system, but an
-online badge does not mean the application has migrated to it. The combined
-card is `ONLINE` only when both endpoints are online and `DEGRADED` when only
-one is. The Synology check is credential-free TCP liveness only; capacity and
-share authorization will be added through a dedicated storage adapter rather
-than guessed from the network.
+The **Synology NAS** card represents the sole SMB service.
+Synology is the application backend for Home, Shared, Workspace, and
+owner-scoped artifacts; optional Pi-attached storage is local-only. Its online badge is still a
+credential-free TCP liveness check, not proof that a particular account can
+read or write a share.
 
 ### Job Desk
 
@@ -60,9 +70,14 @@ Job Desk has three views:
   artifact directories, or all Artifacts; job history remains. Deletion is
   refused while that member has a running job.
 
+  Each file or directory has one three-dot action menu instead of a row of
+  controls. The menu exposes only operations authorized for that location—for
+  example download in readable areas and rename, move, copy, or permanent
+  delete inside the member's writable Workspace.
+
   `Home` and `Shared` are path rewrites keyed on the session; `Artifacts` is
-  assembled from the jobs the member owns, because the artifact store is flat
-  and a path alone cannot establish who may read it. See
+  assembled from the jobs the member owns and backed by an owner-scoped NAS
+  tree. See
   [files in and out of a job](jobs/storage-workflow.md) for the full model and
   the share layout it is built from.
 - **Submit** at `/jobs-ui/new` is the focused creation workflow. It fetches
@@ -86,10 +101,9 @@ Together they support:
 Members authenticate with their own username and password. Every list and
 mutation is owner-scoped on the server, including cancellation and artifacts;
 the page is not relying on client-side filtering. Administrators may also enter
-the existing owner token and can see all workload records. Members currently
-use uploads or self-contained project ZIPs because HomeStorage selection stays
-disabled until the provisioned NAS ACLs pass the cross-user denial test and the
-storage cutover is accepted.
+the existing owner token and can see all workload records. The provisioned
+member may select Home/Shared projects and files directly; unprovisioned members
+fail closed until their DSM tree and allowlist entry are created.
 
 An authenticated member can change their own application password from the
 Account action. The owner can reset a lost member password from Operations.
@@ -115,8 +129,8 @@ Current uploads are intentionally small because they pass through the
 coordinator. Current artifacts are streamed individually, with default ceilings
 of 100 MiB per file and 512 MiB per job.
 
-Home/Shared downloads are streamed from the authenticated Synology mount;
-Artifacts are streamed from the current artifact provider. Neither is copied into
+Home/Shared and Artifacts downloads are streamed from authenticated Synology
+mounts. Neither is copied into
 SQLite or a per-session workspace. Mounted filesystems can serve many sessions
 because authorization and logical-to-physical path mapping happen independently
 for every request. User count is therefore not a reason to create one mount per

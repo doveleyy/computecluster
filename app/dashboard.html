@@ -14,7 +14,7 @@
     body { margin:0; min-width:280px; min-height:100vh; min-height:100dvh; overflow-x:hidden; background:linear-gradient(rgba(255,255,255,.017) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.017) 1px,transparent 1px),var(--bg); background-size:32px 32px; color:var(--text); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; -webkit-font-smoothing:antialiased; }
     button,input { font:inherit; }
     button { touch-action:manipulation; }
-    button:focus-visible,a:focus-visible,input:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
+    button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
     .hidden { display:none!important; }
     .shell { width:min(1240px,100%); margin:0 auto; padding:max(24px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(52px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left)); }
     .topbar { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-bottom:26px; }
@@ -35,6 +35,17 @@
     .ghost-button { min-height:40px; padding:0 14px; font:11px var(--mono); }
     .ghost-button:hover,.filter-button:hover,.worker-toggle:hover,.sort-header:hover,.power-choice:hover { border-color:var(--strong); color:var(--text); }
     .topbar-button-row { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; }
+    .row-actions { display:flex; align-items:center; justify-content:flex-end; gap:5px; }
+    .account-state { min-width:78px; min-height:30px; justify-content:center; padding:0 9px; border:1px solid var(--line); border-radius:7px; background:#080808; }
+    .action-menu { position:relative; width:34px; }
+    .action-menu > summary { position:relative; display:block; width:34px; height:34px; padding:0; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--dim); cursor:pointer; font-size:0; list-style:none; }
+    .action-menu > summary::-webkit-details-marker { display:none; }
+    .action-menu > summary::after { position:absolute; top:50%; left:50%; width:3px; height:3px; border-radius:50%; background:currentColor; box-shadow:-5px 0 currentColor,5px 0 currentColor; content:""; transform:translate(-50%,-50%); }
+    .action-menu[open] > summary,.action-menu > summary:hover { border-color:var(--line); background:var(--raised); color:var(--text); }
+    .action-menu-list { position:absolute; top:calc(100% + 7px); right:0; z-index:40; display:grid; min-width:190px; padding:5px; border:1px solid var(--line); border-radius:8px; background:rgba(12,12,12,.98); box-shadow:0 16px 44px rgba(0,0,0,.78); }
+    .action-menu-item { width:100%; min-height:38px; padding:0 11px; border:0; border-radius:4px; background:transparent; color:var(--muted); cursor:pointer; font:600 10px var(--mono); letter-spacing:.055em; text-align:left; }
+    .action-menu-item:hover { background:var(--raised); color:var(--text); }
+    .action-menu-item.danger-action:hover { color:var(--red); }
     .power-open { border-color:rgba(255,102,102,.35); color:var(--red); }
     .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; overflow:hidden; border:1px solid var(--line); border-radius:12px; background:var(--line); }
     .metric { min-width:0; padding:18px; background:var(--surface); }
@@ -49,7 +60,7 @@
     .panel { min-width:0; overflow:hidden; border:1px solid var(--line); border-radius:12px; background:rgba(10,10,10,.95); }
     .panel-header { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:62px; padding:14px 17px; border-bottom:1px solid var(--line); }
     .empty { padding:32px 17px; color:var(--muted); font:12px var(--mono); text-align:center; }
-    .services { display:grid; grid-template-columns:minmax(240px,.7fr) minmax(0,1.3fr); gap:10px; }
+    .services { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
     .service-card { min-width:0; padding:16px; border:1px solid var(--line); border-radius:11px; background:rgba(10,10,10,.95); }
     .service-top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
     .service-name { margin-top:6px; overflow:hidden; font:600 14px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
@@ -60,26 +71,22 @@
     .service-fact { min-width:0; padding:9px; background:#080808; }
     .fact-name { color:var(--dim); font:600 8px var(--mono); letter-spacing:.1em; text-transform:uppercase; }
     .fact-value { margin-top:4px; overflow:hidden; font:10px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
-    .storage-nodes { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; margin-top:13px; overflow:hidden; border:1px solid var(--line); border-radius:8px; background:var(--line); }
-    .storage-node { min-width:0; padding:12px; background:#080808; }
-    .storage-node-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
-    .storage-node-name { font:600 11px var(--mono); }
-    .storage-node-detail { min-height:34px; margin-top:8px; color:var(--muted); font:10px/1.55 var(--mono); }
     .status { display:inline-flex; align-items:center; gap:6px; font:700 10px var(--mono); letter-spacing:.06em; white-space:nowrap; }
     .status::before { width:6px; height:6px; border-radius:50%; background:currentColor; content:""; }
-    .ONLINE,.COMPLETED { color:var(--green); }
+    .ONLINE,.ACTIVE,.COMPLETED { color:var(--green); }
     .BUSY,.RUNNING { color:var(--cyan); }
     .QUEUED,.DEGRADED { color:var(--yellow); }
-    .STALE,.FAILED,.OFFLINE { color:var(--red); }
+    .STALE,.FAILED,.OFFLINE,.DISABLED { color:var(--red); }
     .UNKNOWN { color:var(--muted); }
     .worker-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; background:var(--line); }
     .worker-row { min-width:0; padding:15px 17px; background:var(--surface); }
     .worker-row.is-disabled { background:linear-gradient(rgba(255,102,102,.025),rgba(255,102,102,.025)),var(--surface); }
     .worker-top { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:14px; }
-    .worker-name { overflow:hidden; font:600 13px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
-    .worker-meta { margin-top:5px; overflow:hidden; color:var(--muted); font:10px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
-    .worker-side { text-align:right; }
-    .last-seen { display:block; margin-top:7px; color:var(--muted); font:10px var(--mono); }
+    .worker-name { overflow:hidden; font:600 13px/20px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+    .worker-meta { margin-top:4px; overflow:hidden; color:var(--muted); font:10px/14px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+    .worker-side { display:grid; grid-template-rows:20px 14px; row-gap:4px; justify-items:end; text-align:right; }
+    .worker-side .status { align-self:center; }
+    .last-seen { display:block; margin:0; color:var(--muted); font:10px/14px var(--mono); }
     .worker-stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1px; margin-top:13px; overflow:hidden; border:1px solid var(--line); border-radius:7px; background:var(--line); }
     .worker-stat { min-width:0; padding:9px; background:#080808; }
     .worker-stat-label { color:var(--dim); font:600 8px var(--mono); letter-spacing:.1em; text-transform:uppercase; }
@@ -141,13 +148,14 @@
     .member-form { padding:16px; background:var(--surface); }
     .member-form .login-input { min-height:42px; }
     .member-feedback { min-height:17px; margin:9px 0 0; color:var(--muted); font:10px var(--mono); }
+    #members-section { overflow:visible; }
     .account-reset-body { padding:18px; }
     body:not(.operations-view) .worker-control { display:none; }
     @media(max-width:900px) { .metrics{grid-template-columns:repeat(2,minmax(0,1fr))} .worker-list,.member-layout{grid-template-columns:1fr} }
     @media(max-width:640px) {
       .shell{padding-left:12px;padding-right:12px} .topbar{align-items:flex-start;margin-bottom:20px} .context-line{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
       .metrics,.panel{border-radius:10px} .metric{padding:15px} .metric-value{font-size:24px} .services{grid-template-columns:1fr}
-      .service-facts,.worker-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.storage-nodes{grid-template-columns:1fr}
+      .worker-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
       .job-head{grid-template-columns:1fr .8fr .8fr;padding:7px 10px} .head-type,.head-state,.head-worker{display:none}
       .job-row{grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;padding:15px} .job-name{grid-column:1;grid-row:1} .job-state{grid-column:2;grid-row:1;justify-self:end}
       .job-id{grid-column:1/-1;grid-row:2} .job-type{grid-column:1;grid-row:3} .job-worker{grid-column:1/-1;grid-row:4} .job-time{grid-column:2;grid-row:3;justify-self:end;text-align:right}
@@ -160,7 +168,7 @@
   <section id="login" class="login-wrap hidden"><div class="login-panel"><div class="login-top"><div class="eyebrow">private control plane</div><h1 class="brand">HOME<span>//</span>CTRL</h1><p class="login-copy">The operator dashboard requires the owner API token. Members should sign in through Job Desk.</p></div><form id="login-form" class="login-form"><label class="field-label" for="token">Owner API token</label><input id="token" class="login-input" type="password" autocomplete="current-password" autocapitalize="none" spellcheck="false" required><button class="primary-button" type="submit">OPEN SESSION</button><p id="login-error" class="login-error" aria-live="polite"></p></form></div></section>
   <main id="app" class="shell hidden">
     <header class="topbar"><div><div class="eyebrow">homelab dashboard</div><h1 id="page-brand" class="brand">HOME<span>//</span>CTRL</h1><div id="host" class="context-line">connecting...</div></div><div class="topbar-actions"><div id="connection" class="connection"><i class="connection-dot"></i><span id="updated">SYNCING</span></div><div class="topbar-button-row"><button id="power-open" class="ghost-button power-open hidden" type="button">PI POWER</button><button id="logout" class="ghost-button" type="button">LOG OUT</button></div></div></header>
-    <nav class="page-nav" aria-label="Home Platform"><a id="overview-nav" href="/dashboard">OVERVIEW</a><a id="operations-nav" href="/dashboard/operations">OPERATIONS</a><a href="/jobs-ui">JOBS</a><a href="/jobs-ui/new">SUBMIT</a></nav>
+    <nav class="page-nav" aria-label="Home Platform"><a id="overview-nav" href="/dashboard">OVERVIEW</a><a id="operations-nav" href="/dashboard/operations">OPERATIONS</a><a href="/jobs-ui">JOBS</a><a href="/jobs-ui/files">FILES</a><a href="/jobs-ui/new">SUBMIT</a></nav>
     <section id="overview-metrics" class="metrics" aria-label="Raspberry Pi metrics">
       <article class="metric"><div class="metric-label">Pi CPU</div><div id="cpu" class="metric-value">—</div><div id="cpu-foot" class="metric-foot">waiting for host</div><div class="meter"><i id="cpu-bar" class="meter-fill"></i></div></article>
       <article class="metric"><div class="metric-label">RAM</div><div id="memory" class="metric-value">—</div><div id="memory-foot" class="metric-foot">waiting for host</div><div class="meter"><i id="memory-bar" class="meter-fill"></i></div></article>
@@ -169,16 +177,19 @@
     </section>
     <section id="services-section" class="section" aria-labelledby="services-title"><header class="section-heading"><div><div class="kicker">platform</div><h2 id="services-title" class="section-title">Services</h2></div><span id="service-count" class="count">—</span></header><div class="services">
       <article class="service-card jobs"><div class="service-top"><div><div class="service-label">compute service</div><div class="service-name">Jobs</div></div><span id="jobs-state" class="status UNKNOWN">UNKNOWN</span></div><div id="jobs-detail" class="service-detail">Waiting for job system data</div><a class="service-link" href="/jobs-ui">OPEN JOBS →</a></article>
-      <article class="service-card nas"><div class="service-top"><div><div class="service-label">storage service</div><div class="service-name">Network storage</div></div><span id="storage-service-state" class="status UNKNOWN">UNKNOWN</span></div><div id="storage-service-detail" class="service-detail">Waiting for storage data</div><div class="storage-nodes"><section class="storage-node"><div class="storage-node-top"><div class="storage-node-name">Pi SSD Samba</div><span id="nas-state" class="status UNKNOWN">UNKNOWN</span></div><div id="nas-detail" class="storage-node-detail">Current application backend</div><div class="meter"><i id="nas-bar" class="meter-fill"></i></div><div class="service-facts"><div class="service-fact"><div class="fact-name">Filesystem</div><div id="nas-mount" class="fact-value">—</div></div><div class="service-fact"><div class="fact-name">Unit</div><div id="nas-service" class="fact-value">—</div></div><div class="service-fact"><div class="fact-name">SMB</div><div id="nas-smb" class="fact-value">—</div></div></div></section><section class="storage-node"><div class="storage-node-top"><div class="storage-node-name">Synology NAS</div><span id="synology-state" class="status UNKNOWN">UNKNOWN</span></div><div id="synology-detail" class="storage-node-detail">Future primary storage</div><div class="service-facts"><div class="service-fact"><div class="fact-name">Network</div><div id="synology-host" class="fact-value">—</div></div><div class="service-fact"><div class="fact-name">SMB</div><div id="synology-smb" class="fact-value">—</div></div><div class="service-fact"><div class="fact-name">DSM</div><div id="synology-management" class="fact-value">—</div></div></div></section></div></article>
+      <article class="service-card nas"><div class="service-top"><div><div class="service-label">storage service</div><div class="service-name">Synology NAS</div></div><span id="storage-service-state" class="status UNKNOWN">UNKNOWN</span></div><div id="storage-service-detail" class="service-detail">Waiting for storage data</div><div class="service-facts"><div class="service-fact"><div class="fact-name">Network</div><div id="synology-host" class="fact-value">—</div></div><div class="service-fact"><div class="fact-name">SMB</div><div id="synology-smb" class="fact-value">—</div></div><div class="service-fact"><div class="fact-name">DSM</div><div id="synology-management" class="fact-value">—</div></div></div></article>
     </div></section>
     <section class="section panel" aria-labelledby="workers-title"><header class="panel-header"><div><div class="kicker">compute fleet</div><h2 id="workers-title" class="section-title">Worker nodes</h2></div><span id="worker-count" class="count">—</span></header><div id="workers" class="worker-list"></div></section>
     <section id="members-section" class="section panel hidden" aria-labelledby="members-title"><header class="panel-header"><div><div class="kicker">access control</div><h2 id="members-title" class="section-title">Members</h2></div><span id="member-count" class="count">—</span></header><div class="member-layout"><div id="members" class="member-list"></div><form id="member-form" class="member-form"><label class="field-label" for="member-username">Username</label><input id="member-username" class="login-input" minlength="3" maxlength="32" pattern="[a-z][a-z0-9._-]*" autocomplete="off" placeholder="family-member" required><label class="field-label" for="member-password">Initial password</label><input id="member-password" class="login-input" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button id="member-submit" class="primary-button" type="submit">CREATE MEMBER</button><p id="member-feedback" class="member-feedback" aria-live="polite">Members can change this password from Job Desk.</p></form></div></section>
   </main>
-  <dialog id="power-dialog"><div class="dialog-head"><div><div class="kicker">host control</div><div class="dialog-title">Pi power</div></div><button id="power-close" class="close-button" type="button" aria-label="Close">×</button></div><form id="power-form" class="power-body"><p class="power-copy">This first drains the control plane, stops Samba, flushes writes, and unmounts the SSD. It is refused while scheduling is enabled or a job is running.</p><div class="power-choices"><button class="power-choice" data-power-action="reboot" type="button">REBOOT PI</button><button class="power-choice" data-power-action="shutdown" type="button">SHUT DOWN PI</button></div><label id="power-confirm-label" class="field-label" for="power-confirm">Choose an action</label><input id="power-confirm" class="power-confirm" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" disabled><button id="power-submit" class="power-submit" type="submit" disabled>CONFIRM</button><p id="power-message" class="power-message" aria-live="polite"></p></form></dialog>
+  <dialog id="power-dialog"><div class="dialog-head"><div><div class="kicker">host control</div><div class="dialog-title">Pi power</div></div><button id="power-close" class="close-button" type="button" aria-label="Close">×</button></div><form id="power-form" class="power-body"><p class="power-copy">This first drains the control plane, flushes writes, and unmounts the local SSD. It is refused while scheduling is enabled or a job is running.</p><div class="power-choices"><button class="power-choice" data-power-action="reboot" type="button">REBOOT PI</button><button class="power-choice" data-power-action="shutdown" type="button">SHUT DOWN PI</button></div><label id="power-confirm-label" class="field-label" for="power-confirm">Choose an action</label><input id="power-confirm" class="power-confirm" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" disabled><button id="power-submit" class="power-submit" type="submit" disabled>CONFIRM</button><p id="power-message" class="power-message" aria-live="polite"></p></form></dialog>
   <dialog id="reset-dialog"><div class="dialog-head"><div><div class="kicker">member recovery</div><div id="reset-title" class="dialog-title">Reset password</div></div><button id="reset-close" class="close-button" type="button" aria-label="Close">×</button></div><form id="reset-form" class="account-reset-body"><p class="power-copy">Set a temporary password and share it privately. Every existing browser session for this member will be signed out.</p><label class="field-label" for="reset-password">New password</label><input id="reset-password" class="login-input" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><label class="field-label" for="reset-confirm">Confirm new password</label><input id="reset-confirm" class="login-input" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button id="reset-submit" class="primary-button" type="submit">RESET PASSWORD</button><p id="reset-feedback" class="member-feedback" aria-live="polite"></p></form></dialog>
   <script>
     const $ = selector => document.querySelector(selector),operationsView=location.pathname.endsWith("/operations");
     function element(tag,className,text){const item=document.createElement(tag);if(className)item.className=className;if(text!==undefined&&text!==null)item.textContent=text;return item}
+    function actionMenu(label,items){const menu=element("details","action-menu"),trigger=element("summary","","•••"),list=element("div","action-menu-list");trigger.title=label;trigger.setAttribute("aria-label",label);trigger.setAttribute("aria-haspopup","menu");trigger.onclick=()=>document.querySelectorAll("details.action-menu[open]").forEach(open=>{if(open!==menu)open.removeAttribute("open")});list.setAttribute("role","menu");items.forEach(item=>{item.classList.add("action-menu-item");item.setAttribute("role","menuitem");item.addEventListener("click",()=>menu.removeAttribute("open"));list.append(item)});menu.append(trigger,list);return menu}
+    document.addEventListener("click",event=>document.querySelectorAll("details.action-menu[open]").forEach(menu=>{if(!menu.contains(event.target))menu.removeAttribute("open")}));
+    document.addEventListener("keydown",event=>{if(event.key==="Escape")document.querySelectorAll("details.action-menu[open]").forEach(menu=>menu.removeAttribute("open"))});
     function formatBytes(value){if(value===null||value===undefined)return"—";const units=["B","KB","MB","GB","TB"];let index=0;while(value>=1024&&index<units.length-1){value/=1024;index+=1}return value.toFixed(index>1?1:0)+" "+units[index]}
     function formatUptime(value){let seconds=Math.max(0,Math.floor(value));const days=Math.floor(seconds/86400);seconds%=86400;const hours=Math.floor(seconds/3600);const minutes=Math.floor((seconds%3600)/60);return(days?days+"d ":"")+hours+"h "+minutes+"m uptime"}
     function timeLabel(value){if(!value)return"—";return new Date(value).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}
@@ -188,17 +199,11 @@
     function showLogin(message=""){$("#app").classList.add("hidden");$("#login").classList.remove("hidden");$("#login-error").textContent=message}
     function setPercent(id,value){$(id).textContent=value.toFixed(1)+"%";$(id+"-bar").style.width=Math.min(100,value)+"%"}
     function renderServices(services){
-      const jobsState=services.control_plane.state==="ONLINE"&&services.database.state==="ONLINE"?"ONLINE":"OFFLINE",storageState=services.nas.state==="ONLINE"&&services.synology_nas.state==="ONLINE"?"ONLINE":services.nas.state==="ONLINE"||services.synology_nas.state==="ONLINE"?"DEGRADED":"OFFLINE",values=[{state:jobsState},{state:storageState}],healthy=values.filter(service=>service.state==="ONLINE").length;
+      const jobsState=services.control_plane.state==="ONLINE"&&services.database.state==="ONLINE"?"ONLINE":"OFFLINE",storageState=services.synology_nas.state,values=[{state:jobsState},{state:storageState}],healthy=values.filter(service=>service.state==="ONLINE").length;
       $("#service-count").textContent=healthy+" / "+values.length+" healthy";
       setStatus($("#jobs-state"),jobsState);$("#jobs-detail").textContent="v"+services.control_plane.version+" · "+services.control_plane.detail+" · "+services.database.detail;
-      setStatus($("#storage-service-state"),storageState);$("#storage-service-detail").textContent="Current Pi backend and dedicated Synology target";
-      setStatus($("#nas-state"),services.nas.state);
-      $("#nas-detail").textContent=services.nas.mounted?formatBytes(services.nas.free)+" free of "+formatBytes(services.nas.total)+" · "+services.nas.percent.toFixed(1)+"% used":"SSD mount is unavailable";
-      $("#nas-bar").style.width=services.nas.percent===null?"0":Math.min(100,services.nas.percent)+"%";
-      $("#nas-mount").textContent=services.nas.mount_identity||(services.nas.mounted?services.nas.mount:"not mounted");
-      $("#nas-service").textContent=services.nas.service;$("#nas-smb").textContent=services.nas.smb;
-      const synology=services.synology_nas;setStatus($("#synology-state"),synology.state);
-      $("#synology-detail").textContent=synology.configured?"Dedicated NAS reachable through the private network · migration not started":"Set the Synology host to enable monitoring";
+      setStatus($("#storage-service-state"),storageState);$("#storage-service-detail").textContent=services.synology_nas.configured?"Primary household storage · files and job results":"Set the Synology host to enable monitoring";
+      const synology=services.synology_nas;
       $("#synology-host").textContent=synology.host||"not configured";$("#synology-smb").textContent=synology.smb;$("#synology-management").textContent=synology.management;
     }
     function renderWorkers(workers){
@@ -208,7 +213,7 @@
         const row=element("article","worker-row"+(worker.enabled?"":" is-disabled")),top=element("div","worker-top"),primary=element("div");
         primary.append(element("div","worker-name",worker.id));
         const platform=worker.metrics?worker.metrics.platform+" · "+worker.metrics.logical_cores+" cores · ":"",ceiling=worker.max_job_cpu===null?"capacity not configured":worker.max_job_cpu+" CPU / "+worker.max_job_memory_mb+" MiB job ceiling";
-        primary.append(element("div","worker-meta",platform+worker.supported_types.join(" · ")+" · "+ceiling+(worker.current_job_id?" · job "+worker.current_job_id.slice(0,8):"")));
+        primary.append(element("div","worker-meta",platform+ceiling));
         const side=element("div","worker-side");side.append(status(worker.state),element("time","last-seen",timeLabel(worker.last_seen)));top.append(primary,side);row.append(top);
         const live=worker.state==="STALE"?null:worker.metrics,gpu=live&&live.gpus.length?live.gpus[0]:null,stats=element("div","worker-stats");
         const metric=(label,value)=>{const cell=element("div","worker-stat");cell.append(element("div","worker-stat-label",label));const text=element("div","worker-stat-value",value);text.title=value;cell.append(text);return cell};
@@ -221,7 +226,7 @@
     }
     let resetMember=null;
     function openPasswordReset(user){resetMember=user;$("#reset-title").textContent="Reset @"+user.username;$("#reset-form").reset();$("#reset-feedback").textContent="";$("#reset-dialog").showModal();$("#reset-password").focus()}
-    function renderMembers(users){$("#member-count").textContent=users.length+(users.length===1?" account":" accounts");const rows=users.map(user=>{const row=element("div","member-row"),copy=element("div"),actions=element("div","topbar-button-row");copy.append(element("div","member-name",user.username),element("div","member-meta",user.role+" · "+(user.disabled?"DISABLED":"ACTIVE")+" · storage "+user.id));actions.append(status(user.disabled?"OFFLINE":"ONLINE"));if(user.role==="MEMBER"){const copyKey=element("button","ghost-button","COPY KEY");copyKey.type="button";copyKey.title="Copy stable NAS directory key";copyKey.onclick=async()=>{try{await navigator.clipboard.writeText(user.id);$("#member-feedback").textContent="STORAGE KEY COPIED · @"+user.username}catch{$("#member-feedback").textContent="COPY FAILED · storage key is "+user.id}};const reset=element("button","ghost-button","RESET");reset.type="button";reset.onclick=()=>openPasswordReset(user);const toggle=element("button","ghost-button",user.disabled?"ENABLE":"DISABLE");toggle.type="button";toggle.onclick=async()=>{toggle.disabled=true;try{await api("/dashboard/api/users/"+encodeURIComponent(user.id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({disabled:!user.disabled})});await refresh()}catch(error){toggle.disabled=false;toggle.textContent="RETRY"}};actions.append(copyKey,reset,toggle)}row.append(copy,actions);return row});$("#members").replaceChildren(...rows)}
+    function renderMembers(users){$("#member-count").textContent=users.length+(users.length===1?" account":" accounts");const rows=users.map(user=>{const row=element("div","member-row"),copy=element("div"),actions=element("div","row-actions"),state=status(user.disabled?"DISABLED":"ACTIVE");state.classList.add("account-state");copy.append(element("div","member-name",user.username),element("div","member-meta",user.role+" · storage "+user.id));if(user.role==="MEMBER"){const copyKey=element("button","","COPY STORAGE KEY");copyKey.type="button";copyKey.title="Copy stable NAS directory key";copyKey.onclick=async()=>{try{await navigator.clipboard.writeText(user.id);$("#member-feedback").textContent="STORAGE KEY COPIED · @"+user.username}catch{$("#member-feedback").textContent="COPY FAILED · storage key is "+user.id}};const reset=element("button","","RESET PASSWORD");reset.type="button";reset.onclick=()=>openPasswordReset(user);const toggle=element("button","",user.disabled?"ENABLE ACCOUNT":"DISABLE ACCOUNT");toggle.type="button";toggle.classList.toggle("danger-action",!user.disabled);toggle.onclick=async()=>{toggle.disabled=true;try{await api("/dashboard/api/users/"+encodeURIComponent(user.id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({disabled:!user.disabled})});await refresh()}catch(error){toggle.disabled=false;toggle.textContent="RETRY"}};actions.append(actionMenu("Actions for "+user.username,[copyKey,reset,toggle]))}actions.append(state);row.append(copy,actions);return row});$("#members").replaceChildren(...rows)}
     async function refresh(){
       try{
         if(operationsView){const [workers,users]=await Promise.all([api("/dashboard/api/workers"),api("/dashboard/api/users")]);renderWorkers(workers);renderMembers(users);$("#host").textContent="worker scheduling / member access / host power"}

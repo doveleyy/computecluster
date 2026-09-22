@@ -27,9 +27,8 @@ particular deployment, not to the design.
     |                       |
  per-job container      per-job container
 
-    transitional storage         end-state storage
-    Pi SSD + Samba  ---------->  dedicated NAS + Samba
-    live data provider           sole household file service
+    dedicated NAS + Samba        Pi-attached SSD
+    files + job artifacts        local-only storage
 ```
 
 The coordinator is deliberately not a compute node. It stays responsive because
@@ -87,9 +86,10 @@ units consume those markers and run the corresponding fixed operation.
 
 The API refuses the request while any worker is scheduling-enabled or any job
 is running, so an already eligible worker cannot claim new work during the
-handoff. The power helper then stops the API and Samba, flushes pending writes, and unmounts the
-removable filesystem. If any stop or unmount step fails, it aborts and restores
-the services. Only a successful storage detach reaches reboot or poweroff.
+handoff. The power helper then stops the API, flushes pending writes, and
+unmounts the local removable filesystem. If any stop or unmount step fails, it
+aborts and restores the API. Only a successful storage detach reaches reboot or
+poweroff.
 
 ### One submission contract, multiple clients
 
@@ -168,12 +168,12 @@ configuration. It passes through the coordinator as a bounded ZIP and is
 verified and safely extracted by the worker. Named file bindings are also live:
 every declared name maps to either a separately verified upload or a
 digest-and-size-verified HTTPS source, then to a stable read-only container path.
-HTTPS bytes travel directly to the selected worker. A regular file already in
-the Pi-attached Samba share is identified by a logical storage ID, safe relative
-path, size, and digest; its host path never enters the job contract. The current
-provider streams it over the authenticated API because the disk is physically
-attached to the coordinator. Direct external-NAS resolution and directories
-remain later data-plane stages. Array children reuse the same immutable
+HTTPS bytes travel directly to the selected worker. A regular file already on
+the Synology NAS is identified by a logical storage ID, safe relative path,
+size, and digest; its host path never enters the job contract. The coordinator
+streams the file from its authenticated NAS mount while direct worker-to-NAS
+resolution and directory inputs remain later data-plane stages. Array children
+reuse the same immutable
 references instead of duplicating bytes in job records or, under the normal
 same-filesystem layout, on disk.
 
@@ -257,21 +257,19 @@ ownership required and immutable, scope idempotency by owner, and register
 staged uploads to their uploader. List/detail/cancel/artifact routes enforce the
 same owner rule, and adversarial tests cover known foreign UUIDs.
 
-NAS access remains only partially accepted. The DSM groups, publisher identity,
-first member identity, directory tree, mount, and first-member ACL matrix are
-provisioned. The sole provisioned member can browse/select virtual Home/Shared
-paths through a pilot allowlist; cross-user denial and artifact publication
-cutover remain pending. The separate workspace identity, CIFS mount,
-first-member ACL, and pilot allowlist are live. Its positive/negative NAS access
-matrix passed; signed-in browser create/upload acceptance remains pending.
+The Synology storage provider is live for Home, Shared, Workspace, and
+owner-scoped artifacts. Publisher and browser-workspace writes use separate SMB
+identities with distinct ACLs; the accepted member remains allowlisted while a
+second-member cross-user acceptance test is still pending. The retired Pi
+Samba service is disabled and its SSD is local-only.
 
-## End-state storage topology
+## Storage topology
 
-The Pi-attached Samba server is transitional infrastructure, not a second NAS
-in the final design. The dedicated NAS becomes the only household SMB service
-and owns personal directories, shared data, project inputs, and published
-artifacts. The Pi remains the always-on control plane: API, scheduler, SQLite,
-authentication, leases, and small upload staging.
+The dedicated NAS is the only household SMB service and owns personal
+directories, shared data, project inputs, and published artifacts. The Pi
+remains the always-on control plane: API, scheduler, SQLite, authentication,
+leases, and small upload staging. Its attached SSD is local-only and may be
+repurposed for backup, scratch, or control-plane recovery.
 
 ```text
 clients ---------------- SMB ----------------> dedicated NAS
@@ -281,15 +279,10 @@ clients ---------------- SMB ----------------> dedicated NAS
 Pi control plane <----- status + metadata ---- compute workers
 ```
 
-The migration must preserve the logical storage-reference contract while its
-provider changes from the Pi-attached disk to the NAS. Once application reads,
-worker transfers, artifact publication, per-user ACLs, backup, and rollback are
-accepted against the dedicated NAS, the Pi Samba container is disabled and
-removed. The Pi SSD may then be repurposed for backups or local control-plane
-recovery, but it must not remain an independently advertised general file
-share. During the transition, the Dashboard may show both endpoints inside one
-Network Storage card so operators can distinguish current and target state; in
-the end state that card represents only the dedicated NAS.
+The logical storage-reference contract remains independent of the physical
+provider. The Dashboard's Synology NAS card represents only Synology; it
+does not treat optional Pi-local storage as a network service. An authenticated read or
+write check remains stronger evidence than credential-free TCP liveness.
 
 ## Job lifecycle
 
@@ -472,10 +465,18 @@ Results are exposed read-only to any file-sharing layer. The coordinator owns
 that directory; letting a share client delete from it would create a second
 writer and no way to reconcile the two.
 
-The current browser and CLI download paths stream one file through the control
-plane. They do not first load the whole file into application memory, and HTTP
-range requests are supported by the file response. Publication is nevertheless
-a single request rather than a resumable transfer. Current defaults cap an
+SQLite is backed up through its online backup API, never by copying the live
+database file. The verified local copy is closed before immutable bytes cross
+the NAS boundary, then its destination digest is checked and recorded. This is
+the recovery copy for control-plane truth; NAS snapshots and off-device backup
+remain independent durability layers.
+
+The browser and CLI download paths stream files through the control plane. They
+do not first load the whole file into application memory. Artifact listings are
+integrity manifests containing size and SHA-256; HTTP ranges plus the CLI's
+hidden partial file make a full-job pull resumable and verified. The browser
+still offers ordinary per-file downloads. Publication is nevertheless a single
+request rather than a resumable transfer. Current defaults cap an
 artifact at 100 MiB and all artifacts for one job at 512 MiB, so this is suitable
 for models, metrics, reports, and modest result tables — not multi-gigabyte model
 checkpoints or generated datasets.
@@ -611,14 +612,15 @@ still unable to serve.
 
 - Placement uses fixed best-fit capacity, not benchmark scores, live load,
   thermal pressure, or data locality.
-- The worker's content-addressed caches still grow without bound. Deduplication
-  across jobs slows that rather than solving it.
+- The worker's content-addressed dataset, script, input, and project caches are
+  bounded by a combined per-node LRU ceiling. This is a disk guard, not a
+  data-locality scheduler: eviction may require a later job to download again.
 - Published results are never evicted except by an explicit deletion or the
   size ceiling, which is intentional but means the store's growth is governed by
   operator discipline rather than by policy.
 - Results pass through the coordinator rather than going directly to storage.
-  Correct while storage is a disk attached to the coordinator; the natural fix
-  at larger scale is a resumable transfer lifecycle or object storage with
+  Correct at this scale; resumable downloads reduce retry cost but not the data
+  path. The natural fix at larger scale is direct object/storage transfer with
   pre-signed upload URLs, either of which takes the coordinator out of the byte
   path entirely.
 - Telemetry is carried inside the claim and heartbeat messages rather than

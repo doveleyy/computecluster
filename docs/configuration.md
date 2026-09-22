@@ -39,6 +39,14 @@ is running.
 loses its job; too long and a dead worker's job sits idle before recovery. It
 must comfortably exceed the worker's heartbeat interval.
 
+Database backup is an operator service rather than an API background task.
+`python -m ops.backup_sqlite <database> <private-destination> --retain 14`
+uses SQLite's online backup API, verifies the copy locally, publishes immutable
+bytes plus a SHA-256 sidecar, and removes older sets. The production systemd
+unit supplies its destination through `HOME_PLATFORM_BACKUP_DIR`; keep that
+path in live-only configuration because it may contain an owner storage key.
+NAS snapshots and a second off-device copy are separate layers.
+
 ## Uploads (staged job inputs)
 
 | Variable | Default | Purpose |
@@ -69,9 +77,10 @@ linked URL instead, which goes directly to the worker.
 HomeStorage project imports and input references do not copy the original file
 into ordinary upload staging. A project folder is packaged into the bounded
 project ZIP; an input file remains on the share and is identified by relative
-path, size, and SHA-256. The current Pi-attached provider streams that input
-through an authenticated API response to the worker. A future external NAS
-provider can resolve the same logical contract through a direct storage path.
+path, size, and SHA-256. The coordinator streams that input from its
+authenticated Synology mount through an authenticated API response to the
+worker. A future provider can resolve the same logical contract through a
+direct worker-to-NAS storage path.
 
 For members, storage is fail-closed by default. When member storage is enabled,
 Job Desk exposes only two virtual roots: `Home` maps to that account's stable
@@ -129,10 +138,12 @@ layout are still served from their original `<job-id>/` directory, so the change
 strands no completed work; migrate them with the artifact migration helper.
 
 These limits also define the practical download system today. Each artifact is
-served as a streamed file response and may be downloaded through the API, CLI,
-or authenticated Job Desk. Job Desk only previews text-like files up to 256 KiB;
-that preview threshold is a browser-interface safety limit, not an artifact
-storage limit. Transfers are not yet resumable and have no progress contract.
+served as a streamed file response with byte-range support and a SHA-256 value
+in its listing. `hp pull` resumes retained `.part` files and verifies the final
+size and digest before atomically exposing the completed file. The single-file
+CLI command and authenticated Job Desk still provide ordinary streaming
+downloads. Job Desk only previews text-like files up to 256 KiB; that preview
+threshold is a browser-interface safety limit, not an artifact storage limit.
 
 **Set `ARTIFACT_REQUIRE_MOUNT` whenever the artifact directory lives on removable
 storage.** If that disk is absent, its mount point is still a perfectly writable
@@ -141,26 +152,21 @@ check compares device identity against the root filesystem.
 
 ## Service health reporting
 
-The dashboard reports on a file-sharing service if one is present. These only
-affect what it displays; nothing functional depends on them.
+The dashboard reports credential-free liveness for the dedicated NAS. This
+affects only what it displays; application mounts and ACLs remain the functional
+storage boundary.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `HOME_PLATFORM_NAS_MOUNT` | `/srv/home-platform/storage` | Mount point checked for presence and capacity |
-| `HOME_PLATFORM_NAS_SERVICE` | `home-platform-nas` | systemd unit whose state is reported |
 | `HOME_PLATFORM_SYNOLOGY_HOST` | unset | Private DNS name or address whose SMB and DSM reachability are reported |
 
-The health check combines four signals — the mount point being a real mount, its
-capacity, the service unit's state, and TCP reachability of the share port. It is
-a liveness indication, not proof that an authenticated read or write would
-succeed.
-
 When `HOME_PLATFORM_SYNOLOGY_HOST` is configured, the authenticated Dashboard
-shows the dedicated NAS as its own endpoint inside the Network Storage card.
+shows the dedicated NAS in the Synology NAS card.
 SMB reachability determines its endpoint state; DSM HTTPS reachability is shown
 as an additional management signal. No NAS credential is sent, and the check
 does not claim that a share is mounted, writable, or authorized. Leave the
-variable unset when no dedicated NAS is present.
+variable unset when no dedicated NAS is present. The retired Pi Samba unit and
+local SSD are intentionally not part of this service-health response.
 
 ## Worker
 
@@ -174,10 +180,16 @@ variable unset when no dedicated NAS is present.
 | `HOME_PLATFORM_HEARTBEAT_SECONDS` | `5` | Lease renewal interval. Must be well under `LEASE_SECONDS` |
 | `HOME_PLATFORM_DATASET_ALLOWED_HOSTS` | unset | Comma-separated hosts from which this worker may fetch digest-and-size-verified `python_batch` datasets or general `batch` named inputs. Empty disables linked inputs but not coordinator-staged work. |
 | `HOME_PLATFORM_MAX_DATASET_BYTES` | `10737418240` (10 GiB) | Largest linked dataset or named input this worker accepts |
+| `HOME_PLATFORM_MAX_CACHE_BYTES` | `21474836480` (20 GiB) | Combined ceiling for reusable dataset, script, named-input, and project-archive caches; least-recently-used inactive entries are evicted before a new download |
 | `HOME_PLATFORM_CONTAINER_IMAGE` | `home-platform-ml:0.1` | Image backing `python_batch` and `scientific-python:1` batch jobs. The worker advertises those types only while this image exists locally |
 
 A worker registers with scheduling **disabled**; it claims nothing until enabled
 through the API, CLI, or dashboard.
+
+The native Linux deployment uses a systemd user unit and a locked `linux-64`
+worker environment. It starts with the owner's login; running it before login
+requires an explicit administrator decision to enable user lingering. Installing
+the agent does not start Docker, build an image, or enable scheduling.
 
 ## Inside a job container
 

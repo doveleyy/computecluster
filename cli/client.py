@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -328,6 +329,22 @@ def build_parser() -> argparse.ArgumentParser:
         "--output", type=Path, help="where to write it [default: ./<filename>]"
     )
 
+    pull_parser = subparsers.add_parser(
+        "pull",
+        help="resume and verify every artifact produced by a job",
+        description=(
+            "Downloads the complete artifact manifest into a directory. Partial "
+            "files are retained as .part files and resumed on the next run."
+        ),
+    )
+    pull_parser.add_argument("job_id", help="job UUID, as printed by `list`")
+    pull_parser.add_argument(
+        "--destination",
+        type=Path,
+        default=Path("."),
+        help="directory to receive the files [default: current directory]",
+    )
+
     delete_parser = subparsers.add_parser(
         "delete",
         help="delete a job's published files",
@@ -378,6 +395,53 @@ def download_artifact(
         with target.open("wb") as output:
             for chunk in response.iter_bytes(chunk_size=1024 * 1024):
                 output.write(chunk)
+    return target
+
+
+def pull_artifact(
+    base_url: str,
+    job_id: str,
+    artifact: dict[str, Any],
+    destination: Path,
+    *,
+    token: str | None,
+) -> Path:
+    filename = str(artifact["filename"])
+    expected_size = int(artifact["size_bytes"])
+    expected_sha256 = str(artifact["sha256"])
+    destination.mkdir(parents=True, exist_ok=True)
+    target = destination / filename
+    partial = destination / f".{filename}.part"
+    offset = partial.stat().st_size if partial.is_file() else 0
+    if offset > expected_size:
+        partial.unlink()
+        offset = 0
+    headers = {"X-API-Token": token} if token else {}
+    if offset:
+        headers["Range"] = f"bytes={offset}-"
+    with httpx.stream(
+        "GET",
+        f"{base_url}/jobs/{job_id}/artifacts/{filename}",
+        headers=headers,
+        timeout=httpx.Timeout(30, read=300),
+    ) as response:
+        response.raise_for_status()
+        resumed = offset > 0 and response.status_code == 206
+        mode = "ab" if resumed else "wb"
+        with partial.open(mode) as output:
+            for chunk in response.iter_bytes(chunk_size=1024 * 1024):
+                output.write(chunk)
+    if partial.stat().st_size != expected_size:
+        raise RuntimeError(
+            f"downloaded size for {filename!r} does not match its manifest"
+        )
+    digest = hashlib.sha256()
+    with partial.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != expected_sha256:
+        raise RuntimeError(f"SHA-256 verification failed for {filename!r}")
+    partial.replace(target)
     return target
 
 
@@ -687,6 +751,29 @@ def main() -> None:
         renderer = lambda payload: (  # noqa: E731
             f"{render.GREEN}Downloaded{render.RESET} {payload['path']} "
             f"({payload['size_bytes'] / 1024:.1f} KiB)"
+        )
+    elif args.command == "pull":
+        manifest = request(
+            "GET", f"{base_url}/jobs/{args.job_id}/artifacts", token=token
+        )
+        pulled_files = [
+            pull_artifact(
+                base_url,
+                args.job_id,
+                artifact,
+                args.destination,
+                token=token,
+            )
+            for artifact in manifest
+        ]
+        result = {
+            "job_id": args.job_id,
+            "directory": str(args.destination.resolve()),
+            "files": [str(path.resolve()) for path in pulled_files],
+        }
+        renderer = lambda payload: (  # noqa: E731
+            f"{render.GREEN}Downloaded and verified{render.RESET} "
+            f"{len(payload['files'])} file(s) into {payload['directory']}"
         )
     elif args.command == "delete":
         path = f"{base_url}/jobs/{args.job_id}/artifacts"

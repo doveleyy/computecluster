@@ -79,9 +79,9 @@ Files already on the NAS may instead be bound with
 `--input-storage NAME=LOGICAL_PATH`, using the same `Home/...` and `Shared/...`
 vocabulary as Job Desk and `#HP` defaults. The coordinator resolves and
 hashes the selected regular file without copying it into upload staging. The
-current Pi-attached implementation serves those bytes to the worker over its
-authenticated control-plane connection; the worker verifies the recorded size
-and digest and uses the same content-addressed cache. This removes the browser
+coordinator serves those bytes from its authenticated Synology mount over the
+worker's control-plane connection; the worker verifies the recorded size and
+digest and uses the same content-addressed cache. This removes the browser
 upload limit, but it is not yet the final direct-storage data plane.
 
 ## Header grammar

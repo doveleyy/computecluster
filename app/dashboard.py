@@ -1933,6 +1933,17 @@ def create_dashboard_router() -> APIRouter:
             )
         return name
 
+    def artifact_manifest_entry(path: Path) -> dict[str, Any]:
+        digest = hashlib.sha256()
+        with path.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return {
+            "filename": path.name,
+            "size_bytes": path.stat().st_size,
+            "sha256": digest.hexdigest(),
+        }
+
     @router.post(
         "/jobs/{job_id}/artifacts",
         status_code=status.HTTP_201_CREATED,
@@ -2020,7 +2031,7 @@ def create_dashboard_router() -> APIRouter:
             return []
         return sorted(
             (
-                {"filename": item.name, "size_bytes": item.stat().st_size}
+                artifact_manifest_entry(item)
                 for item in directory.iterdir()
                 if item.is_file() and not item.name.startswith(".")
             ),
@@ -2061,7 +2072,7 @@ def create_dashboard_router() -> APIRouter:
             return []
         return sorted(
             (
-                {"filename": item.name, "size_bytes": item.stat().st_size}
+                artifact_manifest_entry(item)
                 for item in directory.iterdir()
                 if item.is_file() and not item.name.startswith(".")
             ),
@@ -2182,32 +2193,6 @@ def collect_service_health(job_service: JobService) -> dict[str, Any]:
         database_state = "OFFLINE"
         database_detail = "SQLite unavailable"
 
-    mount_path = Path(
-        os.environ.get("HOME_PLATFORM_NAS_MOUNT", "/srv/home-platform/storage")
-    )
-    mounted = mount_path.is_mount()
-    try:
-        usage = psutil.disk_usage(str(mount_path)) if mounted else None
-    except OSError:
-        mounted = False
-        usage = None
-    mount_identity = (
-        command_output(
-            ["findmnt", "--noheadings", "--output", "SOURCE,FSTYPE", str(mount_path)]
-        )
-        if mounted
-        else None
-    )
-    service_name = os.environ.get("HOME_PLATFORM_NAS_SERVICE", "home-platform-nas")
-    service_state = command_output(["systemctl", "is-active", service_name])
-    smb_reachable = tcp_reachable("127.0.0.1", 445)
-    if not mounted:
-        nas_state = "OFFLINE"
-    elif service_state == "active" and smb_reachable:
-        nas_state = "ONLINE"
-    else:
-        nas_state = "DEGRADED"
-
     synology_host = os.environ.get("HOME_PLATFORM_SYNOLOGY_HOST", "").strip()
     if synology_host:
         synology_smb_reachable = tcp_reachable(synology_host, 445)
@@ -2229,25 +2214,13 @@ def collect_service_health(job_service: JobService) -> dict[str, Any]:
             "engine": "SQLite",
             "detail": database_detail,
         },
-        "nas": {
-            "state": nas_state,
-            "mount": str(mount_path),
-            "mounted": mounted,
-            "mount_identity": mount_identity,
-            "total": usage.total if usage is not None else None,
-            "used": usage.used if usage is not None else None,
-            "free": usage.free if usage is not None else None,
-            "percent": usage.percent if usage is not None else None,
-            "service": service_state or "unknown",
-            "smb": "reachable" if smb_reachable else "unreachable",
-        },
         "synology_nas": {
             "state": synology_state,
             "configured": bool(synology_host),
             "host": synology_host or None,
             "smb": "reachable" if synology_smb_reachable else "unreachable",
             "management": ("reachable" if synology_dsm_reachable else "unreachable"),
-            "role": "migration target",
+            "role": "primary storage",
         },
     }
 

@@ -15,6 +15,7 @@ from worker.data_plane import (
     WorkerWorkspace,
     materialize_batch_input,
     materialize_dataset,
+    prune_cache,
 )
 
 
@@ -43,6 +44,60 @@ def workspace(tmp_path: Path) -> WorkerWorkspace:
         allowed_dataset_hosts=frozenset({"datasets.example"}),
         max_dataset_bytes=1024 * 1024,
     )
+
+
+def test_cache_evicts_oldest_entry_and_preserves_linked_inputs(tmp_path: Path) -> None:
+    worker_workspace = WorkerWorkspace(
+        root=tmp_path / "worker-data",
+        allowed_dataset_hosts=frozenset(),
+        max_dataset_bytes=1024,
+        max_cache_bytes=10,
+    )
+    cache = worker_workspace.root / "cache"
+    inputs = worker_workspace.root / "inputs"
+    run = worker_workspace.root / "runs" / "active"
+    cache.mkdir(parents=True)
+    inputs.mkdir(parents=True)
+    run.mkdir(parents=True)
+    oldest = cache / "oldest"
+    linked = inputs / "linked"
+    newest = cache / "newest"
+    oldest.write_bytes(b"1111")
+    linked.write_bytes(b"2222")
+    newest.write_bytes(b"3333")
+    (run / "linked").hardlink_to(linked)
+    oldest.touch()
+    linked.touch()
+    newest.touch()
+    # Make ordering deterministic without sleeping.
+    oldest_stat = oldest.stat()
+    newest_stat = newest.stat()
+    oldest_time = min(oldest_stat.st_mtime_ns, newest_stat.st_mtime_ns) - 10_000
+    newest_time = max(oldest_stat.st_mtime_ns, newest_stat.st_mtime_ns) + 10_000
+    oldest.touch()
+    import os
+
+    os.utime(oldest, ns=(oldest_time, oldest_time))
+    os.utime(newest, ns=(newest_time, newest_time))
+
+    removed = prune_cache(worker_workspace, required_bytes=2)
+
+    assert removed == (1, 4)
+    assert not oldest.exists()
+    assert linked.exists()
+    assert newest.exists()
+
+
+def test_cache_rejects_an_item_larger_than_its_ceiling(tmp_path: Path) -> None:
+    worker_workspace = WorkerWorkspace(
+        root=tmp_path,
+        allowed_dataset_hosts=frozenset(),
+        max_dataset_bytes=1024,
+        max_cache_bytes=4,
+    )
+
+    with pytest.raises(DatasetPolicyError, match="requires 5 cache bytes"):
+        prune_cache(worker_workspace, required_bytes=5)
 
 
 def test_dataset_download_is_verified_and_reused(

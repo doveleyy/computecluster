@@ -175,9 +175,9 @@ instead of being restricted to a CSV dataset variable.
 **HomeStorage** — a logical storage ID, normalized share-relative path, exact
 size, and SHA-256. The coordinator resolves only regular files below its
 configured storage root, rejects traversal and symbolic links, and never puts
-host paths into the job. The current Pi-attached implementation serves the file
-to an authenticated worker, which verifies and caches it. Directory references
-and direct external-NAS resolution remain pending.
+host paths into the job. The coordinator serves the file from its authenticated
+Synology mount to an authenticated worker, which verifies and caches it.
+Directory references and direct worker-to-NAS resolution remain pending.
 
 ## Worker protocol
 
@@ -297,8 +297,8 @@ separately.
 | Call | Purpose |
 |---|---|
 | `POST /jobs/{id}/artifacts` | Worker publishes one output file |
-| `GET /jobs/{id}/artifacts` | List a job's files |
-| `GET /jobs/{id}/artifacts/{filename}` | Download one |
+| `GET /jobs/{id}/artifacts` | List a job's files, sizes, and SHA-256 digests |
+| `GET /jobs/{id}/artifacts/{filename}` | Stream one, including HTTP byte ranges |
 | `DELETE /jobs/{id}/artifacts` | Delete all of a job's files |
 | `DELETE /jobs/{id}/artifacts/{filename}` | Delete one |
 
@@ -341,10 +341,12 @@ original `<job-id>/` directory.
 
 The default ceilings are 100 MiB per file and 512 MiB across one job. Publication
 uses one HTTP request per file; it is not chunked or resumable at the application
-protocol level. The CLI writes downloads incrementally and the HTTP response
-supports byte ranges, but the product does not yet expose pause/resume or transfer
-progress. Outputs beyond these limits need a separate transfer contract rather
-than a larger JSON job result.
+protocol level. Downloads are different: the manifest carries each file's size
+and SHA-256, the response supports byte ranges, and `hp pull <job-id>` retains a
+hidden `.part` file, resumes it, verifies it, and atomically renames it. There is
+not yet a browser download-all workflow or transfer progress UI. Outputs beyond
+the publication limits need a separate upload contract rather than a larger JSON
+job result.
 
 The `worker://` URI in the result remains as a record of which worker produced
 the files. Retrieval goes through the endpoints above.

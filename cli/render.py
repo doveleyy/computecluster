@@ -236,9 +236,14 @@ def artifacts(payload: Any) -> str:
             f"HOME_PLATFORM_OUTPUT_DIR){RESET}"
         )
     rows = [
-        [item["filename"], f"{item['size_bytes'] / 1024:.1f} KiB"] for item in payload
+        [
+            item["filename"],
+            f"{item['size_bytes'] / 1024:.1f} KiB",
+            item.get("sha256", "")[:12],
+        ]
+        for item in payload
     ]
-    return _table(["FILE", "SIZE"], rows)
+    return _table(["FILE", "SIZE", "SHA-256"], rows)
 
 
 def deleted(payload: Any) -> str:

@@ -44,11 +44,10 @@ data you did not produce, and running untrusted code without trusting it.
 - **Operator control** — workers register scheduling-disabled and are enabled
   deliberately, from a web dashboard or the CLI. Disabling drains gracefully
   rather than cancelling running work.
-- **Storage migration visibility** — the dashboard distinguishes the current
-  Pi-attached Samba backend from a dedicated Synology Samba target without
-  pretending that network reachability is an application cutover. After the
-  migration is accepted, Synology becomes the sole SMB service and Pi Samba is
-  retired.
+- **Single NAS storage boundary** — Synology is the sole household SMB service
+  and the application backend for Home, Shared, and owner-scoped artifacts.
+  Any removable storage attached to the Pi is local-only and is never
+  advertised as a second file share.
 - **Purposeful web navigation** — monitoring, operator controls, job history,
   and job submission have focused routes instead of one oversized dashboard or
   job page.
@@ -58,16 +57,16 @@ data you did not produce, and running untrusted code without trusting it.
   password, while an owner reset revokes every existing member session.
 - **Guarded Pi power control** — the authenticated owner dashboard can request
   reboot or shutdown only after all workers are drained and jobs are idle. A
-  root-owned helper stops Samba, flushes writes, and unmounts removable storage
-  before changing power state.
+  root-owned helper flushes writes and unmounts local removable storage before
+  changing power state.
 - **Cooperative cancellation** — queued work stops immediately; a running
   container receives cancellation through its lease heartbeat and is removed
   without conflating the outcome with timeout or memory exhaustion.
 
 ## Interfaces
 
-The browser UI has four focused routes: owner Overview, owner Operations, job
-history/results, and Submit. They retain one terminal-inspired visual language
+The browser UI has five focused routes: owner Overview, owner Operations, job
+history/results, Files, and Submit. They retain one terminal-inspired visual language
 and one responsive 1240 px content shell without forcing monitoring,
 destructive controls, forms, and history into one screen. Submission uses a
 roomy two-column form on larger screens and a single-column phone layout.
@@ -133,6 +132,11 @@ HOME_PLATFORM_WORKER_ID=<worker-name> \
 pixi run -e worker worker
 ```
 
+The lock includes native x86-64 Linux workers. A Linux worker can run under a
+systemd user service, starts with that user's login, registers
+scheduling-disabled, and advertises container job types only after the approved
+runtime image is actually available.
+
 A worker advertises the batch capability only once it can see the pre-built
 container image, re-checking periodically — so capability appears and
 disappears on its own, without restarts.
@@ -170,6 +174,7 @@ pixi run client list
 pixi run client cancel <job-id>
 pixi run client artifacts <job-id>            # what the job produced
 pixi run client download <job-id> model.joblib
+pixi run client pull <job-id> --destination ./results  # resume + verify all
 pixi run client delete <job-id>               # remove its files; job record stays
 ```
 
@@ -183,9 +188,10 @@ single database writer and is deliberately not highly available.
 
 Known gaps, in the order they will start to matter: automatic placement uses
 fixed per-node capacity rather than live load, thermal, or data-locality policy;
-the worker's content-addressed
-caches still grow without bound; and result publication and browser downloads
-pass through the coordinator instead of using a resumable transfer service. See
+artifact publication still passes through the coordinator in one bounded
+request per file; and browser downloads do not expose the CLI's resumable
+manifest workflow. Worker input caches now have a least-recently-used size
+ceiling, and CLI artifact pulls resume by byte range and verify SHA-256. See
 [Architecture](docs/architecture.md) for why each is currently adequate and
 when it stops being so.
 
