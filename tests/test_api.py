@@ -1448,6 +1448,66 @@ def test_member_password_change_and_admin_reset_revoke_sessions(
         )
 
 
+def test_tailscale_identity_self_link_and_internal_resolution(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HOME_PLATFORM_API_TOKEN", "test-secret")
+    service_token = tmp_path / "service-identity-token"
+    service_token.write_text("service-secret\n")
+    monkeypatch.setenv("HOME_PLATFORM_SERVICE_IDENTITY_TOKEN_FILE", str(service_token))
+    application = create_app(tmp_path / "jobs.db")
+
+    with TestClient(application) as direct_client:
+        assert (
+            direct_client.post(
+                "/dashboard/login", json={"token": "test-secret"}
+            ).status_code
+            == 204
+        )
+        refused = direct_client.post(
+            "/jobs-ui/api/account/identities/tailscale",
+            headers={"Tailscale-User-Login": "owner@example.test"},
+        )
+        assert refused.status_code == 400
+
+    with TestClient(application, base_url="https://testserver") as client:
+        assert (
+            client.post("/dashboard/login", json={"token": "test-secret"}).status_code
+            == 204
+        )
+        available = client.get(
+            "/jobs-ui/api/account/identities/tailscale",
+            headers={
+                "Tailscale-User-Login": "owner@example.test",
+                "Tailscale-User-Name": "Owner",
+            },
+        )
+        linked = client.post(
+            "/jobs-ui/api/account/identities/tailscale",
+            headers={
+                "Tailscale-User-Login": "owner@example.test",
+                "Tailscale-User-Name": "Owner",
+            },
+        )
+        unauthorized = client.post(
+            "/internal/service-identities/resolve",
+            json={"provider": "tailscale", "subject": "owner@example.test"},
+        )
+        resolved = client.post(
+            "/internal/service-identities/resolve",
+            headers={"X-Service-Identity-Token": "service-secret"},
+            json={"provider": "tailscale", "subject": "owner@example.test"},
+        )
+
+    assert available.json()["request_subject"] == "owner@example.test"
+    assert available.json()["linked"] is None
+    assert linked.status_code == 200
+    assert linked.json()["subject"] == "owner@example.test"
+    assert unauthorized.status_code == 401
+    assert resolved.status_code == 200
+    assert resolved.json()["id"] == ADMIN_USER_ID
+
+
 def test_member_sessions_enforce_job_upload_artifact_and_admin_boundaries(
     tmp_path: Path, monkeypatch
 ) -> None:

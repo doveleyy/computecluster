@@ -13,6 +13,7 @@ unless absolute.
 | `HOME_PLATFORM_DB_PATH` | `data/home-platform.db` | SQLite database — the source of job truth |
 | `HOME_PLATFORM_API_TOKEN` | unset | Token value. Prefer the file form below |
 | `HOME_PLATFORM_API_TOKEN_FILE` | unset | Path to a file containing the token. Preferred: a value in the environment is visible in the process list |
+| `HOME_PLATFORM_SERVICE_IDENTITY_TOKEN_FILE` | unset | Separate token file allowing local application services to resolve linked external identities; never reuse the elevated API token |
 | `HOME_PLATFORM_LEASE_SECONDS` | `15` | How long a claimed job's lease lasts before it must be renewed |
 | `HOME_PLATFORM_WORKER_STALE_SECONDS` | `20` | Silence after which a worker is reported `STALE` |
 | `HOME_PLATFORM_RECOVERY_INTERVAL_SECONDS` | `2` | How often expired leases are swept and requeued |

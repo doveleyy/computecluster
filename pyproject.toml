@@ -10,6 +10,6 @@ select = ["B", "E", "F", "I", "RUF", "SIM", "UP"]
 
 [tool.mypy]
 python_version = "3.13"
-files = ["app", "worker", "contracts", "cli"]
+files = ["app", "worker", "contracts", "cli", "ops", "services"]
 strict = true
 warn_unreachable = true

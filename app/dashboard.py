@@ -36,10 +36,14 @@ from pydantic import BaseModel, ConfigDict
 from app.accounts import (
     AccountStore,
     DashboardLogin,
+    ExternalIdentityConflictError,
+    ExternalIdentityRead,
+    ExternalIdentityStatus,
     InvalidCurrentPasswordError,
     PasswordChange,
     PasswordReset,
     PortalSession,
+    ServiceIdentityResolve,
     SessionIdentity,
     UserCreate,
     UserExistsError,
@@ -212,6 +216,26 @@ def create_dashboard_router() -> APIRouter:
     AdminSession = Annotated[SessionIdentity, Depends(require_admin_session)]
     ApiToken = Annotated[None, Depends(require_api_token)]
 
+    def require_service_identity_token(
+        request: Request,
+        supplied: Annotated[
+            str | None, Header(alias="X-Service-Identity-Token")
+        ] = None,
+    ) -> None:
+        expected = request.app.state.settings.service_identity_token
+        if expected is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Service identity resolution is not configured",
+            )
+        if supplied is None or not compare_digest(supplied, expected):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Missing or invalid service identity token",
+            )
+
+    ServiceIdentityToken = Annotated[None, Depends(require_service_identity_token)]
+
     def get_job_service(request: Request) -> JobService:
         return cast(JobService, request.app.state.job_service)
 
@@ -383,6 +407,108 @@ def create_dashboard_router() -> APIRouter:
                 or identity.id in request.app.state.settings.member_storage_user_ids
             ),
         )
+
+    def tailscale_request_identity(
+        request: Request,
+        login: str | None,
+        display_name: str | None,
+    ) -> tuple[str, str] | None:
+        if request.url.scheme != "https" or login is None:
+            return None
+        normalized_login = login.strip().lower()
+        if not normalized_login:
+            return None
+        return normalized_login, (display_name or login).strip()
+
+    @router.get(
+        "/jobs-ui/api/account/identities/tailscale",
+        response_model=ExternalIdentityStatus,
+    )
+    def tailscale_identity_status(
+        request: Request,
+        identity: DashboardSession,
+        account_store: Annotated[AccountStore, Depends(get_account_store)],
+        tailscale_login: Annotated[
+            str | None, Header(alias="Tailscale-User-Login")
+        ] = None,
+        tailscale_name: Annotated[
+            str | None, Header(alias="Tailscale-User-Name")
+        ] = None,
+    ) -> ExternalIdentityStatus:
+        request_identity = tailscale_request_identity(
+            request, tailscale_login, tailscale_name
+        )
+        return ExternalIdentityStatus(
+            linked=account_store.external_identity(identity.id, "tailscale"),
+            request_subject=(request_identity[0] if request_identity else None),
+            request_display_name=(request_identity[1] if request_identity else None),
+        )
+
+    @router.post(
+        "/jobs-ui/api/account/identities/tailscale",
+        response_model=ExternalIdentityRead,
+    )
+    def link_tailscale_identity(
+        request: Request,
+        identity: DashboardSession,
+        account_store: Annotated[AccountStore, Depends(get_account_store)],
+        tailscale_login: Annotated[
+            str | None, Header(alias="Tailscale-User-Login")
+        ] = None,
+        tailscale_name: Annotated[
+            str | None, Header(alias="Tailscale-User-Name")
+        ] = None,
+    ) -> ExternalIdentityRead:
+        request_identity = tailscale_request_identity(
+            request, tailscale_login, tailscale_name
+        )
+        if request_identity is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Open Job Desk through its private HTTPS Tailscale URL",
+            )
+        try:
+            return account_store.link_external_identity(
+                identity.id,
+                "tailscale",
+                request_identity[0],
+                request_identity[1],
+            )
+        except ExternalIdentityConflictError as error:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This account or Tailscale identity is already linked",
+            ) from error
+
+    @router.delete(
+        "/jobs-ui/api/account/identities/tailscale",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def unlink_tailscale_identity(
+        identity: DashboardSession,
+        account_store: Annotated[AccountStore, Depends(get_account_store)],
+    ) -> Response:
+        account_store.unlink_external_identity(identity.id, "tailscale")
+        return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+    @router.post(
+        "/internal/service-identities/resolve",
+        response_model=SessionIdentity,
+    )
+    def resolve_service_identity(
+        resolution: ServiceIdentityResolve,
+        account_store: Annotated[AccountStore, Depends(get_account_store)],
+        _: ServiceIdentityToken,
+    ) -> SessionIdentity:
+        identity = account_store.resolve_external_identity(
+            resolution.provider, resolution.subject
+        )
+        if identity is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Linked identity not found",
+            )
+        return identity
 
     @router.post(
         "/jobs-ui/api/account/password",

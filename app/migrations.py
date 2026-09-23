@@ -353,6 +353,28 @@ def add_session_version(connection: sqlite3.Connection) -> None:
         )
 
 
+def add_external_identities(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS external_identities (
+            provider TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            display_name TEXT NOT NULL,
+            linked_at TEXT NOT NULL,
+            PRIMARY KEY (provider, subject),
+            UNIQUE (user_id, provider)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS external_identities_user
+        ON external_identities(user_id, provider)
+        """
+    )
+
+
 MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (1, create_jobs_table),
     (2, add_execution_columns),
@@ -369,4 +391,5 @@ MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (13, add_ownership_foundation),
     (14, add_member_authentication),
     (15, add_session_version),
+    (16, add_external_identities),
 )

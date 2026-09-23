@@ -50,6 +50,26 @@ expiry, and revocation version. Username, role, credential version, and disabled
 state are read from SQLite on each request; changing server-side account state
 therefore does not depend on waiting for a cookie to expire.
 
+## Linking application-service identity
+
+The stable Home Platform user UUID remains the owner identity across jobs,
+artifacts, storage, and application services. A private-network login such as a
+Tailscale account is an authentication method, not a replacement owner ID.
+
+A signed-in user may link the Tailscale identity attached by the trusted HTTPS
+reverse proxy to their existing Home Platform account. The server requires both
+proofs in the same request and never links accounts by comparing email or
+username text. One Tailscale identity can belong to only one Home Platform user,
+and one user can have only one linked identity for that provider.
+
+Application services resolve the external subject through a loopback-only
+service call protected by a dedicated least-privilege token. They receive the
+stable user UUID, username, and role; they never receive password hashes, the
+browser cookie signing secret, or the elevated job/worker API token. A disabled
+user does not resolve. Services store the returned UUID in their own database,
+preserving database-per-service without allowing them to open the control-plane
+SQLite file directly.
+
 ## Ownership model
 
 Jobs and job groups have an immutable `owner_user_id`. Existing records were

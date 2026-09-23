@@ -5,6 +5,7 @@ import pytest
 
 from app.accounts import (
     AccountStore,
+    ExternalIdentityConflictError,
     InvalidCurrentPasswordError,
     SessionIdentity,
     UserCreate,
@@ -86,3 +87,41 @@ def test_password_change_and_reset_revoke_existing_session(tmp_path) -> None:
     assert accounts.authenticate("alice", "a new long password") is None
     assert accounts.authenticate("alice", "administrator reset password") is not None
     assert accounts.get_identity(created.id, changed_version) is None
+
+
+def test_external_identity_link_is_unique_and_resolves_existing_user(
+    tmp_path,
+) -> None:
+    database = Database(tmp_path / "accounts.db")
+    database.initialize()
+    accounts = AccountStore(database)
+    alice = accounts.create(
+        UserCreate(username="alice", password="correct horse battery staple")
+    )
+    bob = accounts.create(
+        UserCreate(username="bob", password="another correct long password")
+    )
+
+    linked = accounts.link_external_identity(
+        alice.id, "tailscale", " Alice@Example.Test ", "Alice"
+    )
+    resolved = accounts.resolve_external_identity("tailscale", "alice@example.test")
+
+    assert linked.subject == "alice@example.test"
+    assert accounts.external_identity(alice.id, "tailscale") == linked
+    assert resolved is not None
+    assert resolved.id == alice.id
+
+    with pytest.raises(ExternalIdentityConflictError):
+        accounts.link_external_identity(
+            bob.id, "tailscale", "alice@example.test", "Alice"
+        )
+    with pytest.raises(ExternalIdentityConflictError):
+        accounts.link_external_identity(
+            alice.id, "tailscale", "different@example.test", "Different"
+        )
+
+    accounts.set_disabled(alice.id, True)
+    assert accounts.resolve_external_identity("tailscale", linked.subject) is None
+    assert accounts.unlink_external_identity(alice.id, "tailscale")
+    assert not accounts.unlink_external_identity(alice.id, "tailscale")

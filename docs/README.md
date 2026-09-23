@@ -13,6 +13,7 @@ household file server rather than passed through browser uploads.
 | Know where your files live | [Files in and out of a job](jobs/storage-workflow.md) |
 | Build against the API | [Job and API contract](job-contract.md) |
 | Deploy or configure it | [Configuration](configuration.md) |
+| Understand hosted apps and reverse proxying | [Application services](services.md) |
 
 ## The four ideas
 
@@ -49,6 +50,8 @@ deletion each check it. A UUID is identity, never authorization.
 - [Web interfaces](interfaces.md) — dashboard and Job Desk behaviour and scope.
 - [Accounts and access control](access-control.md) — roles, sessions, immutable
   ownership, storage boundaries.
+- [Application services](services.md) — the standard for small, long-running
+  household applications hosted beside the compute control plane.
 
 ## Scope of these documents
 

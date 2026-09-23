@@ -32,6 +32,7 @@ class Settings:
     member_workspace_user_ids: frozenset[UUID]
     max_workspace_upload_bytes: int
     power_request_directory: Path | None
+    service_identity_token: str | None
 
 
 def load_settings() -> Settings:
@@ -111,6 +112,17 @@ def load_settings() -> Settings:
     )
     power_request_value = os.environ.get("HOME_PLATFORM_POWER_REQUEST_DIR", "").strip()
     power_request_directory = Path(power_request_value) if power_request_value else None
+    service_identity_token_file = os.environ.get(
+        "HOME_PLATFORM_SERVICE_IDENTITY_TOKEN_FILE"
+    )
+    service_identity_token = (
+        load_api_token(
+            explicit_file=Path(service_identity_token_file),
+            required=True,
+        )
+        if service_identity_token_file
+        else None
+    )
     return Settings(
         database_path=database_path,
         api_token=api_token,
@@ -136,6 +148,7 @@ def load_settings() -> Settings:
         member_workspace_user_ids=member_workspace_user_ids,
         max_workspace_upload_bytes=max_workspace_upload_bytes,
         power_request_directory=power_request_directory,
+        service_identity_token=service_identity_token,
     )
 
 

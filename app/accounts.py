@@ -47,6 +47,26 @@ class UserRead(SessionIdentity):
     created_at: datetime
 
 
+class ExternalIdentityRead(BaseModel):
+    provider: str
+    subject: str
+    display_name: str
+    linked_at: datetime
+
+
+class ExternalIdentityStatus(BaseModel):
+    linked: ExternalIdentityRead | None
+    request_subject: str | None
+    request_display_name: str | None
+
+
+class ServiceIdentityResolve(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["tailscale"]
+    subject: str = Field(min_length=1, max_length=320)
+
+
 class UserCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -111,6 +131,10 @@ class UserNotFoundError(Exception):
 
 
 class InvalidCurrentPasswordError(Exception):
+    pass
+
+
+class ExternalIdentityConflictError(Exception):
     pass
 
 
@@ -265,6 +289,99 @@ class AccountStore:
             "groups": {row["id"]: row["username"] for row in group_rows},
         }
 
+    def link_external_identity(
+        self,
+        user_id: UUID,
+        provider: str,
+        subject: str,
+        display_name: str,
+    ) -> ExternalIdentityRead:
+        provider = normalize_external_provider(provider)
+        subject = normalize_external_subject(subject)
+        now = datetime.now(UTC)
+        with self.database.connect() as connection:
+            subject_row = connection.execute(
+                """
+                SELECT user_id FROM external_identities
+                WHERE provider = ? AND subject = ?
+                """,
+                (provider, subject),
+            ).fetchone()
+            user_row = connection.execute(
+                """
+                SELECT subject FROM external_identities
+                WHERE user_id = ? AND provider = ?
+                """,
+                (str(user_id), provider),
+            ).fetchone()
+            if (subject_row is not None and subject_row["user_id"] != str(user_id)) or (
+                user_row is not None and user_row["subject"] != subject
+            ):
+                raise ExternalIdentityConflictError
+            row = connection.execute(
+                """
+                INSERT INTO external_identities (
+                    provider, subject, user_id, display_name, linked_at
+                ) VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(provider, subject) DO UPDATE SET
+                    display_name = excluded.display_name
+                RETURNING provider, subject, display_name, linked_at
+                """,
+                (
+                    provider,
+                    subject,
+                    str(user_id),
+                    display_name.strip(),
+                    now.isoformat(),
+                ),
+            ).fetchone()
+        return self._row_to_external_identity(row)
+
+    def external_identity(
+        self, user_id: UUID, provider: str
+    ) -> ExternalIdentityRead | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT provider, subject, display_name, linked_at
+                FROM external_identities
+                WHERE user_id = ? AND provider = ?
+                """,
+                (str(user_id), normalize_external_provider(provider)),
+            ).fetchone()
+        return self._row_to_external_identity(row) if row is not None else None
+
+    def unlink_external_identity(self, user_id: UUID, provider: str) -> bool:
+        with self.database.connect() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM external_identities
+                WHERE user_id = ? AND provider = ?
+                """,
+                (str(user_id), normalize_external_provider(provider)),
+            )
+        return cursor.rowcount == 1
+
+    def resolve_external_identity(
+        self, provider: str, subject: str
+    ) -> SessionIdentity | None:
+        with self.database.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT users.*
+                FROM external_identities
+                JOIN users ON users.id = external_identities.user_id
+                WHERE external_identities.provider = ?
+                  AND external_identities.subject = ?
+                  AND users.disabled = 0
+                """,
+                (
+                    normalize_external_provider(provider),
+                    normalize_external_subject(subject),
+                ),
+            ).fetchone()
+        return self._row_to_identity(row) if row is not None else None
+
     def record_upload(self, upload_id: UUID, owner_user_id: UUID, kind: str) -> None:
         with self.database.connect() as connection:
             connection.execute(
@@ -314,6 +431,29 @@ class AccountStore:
             disabled=bool(row["disabled"]),
             created_at=datetime.fromisoformat(row["created_at"]),
         )
+
+    @staticmethod
+    def _row_to_external_identity(row: sqlite3.Row) -> ExternalIdentityRead:
+        return ExternalIdentityRead(
+            provider=row["provider"],
+            subject=row["subject"],
+            display_name=row["display_name"],
+            linked_at=datetime.fromisoformat(row["linked_at"]),
+        )
+
+
+def normalize_external_provider(provider: str) -> str:
+    normalized = provider.strip().lower()
+    if normalized != "tailscale":
+        raise ValueError("unsupported external identity provider")
+    return normalized
+
+
+def normalize_external_subject(subject: str) -> str:
+    normalized = subject.strip().lower()
+    if not normalized or len(normalized) > 320:
+        raise ValueError("invalid external identity subject")
+    return normalized
 
 
 def hash_password(password: str) -> str:

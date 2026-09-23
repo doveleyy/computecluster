@@ -13,7 +13,8 @@ worker = "python -m worker.main"
 test = "python -m pytest"
 lint = "ruff check ."
 format-check = "ruff format --check ."
-typecheck = "mypy app worker contracts cli ops"
+typecheck = "mypy app worker contracts cli ops services"
+water-dev = "WATER_TRACKER_ALLOW_DEV_IDENTITY=true uvicorn services.water_tracker.main:app --reload --host 127.0.0.1 --port 8100"
 
 [tasks.check]
 depends-on = ["lint", "format-check", "typecheck", "test"]

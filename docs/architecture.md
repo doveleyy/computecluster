@@ -1,8 +1,8 @@
 # Architecture
 
-A small distributed job system for a home network: one always-on coordinator
-that owns state, and laptops that supply compute only while they happen to be
-available.
+A private home platform: one always-on host coordinates distributed jobs and
+runs small household application services, while laptops supply compute only
+when they happen to be available.
 
 This document describes design and reasoning. It deliberately contains no
 hostnames, addresses, accounts, or filesystem paths — those belong to a
@@ -34,6 +34,13 @@ particular deployment, not to the design.
 The coordinator is deliberately not a compute node. It stays responsive because
 it only ever handles small messages: job contracts, heartbeats, leases, status,
 and result metadata. Queued work simply waits when no eligible worker is online.
+
+Long-running household applications use a second pattern. Each application is
+an independent container with its own loopback port, health check, lifecycle,
+resource limits, and persistence. A tailnet-only reverse proxy presents them
+under one private HTTPS origin and dispatches requests by path. The first such
+application is a water tracker; it owns a separate SQLite database and has no
+access to job-control tables. See [Application services](services.md).
 
 ## Ownership boundaries
 

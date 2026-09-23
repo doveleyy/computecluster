@@ -115,6 +115,10 @@ def test_python_batch_uses_isolated_limited_container(
     assert "HOME_PLATFORM_INPUT_DIR=/workspace/input" in command
     assert "HOME_PLATFORM_DATASET=/workspace/input/dataset.csv" in command
     assert "worker-secret" not in command
+    input_directory = tmp_path / "worker-data" / "runs" / str(job_id) / "input"
+    assert input_directory.stat().st_mode & 0o777 == 0o755
+    assert (input_directory / "job.py").stat().st_mode & 0o777 == 0o444
+    assert (input_directory / "dataset.csv").stat().st_mode & 0o777 == 0o444
     assert result.stdout == "trained\n"
     assert result.artifact_uri == f"worker://windows-primary/{job_id}/"
 

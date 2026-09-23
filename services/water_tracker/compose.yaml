@@ -1,0 +1,39 @@
+services:
+  water-tracker:
+    build:
+      context: ../..
+      dockerfile: services/water_tracker/Dockerfile
+    image: home-platform-water-tracker:0.3.1
+    container_name: home-platform-water-tracker
+    restart: unless-stopped
+    user: "${SERVICE_UID:-1000}:${SERVICE_GID:-1000}"
+    ports:
+      - "127.0.0.1:8100:8100"
+    environment:
+      WATER_TRACKER_DB_PATH: /data/water-tracker.db
+      WATER_TRACKER_BASE_PATH: /water
+      WATER_TRACKER_TIMEZONE: Asia/Singapore
+      WATER_TRACKER_ALLOW_DEV_IDENTITY: "false"
+      WATER_TRACKER_IDENTITY_RESOLVER_URL: http://host.docker.internal:8000/internal/service-identities/resolve
+      WATER_TRACKER_IDENTITY_TOKEN_FILE: /run/secrets/service-identity-token
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /var/lib/home-platform/water-tracker:/data
+      - /home/doveley/.config/home-platform/service-identity-token:/run/secrets/service-identity-token:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.50
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/ready', timeout=2).read()"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s

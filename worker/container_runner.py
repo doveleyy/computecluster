@@ -53,6 +53,17 @@ def _link_or_copy(source: Path, destination: Path) -> None:
         # The cache and run directory may be on different filesystems, or the
         # worker filesystem may not support hard links.
         shutil.copy2(source, destination)
+    # The host worker commonly runs with a restrictive umask, while the
+    # container intentionally runs as an unrelated unprivileged UID. Only the
+    # bind-mounted immutable staging copy needs to be world-readable.
+    destination.chmod(0o444)
+
+
+def _make_tree_container_readable(root: Path) -> None:
+    """Make an extracted read-only project traversable by the container UID."""
+    for path in root.rglob("*"):
+        path.chmod(0o755 if path.is_dir() else 0o444)
+    root.chmod(0o755)
 
 
 def run_batch(
@@ -85,6 +96,7 @@ def run_batch(
         project_directory,
         cancellation_event=cancellation_event,
     )
+    _make_tree_container_readable(project_directory)
     entrypoint = project_directory / parameters.entrypoint
     if not entrypoint.is_file():
         raise DatasetPolicyError("batch entrypoint is missing after project extraction")
@@ -94,6 +106,7 @@ def run_batch(
             reference, workspace, cancellation_event=cancellation_event
         )
         _link_or_copy(source, input_directory / name)
+    input_directory.chmod(0o755)
 
     container_name = f"home-platform-{str(job_id)[:12]}-{uuid4().hex[:6]}"
     memory = f"{parameters.memory_mb}m"
@@ -260,6 +273,7 @@ def run_python_batch(
     output_directory.chmod(0o777)
     _link_or_copy(script_path, input_directory / "job.py")
     _link_or_copy(dataset_path, input_directory / "dataset.csv")
+    input_directory.chmod(0o755)
 
     container_name = f"home-platform-{str(job_id)[:12]}-{uuid4().hex[:6]}"
     memory = f"{parameters.memory_mb}m"

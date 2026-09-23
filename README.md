@@ -97,6 +97,8 @@ public repository does not disclose details of the live deployment.
   execution settings.
 - [Accounts and access control](docs/access-control.md) — roles, sessions,
   immutable ownership, and the pending NAS ACL boundary.
+- [Application services](docs/services.md) — independent containers, reverse
+  proxy routing, state ownership, and the first water-tracker service.
 
 ## Layout
 
@@ -107,6 +109,7 @@ worker/      worker agent: claiming, telemetry, dataset cache, container launche
 cli/         operator client
 containers/  pinned container image definition for batch execution
 examples/    model-training and PBS-style numeric-array examples
+services/    independently deployed household applications
 tests/       test suite
 ```
 
