@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050505">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Water / Habit Tracker</title>
+  <link rel="stylesheet" href="__BASE_PATH__/static/water.css?v=__VERSION__">
+  <link rel="stylesheet" href="__BASE_PATH__/static/shell.css?v=__VERSION__">
+</head>
+<body>
+  <main class="shell">
+    <header class="top">
+      <div><div class="eyebrow">Home Platform / Habits</div><h1 class="title">water<span style="color:var(--dim)">.</span></h1></div>
+      <div class="user" id="user"></div>
+    </header>
+    __NAVIGATION__
+    <div class="top-grid">
+      <section class="panel hero">
+        <div class="hero-row">
+          <div><div class="label">Today</div><div class="total"><span id="total">—</span><span class="unit"> ml</span></div></div>
+          <button class="goal-button" id="goal-trigger" type="button" title="Change daily target">target <strong id="goal-value">—</strong> ml</button>
+          <form class="goal-edit" id="goal-form" hidden><input id="goal-input" aria-label="Daily target in millilitres" type="number" min="250" max="10000" step="50" inputmode="numeric" required><button type="submit">SAVE</button></form>
+        </div>
+        <div class="meter"><span class="fill" id="fill"></span></div>
+        <div class="drink-picker"><div class="label">Drink type</div><div class="type-options" id="drink-types"></div></div>
+        <div class="attributes">
+          <div class="choice-group"><div class="label">Temperature</div><div class="choice-options" id="temperature-options"><button type="button" data-temperature="hot">Hot</button><button type="button" data-temperature="normal">Normal</button><button type="button" data-temperature="iced">Iced</button></div></div>
+          <div class="choice-group unavailable" id="sweetness-group"><div class="label">Sweetness <span class="choice-hint">tea / coffee</span></div><div class="choice-options" id="sweetness-options"><button type="button" data-sweetness="none">None</button><button type="button" data-sweetness="less">Less</button><button type="button" data-sweetness="regular">Regular</button><button type="button" data-sweetness="extra">Extra</button></div></div>
+        </div>
+        <div class="amount-actions">
+          <div class="quick"><button data-amount="250">+ 250 ml</button><button data-amount="500">+ 500 ml</button></div>
+          <form class="custom" id="custom-form"><input id="custom-amount" type="number" min="10" max="2000" inputmode="numeric" placeholder="Custom ml" required><button type="submit">ADD</button></form>
+        </div>
+        <div class="message" id="message"></div>
+      </section>
+      <section class="panel entries-panel">
+        <div class="panel-head"><span class="panel-title">Today’s drinks</span><span class="label" id="entry-count"></span></div>
+        <div class="entries" id="entries"></div>
+      </section>
+    </div>
+    <section class="panel analytics">
+      <div class="panel-head"><span class="panel-title">Daily analysis</span><span class="label">Volume by day and type</span></div>
+      <div class="analytics-grid">
+        <div class="chart-block"><div class="section-caption"><span class="label">7 day rhythm</span><span class="label" id="timezone"></span></div><div class="history" id="history"></div></div>
+        <div class="mix-block"><div class="label">Today’s mix</div><div class="mix-items" id="mix"><span class="mix-item">Nothing logged yet</span></div></div>
+      </div>
+    </section>
+  </main>
+  <script>window.habitConfig=__HABIT_TRACKER_CONFIG__;</script>
+  <script src="__BASE_PATH__/static/water.js?v=__VERSION__" defer></script>
+</body>
+</html>

@@ -98,7 +98,8 @@ public repository does not disclose details of the live deployment.
 - [Accounts and access control](docs/access-control.md) — roles, sessions,
   immutable ownership, and the pending NAS ACL boundary.
 - [Application services](docs/services.md) — independent containers, reverse
-  proxy routing, state ownership, and the first water-tracker service.
+  proxy routing and state ownership. [Habit Tracker](docs/habit-tracker.md)
+  covers the pixel-art overview, daily Water tracking, Budget, and savings goals.
 
 ## Layout
 

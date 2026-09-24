@@ -39,8 +39,10 @@ Long-running household applications use a second pattern. Each application is
 an independent container with its own loopback port, health check, lifecycle,
 resource limits, and persistence. A tailnet-only reverse proxy presents them
 under one private HTTPS origin and dispatches requests by path. The first such
-application is a water tracker; it owns a separate SQLite database and has no
-access to job-control tables. See [Application services](services.md).
+application is a Habit Tracker with Water and Budget modules. Those related
+features share one container, identity boundary, SQLite database, backup, and
+navigation; the Habit Tracker remains independent from the job control plane
+and cannot access job-control tables. See [Application services](services.md).
 
 ## Ownership boundaries
 

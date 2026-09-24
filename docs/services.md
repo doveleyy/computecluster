@@ -16,32 +16,47 @@ Every service should have:
 - explicit CPU, memory, PID, filesystem, and privilege limits; and
 - an online backup and tested restore procedure for each local SQLite database.
 
-The first implementation is `services/water_tracker`. It records owner-scoped
-drink entries and settings in a dedicated SQLite database. Every entry stores a
+The first implementation is [Habit Tracker](habit-tracker.md) under
+`services/habit_tracker`. Overview, Water, and Budget are pages of one cohesive
+application—not separately operated services—so they share one container,
+linked identity, SQLite database, backup lifecycle, and persistent tab
+navigation. The application does not read or write the job-control database.
+
+Water records owner-scoped drink entries and settings. Every entry stores a
 stable classification code and temperature as well as amount and time. Tea and
 coffee may also carry a constrained sweetness marker. Today and history APIs
-return category breakdowns for later analysis, while raw totals remain literal
-beverage volume rather than an inferred hydration score. It does not read or
-write the job-control database.
+return category breakdowns while raw totals remain literal beverage volume.
+
+Budget records integer-cent daily spending, explicit sinking-fund redemptions,
+and direct fund contributions. A new account starts at S$10 per day. Daily
+allowances are effective-dated: a change applies from that local date without
+rewriting prior days. Every adjustment also appends its timestamp, effective
+date, prior amount, new amount, and delta to the Budget ledger, including
+multiple changes on one day. At the Singapore
+midnight boundary, a completed day's allowance minus daily spending becomes a
+fund settlement. A current-day deficit reduces the displayed fund immediately;
+a positive remainder remains pending until midnight. Direct redemptions never
+also consume the daily allowance.
 
 ## Request path
 
 ```text
 authorized device
     |
-    | HTTPS /water/... on the private tailnet
+    | HTTPS /habits/... on the private tailnet
     v
 Tailscale Serve reverse proxy
     |
     | HTTP to a loopback-only port + authenticated tailnet identity headers
     v
-water-tracker container
+habit-tracker container
     |
     v
-water-tracker SQLite database
+habit-tracker SQLite database
 ```
 
-The container port is published only on `127.0.0.1`, so another machine cannot
+The legacy `/water` path remains a compatibility alias to the same container;
+`/habits` is canonical. The container port is published only on `127.0.0.1`, so another machine cannot
 bypass the proxy and forge its identity headers. The service refuses user data
 routes when the proxy identity is absent. Its development-only identity header
 works only after an explicit local opt-in and is disabled by the production
@@ -62,8 +77,8 @@ owns validation, authorization, persistence, and its UI.
 
 Create a service when a capability has its own lifecycle, data, or failure
 boundary. Do not split one small application into services merely because it
-has several screens. The water tracker therefore keeps its UI, API, settings,
-and history together. A future calendar synchronizer that owns OAuth credentials
+has several screens. The Habit Tracker therefore keeps Water, Budget, their UI,
+API, and history together. A future calendar synchronizer that owns OAuth credentials
 and a schedule would be a separate service.
 
 The Pi remains a single host, not a high-availability cluster. Independent

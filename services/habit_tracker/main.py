@@ -5,21 +5,54 @@ import urllib.request
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from enum import StrEnum
+from html import escape
 from pathlib import Path
 from typing import Annotated
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from services.water_tracker.database import Drink, WaterRepository
+from services.habit_tracker.budget import BudgetRepository, BudgetTransaction
+from services.habit_tracker.water import Drink, WaterRepository
 
-SERVICE_VERSION = "0.3.1"
-DEFAULT_DATABASE_PATH = Path("data/water-tracker.db")
-INDEX_HTML = Path(__file__).with_name("index.html").read_text(encoding="utf-8")
+SERVICE_VERSION = "0.5.0"
+DEFAULT_DATABASE_PATH = Path("data/habit-tracker.db")
+SERVICE_DIR = Path(__file__).parent
+TEMPLATES = {
+    page: (SERVICE_DIR / "templates" / f"{page}.html").read_text(encoding="utf-8")
+    for page in ("dashboard", "water", "budget")
+}
+
+
+def render_page(page: str, configuration: dict[str, object]) -> str:
+    base = str(configuration["basePath"])
+    navigation = '<nav class="tabs" aria-label="Habit Tracker">'
+    for name, label, path in (
+        ("dashboard", "Overview", "/"),
+        ("water", "Water", "/water"),
+        ("budget", "Budget", "/budget"),
+    ):
+        active = " active" if page == name else ""
+        current = ' aria-current="page"' if page == name else ""
+        navigation += (
+            f'<a class="tab{active}" id="{name}-link"'
+            f' href="{escape(base + path, quote=True)}"{current}>{label}</a>'
+        )
+    navigation += "</nav>"
+    # JSON is embedded in HTML: escape tags even inside JSON strings.
+    encoded = json.dumps(configuration).replace("<", "\\u003c")
+    return (
+        TEMPLATES[page]
+        .replace("__BASE_PATH__", escape(base, quote=True))
+        .replace("__VERSION__", SERVICE_VERSION)
+        .replace("__NAVIGATION__", navigation)
+        .replace("__HABIT_TRACKER_CONFIG__", encoded)
+    )
 
 
 @dataclass(frozen=True)
@@ -66,6 +99,12 @@ class Sweetness(StrEnum):
     LESS = "less"
     REGULAR = "regular"
     EXTRA = "extra"
+
+
+class BudgetTransactionKind(StrEnum):
+    DAILY_SPEND = "daily_spend"
+    FUND_REDEMPTION = "fund_redemption"
+    FUND_CONTRIBUTION = "fund_contribution"
 
 
 DRINK_TYPE_LABELS = {
@@ -115,32 +154,76 @@ class DrinkRead(BaseModel):
     consumed_at: str
 
 
+class DailyBudgetUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    amount_cents: int = Field(ge=0, le=1_000_000)
+
+
+class SavingsGoalUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    target_cents: int | None = Field(default=None, ge=1, le=100_000_000)
+
+
+class BudgetTransactionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: BudgetTransactionKind
+    amount_cents: int = Field(ge=1, le=100_000_000)
+    description: str = Field(default="", max_length=120)
+
+
+class BudgetTransactionRead(BaseModel):
+    id: str
+    kind: BudgetTransactionKind
+    amount_cents: int
+    description: str
+    occurred_at: str
+
+
 def load_settings() -> Settings:
-    base_path = os.environ.get("WATER_TRACKER_BASE_PATH", "/water").rstrip("/")
-    if not base_path.startswith("/") or base_path == "":
-        raise RuntimeError("WATER_TRACKER_BASE_PATH must be an absolute URL path")
-    timezone_name = os.environ.get("WATER_TRACKER_TIMEZONE", "Asia/Singapore")
+    base_path = os.environ.get("HABIT_TRACKER_BASE_PATH", "/habits").rstrip("/")
+    if base_path and not base_path.startswith("/"):
+        raise RuntimeError("HABIT_TRACKER_BASE_PATH must be an absolute URL path")
+    timezone_name = os.environ.get(
+        "HABIT_TRACKER_TIMEZONE",
+        "Asia/Singapore",
+    )
     try:
         timezone = ZoneInfo(timezone_name)
     except ZoneInfoNotFoundError as error:
         raise RuntimeError(
-            f"unknown WATER_TRACKER_TIMEZONE: {timezone_name}"
+            f"unknown HABIT_TRACKER_TIMEZONE: {timezone_name}"
         ) from error
     return Settings(
         database_path=Path(
-            os.environ.get("WATER_TRACKER_DB_PATH", str(DEFAULT_DATABASE_PATH))
+            os.environ.get(
+                "HABIT_TRACKER_DB_PATH",
+                str(DEFAULT_DATABASE_PATH),
+            )
         ),
         base_path=base_path,
         timezone=timezone,
-        allow_dev_identity=os.environ.get("WATER_TRACKER_ALLOW_DEV_IDENTITY", "false")
+        allow_dev_identity=os.environ.get(
+            "HABIT_TRACKER_ALLOW_DEV_IDENTITY",
+            "false",
+        )
         .strip()
         .lower()
         in {"1", "true", "yes"},
         identity_resolver_url=(
-            os.environ.get("WATER_TRACKER_IDENTITY_RESOLVER_URL", "").strip() or None
+            os.environ.get(
+                "HABIT_TRACKER_IDENTITY_RESOLVER_URL",
+                "",
+            ).strip()
+            or None
         ),
         identity_resolver_token=_load_optional_secret(
-            os.environ.get("WATER_TRACKER_IDENTITY_TOKEN_FILE", "").strip()
+            os.environ.get(
+                "HABIT_TRACKER_IDENTITY_TOKEN_FILE",
+                "",
+            ).strip()
         ),
     )
 
@@ -168,26 +251,30 @@ def create_app(
     if identity_resolver is None and settings.identity_resolver_url is not None:
         if settings.identity_resolver_token is None:
             raise RuntimeError(
-                "WATER_TRACKER_IDENTITY_TOKEN_FILE is required with the resolver"
+                "HABIT_TRACKER_IDENTITY_TOKEN_FILE is required with the resolver"
             )
         identity_resolver = _http_identity_resolver(settings)
     repository = WaterRepository(settings.database_path, settings.timezone)
+    budget_repository = BudgetRepository(settings.database_path, settings.timezone)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         repository.initialize()
+        budget_repository.initialize()
         application.state.repository = repository
+        application.state.budget_repository = budget_repository
         application.state.settings = settings
         yield
 
     application = FastAPI(
-        title="Home Platform Water Tracker",
+        title="Home Platform Habit Tracker",
         version=SERVICE_VERSION,
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
     )
+    application.mount("/static", StaticFiles(directory=SERVICE_DIR / "static"))
 
     def current_identity(
         request: Request,
@@ -198,7 +285,7 @@ def create_app(
             str | None, Header(alias="Tailscale-User-Name")
         ] = None,
         dev_user: Annotated[
-            str | None, Header(alias="X-Water-Tracker-Dev-User")
+            str | None, Header(alias="X-Habit-Tracker-Dev-User")
         ] = None,
     ) -> Identity:
         if tailscale_login:
@@ -220,6 +307,13 @@ def create_app(
                             "account first"
                         ),
                     )
+                local_day = datetime.now(request.app.state.settings.timezone).date()
+                request.app.state.budget_repository.adopt_identity(
+                    legacy_key,
+                    identity.key,
+                    identity.display_name,
+                    local_day,
+                )
                 request.app.state.repository.adopt_identity(
                     legacy_key, identity.key, identity.display_name
                 )
@@ -239,15 +333,20 @@ def create_app(
                 detail="Open this service through the private Tailscale URL",
             )
         request.app.state.repository.ensure_user(identity.key, identity.display_name)
+        local_day = datetime.now(request.app.state.settings.timezone).date()
+        request.app.state.budget_repository.ensure_user(identity.key, local_day)
         return identity
 
     @application.get("/health")
     def health() -> dict[str, str]:
-        return {"status": "healthy", "service": "water-tracker"}
+        return {"status": "healthy", "service": "habit-tracker"}
 
     @application.get("/ready")
     def ready(request: Request) -> JSONResponse:
-        is_ready = bool(request.app.state.repository.ready())
+        is_ready = bool(
+            request.app.state.repository.ready()
+            and request.app.state.budget_repository.ready()
+        )
         return JSONResponse(
             {"status": "ready" if is_ready else "not_ready"},
             status_code=200 if is_ready else 503,
@@ -255,26 +354,51 @@ def create_app(
 
     @application.get("/version")
     def version() -> dict[str, str]:
-        return {"service": "water-tracker", "version": SERVICE_VERSION}
+        return {"service": "habit-tracker", "version": SERVICE_VERSION}
 
     @application.get("/", response_class=HTMLResponse)
-    def index(
+    def dashboard_page(
         user: Annotated[Identity, Depends(current_identity)], request: Request
     ) -> str:
-        configuration = json.dumps(
+        return render_page(
+            "dashboard",
             {
                 "basePath": request.app.state.settings.base_path,
                 "displayName": user.display_name,
                 "timezone": str(request.app.state.settings.timezone),
-                "drinkTypes": [
-                    {"value": drink_type.value, "label": label}
-                    for drink_type, label in DRINK_TYPE_LABELS.items()
-                ],
-            }
+                "currency": "SGD",
+            },
         )
-        return INDEX_HTML.replace("__WATER_TRACKER_CONFIG__", configuration)
+
+    @application.get("/water", response_class=HTMLResponse)
+    def water_page(
+        user: Annotated[Identity, Depends(current_identity)], request: Request
+    ) -> str:
+        configuration = {
+            "basePath": request.app.state.settings.base_path,
+            "displayName": user.display_name,
+            "timezone": str(request.app.state.settings.timezone),
+            "drinkTypes": [
+                {"value": drink_type.value, "label": label}
+                for drink_type, label in DRINK_TYPE_LABELS.items()
+            ],
+        }
+        return render_page("water", configuration)
+
+    @application.get("/budget", response_class=HTMLResponse)
+    def budget_page(
+        user: Annotated[Identity, Depends(current_identity)], request: Request
+    ) -> str:
+        configuration = {
+            "basePath": request.app.state.settings.base_path,
+            "displayName": user.display_name,
+            "timezone": str(request.app.state.settings.timezone),
+            "currency": "SGD",
+        }
+        return render_page("budget", configuration)
 
     @application.get("/api/today")
+    @application.get("/api/water/today")
     def today(
         user: Annotated[Identity, Depends(current_identity)], request: Request
     ) -> dict[str, object]:
@@ -291,6 +415,7 @@ def create_app(
         }
 
     @application.post("/api/drinks", response_model=DrinkRead, status_code=201)
+    @application.post("/api/water/drinks", response_model=DrinkRead, status_code=201)
     def add_drink(
         payload: DrinkCreate,
         user: Annotated[Identity, Depends(current_identity)],
@@ -308,6 +433,7 @@ def create_app(
         )
 
     @application.delete("/api/drinks/{drink_id}", status_code=204)
+    @application.delete("/api/water/drinks/{drink_id}", status_code=204)
     def delete_drink(
         drink_id: str,
         user: Annotated[Identity, Depends(current_identity)],
@@ -319,6 +445,7 @@ def create_app(
         return Response(status_code=204)
 
     @application.get("/api/settings")
+    @application.get("/api/water/settings")
     def get_settings(
         user: Annotated[Identity, Depends(current_identity)], request: Request
     ) -> dict[str, int]:
@@ -326,6 +453,7 @@ def create_app(
         return {"daily_goal_ml": repository.goal(user.key)}
 
     @application.put("/api/settings")
+    @application.put("/api/water/settings")
     def update_settings(
         payload: GoalUpdate,
         user: Annotated[Identity, Depends(current_identity)],
@@ -336,6 +464,7 @@ def create_app(
         return {"daily_goal_ml": payload.daily_goal_ml}
 
     @application.get("/api/history")
+    @application.get("/api/water/history")
     def history(
         user: Annotated[Identity, Depends(current_identity)],
         request: Request,
@@ -356,6 +485,141 @@ def create_app(
             ]
         }
 
+    @application.get("/api/budget/summary")
+    def budget_summary(
+        user: Annotated[Identity, Depends(current_identity)], request: Request
+    ) -> dict[str, object]:
+        local_now = datetime.now(request.app.state.settings.timezone)
+        repository: BudgetRepository = request.app.state.budget_repository
+        summary = repository.summary(user.key, local_now.date())
+        next_reset = datetime.combine(
+            local_now.date() + timedelta(days=1),
+            time.min,
+            request.app.state.settings.timezone,
+        )
+        return {
+            "date": summary.day.isoformat(),
+            "currency": summary.currency,
+            "savings_goal_cents": repository.savings_goal(user.key),
+            "daily_budget_cents": summary.daily_budget_cents,
+            "daily_spent_cents": summary.daily_spent_cents,
+            "daily_remaining_cents": summary.daily_remaining_cents,
+            "settled_fund_cents": summary.settled_fund_cents,
+            "fund_balance_cents": summary.fund_balance_cents,
+            "pending_surplus_cents": summary.pending_surplus_cents,
+            "next_reset_at": next_reset.isoformat(),
+            "transactions": [
+                _budget_transaction_read(transaction).model_dump()
+                for transaction in summary.transactions
+            ],
+        }
+
+    @application.put("/api/budget/daily-budget")
+    def update_daily_budget(
+        payload: DailyBudgetUpdate,
+        user: Annotated[Identity, Depends(current_identity)],
+        request: Request,
+    ) -> dict[str, object]:
+        local_day = datetime.now(request.app.state.settings.timezone).date()
+        repository: BudgetRepository = request.app.state.budget_repository
+        repository.set_daily_budget(user.key, local_day, payload.amount_cents)
+        return {
+            "effective_date": local_day.isoformat(),
+            "amount_cents": payload.amount_cents,
+        }
+
+    @application.put("/api/budget/savings-goal")
+    def update_savings_goal(
+        payload: SavingsGoalUpdate,
+        user: Annotated[Identity, Depends(current_identity)],
+        request: Request,
+    ) -> dict[str, int | None]:
+        repository: BudgetRepository = request.app.state.budget_repository
+        repository.set_savings_goal(user.key, payload.target_cents)
+        return {"savings_goal_cents": payload.target_cents}
+
+    @application.post(
+        "/api/budget/transactions",
+        response_model=BudgetTransactionRead,
+        status_code=201,
+    )
+    def add_budget_transaction(
+        payload: BudgetTransactionCreate,
+        user: Annotated[Identity, Depends(current_identity)],
+        request: Request,
+    ) -> BudgetTransactionRead:
+        repository: BudgetRepository = request.app.state.budget_repository
+        descriptions = {
+            BudgetTransactionKind.DAILY_SPEND: "Daily spending",
+            BudgetTransactionKind.FUND_REDEMPTION: "Fund redemption",
+            BudgetTransactionKind.FUND_CONTRIBUTION: "Fund contribution",
+        }
+        description = payload.description.strip() or descriptions[payload.kind]
+        transaction = repository.add_transaction(
+            user.key, payload.kind.value, payload.amount_cents, description
+        )
+        return _budget_transaction_read(transaction)
+
+    @application.delete("/api/budget/transactions/{transaction_id}", status_code=204)
+    def delete_budget_transaction(
+        transaction_id: str,
+        user: Annotated[Identity, Depends(current_identity)],
+        request: Request,
+    ) -> Response:
+        repository: BudgetRepository = request.app.state.budget_repository
+        if not repository.delete_transaction(user.key, transaction_id):
+            raise HTTPException(status_code=404, detail="Transaction not found")
+        return Response(status_code=204)
+
+    @application.get("/api/budget/history")
+    def budget_history(
+        user: Annotated[Identity, Depends(current_identity)],
+        request: Request,
+        days: Annotated[int, Query(ge=1, le=90)] = 14,
+    ) -> dict[str, object]:
+        local_day = datetime.now(request.app.state.settings.timezone).date()
+        repository: BudgetRepository = request.app.state.budget_repository
+        return {
+            "days": [
+                {
+                    "date": day.day.isoformat(),
+                    "budget_cents": day.budget_cents,
+                    "spent_cents": day.spent_cents,
+                    "net_cents": day.net_cents,
+                    "settled": day.day < local_day,
+                }
+                for day in repository.history(user.key, local_day, days)
+            ]
+        }
+
+    @application.get("/api/budget/ledger")
+    def budget_ledger(
+        user: Annotated[Identity, Depends(current_identity)],
+        request: Request,
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    ) -> dict[str, object]:
+        local_day = datetime.now(request.app.state.settings.timezone).date()
+        repository: BudgetRepository = request.app.state.budget_repository
+        return {
+            "entries": [
+                {
+                    "key": entry.key,
+                    "date": entry.entry_date.isoformat(),
+                    "kind": entry.kind,
+                    "amount_cents": entry.amount_cents,
+                    "description": entry.description,
+                    "occurred_at": (
+                        entry.occurred_at.isoformat()
+                        if entry.occurred_at is not None
+                        else None
+                    ),
+                    "previous_amount_cents": entry.previous_amount_cents,
+                    "new_amount_cents": entry.new_amount_cents,
+                }
+                for entry in repository.fund_ledger(user.key, local_day, limit)
+            ]
+        }
+
     return application
 
 
@@ -367,6 +631,18 @@ def _drink_read(drink: Drink) -> DrinkRead:
         temperature=DrinkTemperature(drink.temperature),
         sweetness=Sweetness(drink.sweetness) if drink.sweetness is not None else None,
         consumed_at=drink.consumed_at.isoformat(),
+    )
+
+
+def _budget_transaction_read(
+    transaction: BudgetTransaction,
+) -> BudgetTransactionRead:
+    return BudgetTransactionRead(
+        id=transaction.id,
+        kind=BudgetTransactionKind(transaction.kind),
+        amount_cents=transaction.amount_cents,
+        description=transaction.description,
+        occurred_at=transaction.occurred_at.isoformat(),
     )
 
 

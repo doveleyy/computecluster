@@ -14,6 +14,7 @@ household file server rather than passed through browser uploads.
 | Build against the API | [Job and API contract](job-contract.md) |
 | Deploy or configure it | [Configuration](configuration.md) |
 | Understand hosted apps and reverse proxying | [Application services](services.md) |
+| Use or extend Water and Budget | [Habit Tracker](habit-tracker.md) |
 
 ## The four ideas
 
@@ -52,6 +53,8 @@ deletion each check it. A UUID is identity, never authorization.
   ownership, storage boundaries.
 - [Application services](services.md) — the standard for small, long-running
   household applications hosted beside the compute control plane.
+- [Habit Tracker](habit-tracker.md) — Overview, Water, Budget, goal semantics,
+  persisted data, and API contracts.
 
 ## Scope of these documents
 

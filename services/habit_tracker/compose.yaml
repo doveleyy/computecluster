@@ -1,0 +1,41 @@
+name: home-platform-habits
+
+services:
+  habit-tracker:
+    build:
+      context: ../..
+      dockerfile: services/habit_tracker/Dockerfile
+    image: home-platform-habit-tracker:0.5.0
+    container_name: home-platform-habit-tracker
+    restart: unless-stopped
+    user: "${SERVICE_UID:-1000}:${SERVICE_GID:-1000}"
+    ports:
+      - "127.0.0.1:8100:8100"
+    environment:
+      HABIT_TRACKER_DB_PATH: /data/habit-tracker.db
+      HABIT_TRACKER_BASE_PATH: /habits
+      HABIT_TRACKER_TIMEZONE: Asia/Singapore
+      HABIT_TRACKER_ALLOW_DEV_IDENTITY: "false"
+      HABIT_TRACKER_IDENTITY_RESOLVER_URL: http://host.docker.internal:8000/internal/service-identities/resolve
+      HABIT_TRACKER_IDENTITY_TOKEN_FILE: /run/secrets/service-identity-token
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${HABIT_TRACKER_STATE_DIR:?Set the private state directory}:/data
+      - ${HABIT_TRACKER_IDENTITY_TOKEN_FILE:?Set the private token file}:/run/secrets/service-identity-token:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.50
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/ready', timeout=2).read()"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s

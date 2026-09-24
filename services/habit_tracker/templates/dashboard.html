@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050505">
+  <title>Overview / Habit Tracker</title>
+  <link rel="stylesheet" href="__BASE_PATH__/static/dashboard.css?v=__VERSION__">
+  <link rel="stylesheet" href="__BASE_PATH__/static/shell.css?v=__VERSION__">
+</head>
+<body>
+  <main class="shell">
+    <header class="top"><div><div class="eyebrow">Home Platform / Habits</div><h1 class="title">habit tracker<span class="muted">.</span></h1></div><div class="user" id="user"></div></header>
+    __NAVIGATION__
+    <div class="overview-heading"><p>A little, every day.</p><span id="today" class="label"></span></div>
+    <div id="error" class="error" role="alert" hidden><span></span><button type="button" id="retry">Try again</button></div>
+    <div class="habit-grid">
+      <section class="habit-card water-card" aria-labelledby="water-heading">
+        <header class="card-heading"><div><div class="label">Daily habit</div><h2 id="water-heading">Water</h2></div><span class="badge" id="water-status">Loading…</span></header>
+        <a class="art-link" id="open-water-art" aria-label="Open water tracker">
+          <svg class="pixel-art" viewBox="0 0 64 56" shape-rendering="crispEdges" aria-hidden="true">
+            <defs><clipPath id="cup-interior"><path d="M19 12H45V24H43V37H41V44H23V37H21V24H19Z"/></clipPath></defs>
+            <path fill="#141d23" d="M14 7H50V24H48V38H46V48H42V50H22V48H18V38H16V24H14Z"/>
+            <g clip-path="url(#cup-interior)">
+              <rect fill="#10212c" x="19" y="12" width="26" height="32"/>
+              <g id="water-liquid" transform="translate(0 32)">
+                <rect fill="#388fbb" x="19" y="12" width="26" height="32"/>
+                <path fill="#61c9ef" d="M19 12H27V14H37V12H45V17H19Z"/>
+                <path fill="#51acd6" d="M23 23H25V30H23ZM25 32H27V37H25Z"/>
+              </g>
+            </g>
+            <path fill="#b5d6e1" d="M15 8H49V11H15ZM16 11H19V24H16ZM18 24H21V37H18ZM20 37H23V44H20ZM22 44H42V47H22ZM41 37H44V44H41ZM43 24H46V37H43ZM45 11H48V24H45Z"/>
+            <path fill="#e6f5fa" d="M16 8H46V9H16ZM19 13H21V21H19ZM21 26H23V33H21Z"/>
+            <path fill="#526b77" d="M24 47H40V49H24Z"/>
+            <path fill="#1d252a" d="M17 53H47V54H17Z"/>
+            <path fill="#8cd8f1" d="M8 18H10V20H8ZM53 29H55V31H53Z"/>
+          </svg>
+        </a>
+        <div class="reading"><strong id="water-total">—</strong><span id="water-target">of your daily goal</span></div>
+        <div class="progress" id="water-progress" role="progressbar" aria-label="Daily drink volume goal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>
+        <p class="detail" id="water-detail">Fetching today's drinks…</p>
+        <footer class="card-footer"><span class="label">Resets at midnight</span><a class="open-link" id="open-water">Log a drink <span aria-hidden="true">↗</span></a></footer>
+      </section>
+      <section class="habit-card savings-card" aria-labelledby="savings-heading">
+        <header class="card-heading"><div><div class="label">Something to look forward to</div><h2 id="savings-heading">Sinking fund</h2></div><span class="badge" id="savings-status">Loading…</span></header>
+        <a class="art-link" id="open-budget-art" aria-label="Open budget tracker">
+          <svg class="pixel-art" viewBox="0 0 64 56" shape-rendering="crispEdges" aria-hidden="true">
+            <defs><clipPath id="pig-interior"><path d="M16 23H20V20H37V17H42V24H47V28H53V37H48V41H43V47H37V43H25V47H19V41H15V36H13V27H16Z"/></clipPath></defs>
+            <path fill="#3e283b" d="M14 21H19V18H35V14H44V21H49V25H56V40H49V44H46V50H35V46H27V50H17V44H12V38H10V26H14Z"/>
+            <g clip-path="url(#pig-interior)">
+              <rect fill="#352633" x="10" y="14" width="46" height="36"/>
+              <g id="pig-fill" transform="translate(0 32)"><rect fill="#d68aad" x="10" y="15" width="46" height="36"/><path fill="#efb1ca" d="M10 15H56V18H10Z"/></g>
+            </g>
+            <path fill="#eda9c5" d="M14 21H19V24H16V28H13V35H16V40H20V43H25V46H20V48H18V42H14V38H11V26H14ZM19 19H36V22H19ZM36 15H43V23H40V18H39V24H36ZM43 23H48V28H45V25H43ZM48 26H55V29H48ZM53 29H56V38H53ZM47 38H54V41H47ZM43 41H47V49H37V45H40V47H44V42H25V39H43Z"/>
+            <path fill="#efb1ca" d="M7 27H11V30H7V33H5V28H7Z"/>
+            <path fill="#0e0c12" d="M42 28H45V31H42ZM50 31H52V34H50ZM24 22H33V24H24Z"/>
+            <path fill="#ffe6ab" d="M26 3H32V5H34V11H32V13H26V11H24V5H26Z"/>
+            <path fill="#c69b53" d="M27 5H31V7H28V9H31V11H27ZM32 5H34V11H32Z"/>
+            <path fill="#241923" d="M14 53H50V54H14Z"/>
+          </svg>
+        </a>
+        <div class="reading"><strong id="fund-total">—</strong><button type="button" id="goal-trigger" class="goal-trigger" disabled>Set a savings goal</button></div>
+        <form id="goal-form" class="goal-form" hidden>
+          <label for="goal-input">Savings goal (SGD)</label>
+          <div class="goal-controls"><input id="goal-input" type="number" min="0.01" max="1000000" step="0.01" inputmode="decimal" required><button type="submit">Save</button><button type="button" id="goal-cancel">Cancel</button></div>
+          <button type="button" id="goal-clear" class="text-button">Remove goal</button>
+          <p id="goal-message" role="status"></p>
+        </form>
+        <div class="progress" id="savings-progress" role="progressbar" aria-label="Savings goal" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>
+        <p class="detail" id="savings-detail">Fetching your fund balance…</p>
+        <footer class="card-footer"><span class="label">Builds over time</span><a class="open-link" id="open-budget">Open budget <span aria-hidden="true">↗</span></a></footer>
+      </section>
+    </div>
+    <p class="footnote" id="footnote">Water follows your logged drink volume. The fund grows with your settled daily savings.</p>
+  </main>
+  <script>window.habitConfig=__HABIT_TRACKER_CONFIG__;</script>
+  <script src="__BASE_PATH__/static/dashboard.js?v=__VERSION__" defer></script>
+</body>
+</html>

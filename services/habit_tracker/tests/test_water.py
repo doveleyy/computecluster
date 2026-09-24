@@ -4,13 +4,13 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from services.water_tracker.main import Identity, create_app
+from services.habit_tracker.main import Identity, create_app
 
 
 def client(tmp_path: Path) -> TestClient:
     return TestClient(
         create_app(tmp_path / "water.db", allow_dev_identity=True),
-        headers={"X-Water-Tracker-Dev-User": "member@example.test"},
+        headers={"X-Habit-Tracker-Dev-User": "member@example.test"},
     )
 
 
@@ -19,7 +19,7 @@ def test_health_does_not_require_identity(tmp_path: Path) -> None:
         response = test_client.get("/health")
 
     assert response.status_code == 200
-    assert response.json()["service"] == "water-tracker"
+    assert response.json()["service"] == "habit-tracker"
 
 
 def test_application_routes_require_proxy_identity(tmp_path: Path) -> None:
@@ -31,7 +31,7 @@ def test_application_routes_require_proxy_identity(tmp_path: Path) -> None:
 
 def test_logging_ui_has_compact_amount_and_attribute_controls(tmp_path: Path) -> None:
     with client(tmp_path) as test_client:
-        response = test_client.get("/")
+        response = test_client.get("/water")
 
     assert response.status_code == 200
     assert 'data-amount="250"' in response.text
@@ -41,6 +41,7 @@ def test_logging_ui_has_compact_amount_and_attribute_controls(tmp_path: Path) ->
     assert 'data-temperature="normal"' in response.text
     assert 'data-temperature="iced"' in response.text
     assert 'data-sweetness="regular"' in response.text
+    assert 'id="sweetness-group" hidden' not in response.text
 
 
 def test_record_and_remove_a_drink(tmp_path: Path) -> None:
@@ -76,7 +77,7 @@ def test_identity_isolation(tmp_path: Path) -> None:
 
     with TestClient(
         create_app(tmp_path / "water.db", allow_dev_identity=True),
-        headers={"X-Water-Tracker-Dev-User": "someone-else@example.test"},
+        headers={"X-Habit-Tracker-Dev-User": "someone-else@example.test"},
     ) as second:
         today = second.get("/api/today")
         deletion = second.delete(f"/api/drinks/{drink['id']}")

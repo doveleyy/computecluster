@@ -48,6 +48,28 @@ unit supplies its destination through `HOME_PLATFORM_BACKUP_DIR`; keep that
 path in live-only configuration because it may contain an owner storage key.
 NAS snapshots and a second off-device copy are separate layers.
 
+## Habit Tracker
+
+The independent Habit Tracker uses the `services.habit_tracker` package and
+only the `HABIT_TRACKER_` environment prefix. Its private pages are served under
+`/habits` by default. See [Habit Tracker](habit-tracker.md) for data semantics.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `HABIT_TRACKER_DB_PATH` | `data/habit-tracker.db` | Shared Water and Budget SQLite file |
+| `HABIT_TRACKER_BASE_PATH` | `/habits` | External proxy prefix; `/` for direct local development |
+| `HABIT_TRACKER_TIMEZONE` | `Asia/Singapore` | Local date boundaries |
+| `HABIT_TRACKER_ALLOW_DEV_IDENTITY` | `false` | Accept `X-Habit-Tracker-Dev-User` only in explicit local development |
+| `HABIT_TRACKER_IDENTITY_RESOLVER_URL` | unset | Narrow control-plane identity endpoint |
+| `HABIT_TRACKER_IDENTITY_TOKEN_FILE` | unset | Resolver token file; required with resolver URL |
+| `HABIT_TRACKER_STATE_DIR` | required by Compose | Private host directory mounted at `/data` |
+
+For Compose, the host supplies `HABIT_TRACKER_IDENTITY_TOKEN_FILE` as a private
+host path; Compose mounts it read-only and gives the container its internal
+`/run/secrets/service-identity-token` path. Never put a token value into the
+Compose file. The state and token host paths belong in private deployment
+configuration. The old `WATER_TRACKER_` names and `water-dev` task are retired.
+
 ## Uploads (staged job inputs)
 
 | Variable | Default | Purpose |
