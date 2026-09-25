@@ -255,16 +255,9 @@ class JobRepository:
                     metrics_json=metrics_json,
                 )
                 return None
-            if not bool(worker["enabled"]):
-                # Deliberately do not write here. A disabled worker still polls
-                # every couple of seconds, and recording "asked for work, was
-                # refused" on every poll is a database write that changes
-                # nothing. Heartbeat continues to refresh last_seen and metrics,
-                # so liveness and telemetry are unaffected — this only removes a
-                # redundant write, which on a microSD is a wear cost paid to
-                # record that nothing happened.
-                return None
-
+            # Claim already carries the worker's capabilities and metrics. Use
+            # it as the idle liveness update too, instead of following every
+            # empty claim with a second heartbeat request and transaction.
             self._upsert_worker(
                 connection,
                 worker_id,
@@ -273,6 +266,8 @@ class JobRepository:
                 current_job_id=None,
                 metrics_json=metrics_json,
             )
+            if not bool(worker["enabled"]):
+                return None
 
             active = connection.execute(
                 """
@@ -304,7 +299,7 @@ class JobRepository:
                 ),
             ).fetchall()
             workers = connection.execute("SELECT * FROM workers").fetchall()
-            cutoff = stale_before or claimed_at - timedelta(seconds=20)
+            cutoff = stale_before or claimed_at - timedelta(seconds=90)
             row = None
             for candidate in queued:
                 if self._preferred_worker_id(candidate, workers, cutoff) != worker_id:

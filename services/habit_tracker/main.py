@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from services.habit_tracker.budget import BudgetRepository, BudgetTransaction
 from services.habit_tracker.water import Drink, WaterRepository
 
-SERVICE_VERSION = "0.5.0"
+SERVICE_VERSION = "0.7.0"
 DEFAULT_DATABASE_PATH = Path("data/habit-tracker.db")
 SERVICE_DIR = Path(__file__).parent
 TEMPLATES = {
@@ -81,6 +81,7 @@ class DrinkType(StrEnum):
     COFFEE = "coffee"
     TEA = "tea"
     MILK = "milk"
+    PROTEIN_SHAKE = "protein_shake"
     JUICE = "juice"
     SOFT_DRINK = "soft_drink"
     SPORTS_DRINK = "sports_drink"
@@ -107,12 +108,49 @@ class BudgetTransactionKind(StrEnum):
     FUND_CONTRIBUTION = "fund_contribution"
 
 
+class SpendCategory(StrEnum):
+    FOOD = "food"
+    DRINKS = "drinks"
+    TRANSPORT = "transport"
+    SHOPPING = "shopping"
+    BILLS = "bills"
+    ENTERTAINMENT = "entertainment"
+    HEALTH = "health"
+    OTHER = "other"
+
+
+SPEND_CATEGORY_LABELS = {
+    SpendCategory.FOOD: "Food",
+    SpendCategory.DRINKS: "Drinks",
+    SpendCategory.TRANSPORT: "Transport",
+    SpendCategory.SHOPPING: "Shopping",
+    SpendCategory.BILLS: "Bills",
+    SpendCategory.ENTERTAINMENT: "Entertainment",
+    SpendCategory.HEALTH: "Health",
+    SpendCategory.OTHER: "Other",
+}
+
+# Only day-to-day spending is categorised, so the data can later be broken down
+# by where money went without cleaning it first. Fund redemptions and
+# contributions move the sinking fund itself and are not spending.
+CATEGORISED_KINDS = (BudgetTransactionKind.DAILY_SPEND,)
+
+
+SWEETENED_DRINK_TYPES = (
+    DrinkType.COFFEE,
+    DrinkType.TEA,
+    DrinkType.SOFT_DRINK,
+    DrinkType.SPORTS_DRINK,
+)
+
+
 DRINK_TYPE_LABELS = {
     DrinkType.WATER: "Water",
     DrinkType.SUPPLEMENT_WATER: "Supplement water",
     DrinkType.COFFEE: "Coffee",
     DrinkType.TEA: "Tea",
     DrinkType.MILK: "Milk",
+    DrinkType.PROTEIN_SHAKE: "Protein shake",
     DrinkType.JUICE: "Juice",
     DrinkType.SOFT_DRINK: "Soft drink",
     DrinkType.SPORTS_DRINK: "Sports drink",
@@ -131,11 +169,11 @@ class DrinkCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_sweetness(self) -> "DrinkCreate":
-        if self.sweetness is not None and self.drink_type not in {
-            DrinkType.COFFEE,
-            DrinkType.TEA,
-        }:
-            raise ValueError("sweetness is only available for coffee and tea")
+        if self.sweetness is not None and self.drink_type not in SWEETENED_DRINK_TYPES:
+            raise ValueError(
+                "sweetness is only available for "
+                + ", ".join(sorted(t.value for t in SWEETENED_DRINK_TYPES))
+            )
         return self
 
 
@@ -172,6 +210,15 @@ class BudgetTransactionCreate(BaseModel):
     kind: BudgetTransactionKind
     amount_cents: int = Field(ge=1, le=100_000_000)
     description: str = Field(default="", max_length=120)
+    category: SpendCategory = SpendCategory.OTHER
+
+    @model_validator(mode="after")
+    def validate_category(self) -> "BudgetTransactionCreate":
+        if self.category is not SpendCategory.OTHER and self.kind not in (
+            CATEGORISED_KINDS
+        ):
+            raise ValueError("only daily spending carries a category")
+        return self
 
 
 class BudgetTransactionRead(BaseModel):
@@ -180,6 +227,7 @@ class BudgetTransactionRead(BaseModel):
     amount_cents: int
     description: str
     occurred_at: str
+    category: SpendCategory
 
 
 def load_settings() -> Settings:
@@ -382,6 +430,9 @@ def create_app(
                 {"value": drink_type.value, "label": label}
                 for drink_type, label in DRINK_TYPE_LABELS.items()
             ],
+            "sweetenedTypes": [
+                drink_type.value for drink_type in SWEETENED_DRINK_TYPES
+            ],
         }
         return render_page("water", configuration)
 
@@ -394,6 +445,11 @@ def create_app(
             "displayName": user.display_name,
             "timezone": str(request.app.state.settings.timezone),
             "currency": "SGD",
+            "categories": [
+                {"value": category.value, "label": label}
+                for category, label in SPEND_CATEGORY_LABELS.items()
+            ],
+            "categorisedKinds": [kind.value for kind in CATEGORISED_KINDS],
         }
         return render_page("budget", configuration)
 
@@ -556,7 +612,11 @@ def create_app(
         }
         description = payload.description.strip() or descriptions[payload.kind]
         transaction = repository.add_transaction(
-            user.key, payload.kind.value, payload.amount_cents, description
+            user.key,
+            payload.kind.value,
+            payload.amount_cents,
+            description,
+            payload.category.value,
         )
         return _budget_transaction_read(transaction)
 
@@ -643,6 +703,7 @@ def _budget_transaction_read(
         amount_cents=transaction.amount_cents,
         description=transaction.description,
         occurred_at=transaction.occurred_at.isoformat(),
+        category=SpendCategory(transaction.category),
     )
 
 

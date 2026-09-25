@@ -276,6 +276,9 @@ def test_stale_best_fit_worker_does_not_block_fallback(tmp_path: Path) -> None:
         later,
         uuid4(),
         later + timedelta(seconds=15),
+        # State the cutoff rather than inheriting the caller's default, so this
+        # keeps testing "a stale best fit is skipped" if that default moves.
+        stale_before=later - timedelta(seconds=20),
     )
 
     assert claimed is not None
@@ -554,14 +557,10 @@ def test_a_failed_statement_does_not_poison_the_connection(tmp_path: Path) -> No
     assert repository.list() == []
 
 
-def test_disabled_worker_polling_does_not_write(tmp_path: Path) -> None:
-    """A disabled worker polls every couple of seconds and can claim nothing.
-
-    Recording that on every poll is a database write that changes no state. On
-    a microSD that is wear spent to note that nothing happened, so `claim`
-    must not touch the row once the worker is known and disabled. Heartbeat
-    still refreshes liveness.
-    """
+def test_disabled_worker_claim_refreshes_liveness_without_becoming_enabled(
+    tmp_path: Path,
+) -> None:
+    """One idle claim replaces the former claim-plus-heartbeat request pair."""
     database = Database(tmp_path / "jobs.db")
     database.initialize()
     repository = JobRepository(database)
@@ -582,7 +581,8 @@ def test_disabled_worker_polling_does_not_write(tmp_path: Path) -> None:
     assert [w.id for w in first] == ["mac-one"]
     assert first[0].enabled is False
 
-    # A later poll must not move last_seen, because it must not write at all.
+    # A later claim refreshes liveness and metrics but cannot enable or schedule
+    # the worker.
     much_later = registered_at + timedelta(hours=1)
     assert (
         repository.claim(
@@ -594,11 +594,9 @@ def test_disabled_worker_polling_does_not_write(tmp_path: Path) -> None:
         )
         is None
     )
-    assert repository.list_workers(registered_at)[0].last_seen == first[0].last_seen
-
-    # Heartbeat is what keeps liveness fresh, and still does.
-    repository.heartbeat("mac-one", [JobType.SLEEP], much_later, much_later, None, None)
-    assert repository.list_workers(registered_at)[0].last_seen > first[0].last_seen
+    refreshed = repository.list_workers(registered_at)[0]
+    assert refreshed.last_seen > first[0].last_seen
+    assert refreshed.enabled is False
 
 
 def test_worker_order_is_stable_across_heartbeats(tmp_path: Path) -> None:

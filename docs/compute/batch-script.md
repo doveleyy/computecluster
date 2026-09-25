@@ -1,20 +1,21 @@
 # Batch Script Job
 
-**Job type:** `batch`  
-**Specification:** Home Platform Batch Script Standard, version 1  
-**Status:** numeric arrays plus uploaded, verified HTTPS, and logical NAS file inputs
+**Job type:** `batch`
 
-This is the authoring standard for the general PBS-like Home Platform job. The
-live subset accepts a ZIP project, parses this wrapper, binds uploaded or
-verified-HTTPS files by logical name, creates numeric array children, and runs
-the wrapper with Bash inside the approved container. Job Desk can resolve
-member-safe `Home/...` and `Shared/...` defaults declared in the header.
-Directory inputs, dependencies, alternate runtimes, single non-array batch
-jobs, and nested artifact publication remain pending.
+Use this when a workload is more than one Python file: it needs Bash, several
+named inputs, or a range of independent runs that should be scheduled
+separately. You submit a *project* — a folder of your own scripts — plus a
+short wrapper that declares what the job needs.
 
-The words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are requirements. An
-implementation MUST reject an invalid or unknown directive; it must not guess
-what the author meant.
+If your work is one Python file against one input, use the simpler
+[Python script job](python-script.md) instead.
+
+The wrapper is deliberately PBS-like: resource requests live in `#HP` comment
+lines at the top, so the whole contract is reviewable before anything runs. An
+invalid or unknown directive is rejected rather than guessed at.
+
+Directory inputs, job dependencies, alternate runtimes, and non-array batch
+jobs are not yet available.
 
 ## Minimal valid script
 
@@ -84,39 +85,25 @@ worker's control-plane connection; the worker verifies the recorded size and
 digest and uses the same content-addressed cache. This removes the browser
 upload limit, but it is not yet the final direct-storage data plane.
 
-## Header grammar
+## Writing the header
 
-1. The file MUST be UTF-8 text and SHOULD use the `.hp` suffix to distinguish
-   the PBS-like submission wrapper from ordinary project `.sh` files. A `.sh`
-   suffix MAY also be accepted; the contents, not the extension, are normative.
-2. Line 1 MUST be exactly `#!/usr/bin/env bash`.
-3. Every Home Platform directive MUST use this form:
+The rules are short:
 
-   ```text
-   #HP --option VALUE
-   ```
+- The file is UTF-8 text, named with a `.hp` suffix to distinguish the wrapper
+  from ordinary project `.sh` files. Its contents, not its extension, decide
+  how it is read.
+- Line 1 is exactly `#!/usr/bin/env bash`.
+- Each directive is one line of the form `#HP --option VALUE`, with no
+  continuations.
+- Directives go in the header block — after the shebang, before the first
+  executable statement. Blank lines and ordinary comments are fine there.
+- Quote any value containing spaces. Quotes group text only: variables,
+  command substitutions, and globs are never expanded in a header.
 
-4. Directives MUST appear in the header block: after the shebang and before the
-   first executable shell statement. Blank lines and ordinary comments MAY
-   appear in that block.
-5. Each directive occupies one physical line. Continuations are not allowed.
-6. A value containing spaces MUST be shell-quoted. Quotes group text only;
-   variables, command substitutions, and globs are never expanded in headers.
-7. Windows CRLF line endings MAY be accepted and normalized.
-8. Unknown options, missing values, malformed values, repeated singleton
-   options, or `#HP` lines after execution begins MUST cause validation failure.
-
-For parser authors, the canonical grammar is:
-
-```text
-script       = shebang, newline, header, body ;
-shebang      = "#!/usr/bin/env bash" ;
-header       = { blank | comment | directive } ;
-directive    = "#HP", space, option, space, shell_word, newline ;
-```
-
-Parse the value as one shell word without performing shell expansion. A parser
-must not execute or source a submitted file to read its headers.
+Anything else fails validation rather than being interpreted: an unknown
+option, a missing or malformed value, a repeated single-use option, or a `#HP`
+line appearing after execution has begun. The header is read as text — the
+platform never executes or sources your file to discover what it declares.
 
 ## Directives
 
@@ -135,14 +122,13 @@ must not execute or source a submitted file to read its headers.
 | `--after-success ID` | 0 or more | Start only after the named job or group succeeds |
 | `--worker ID` | 0 or 1 | Request a particular registered worker |
 
-The first six directives and `--array` are currently required. Explicit resource requests
-make the script reviewable and reproducible instead of silently depending on a
-client's defaults.
+The first six directives and `--array` are currently required. Explicit
+resource requests make the script reviewable and reproducible instead of
+silently depending on a client's defaults.
 
 Use the table's order when writing a new script: version, name, runtime, CPU,
-memory, time, inputs, environment, array, dependencies, and worker. Parsers MUST
-accept any order within the header block, but a canonical order makes reviews
-and AI-generated diffs predictable.
+memory, time, inputs, environment, array, dependencies, and worker. Any order
+is accepted, but a canonical one makes reviews and diffs predictable.
 
 Version 1 applies these validation limits:
 
@@ -156,9 +142,9 @@ Version 1 applies these validation limits:
 | worker ID | 1–64 characters matching `[A-Za-z0-9._-]+` |
 | array range | `START-END`; `1 <= START <= END`, with at most 1,000 tasks |
 
-Names used by `--input` and keys used by `--env` MUST match
-`[A-Za-z][A-Za-z0-9_]{0,31}`. The `HOME_PLATFORM_` prefix is reserved and MUST
-NOT be supplied through `--env`. Secrets MUST NOT appear in a script header.
+Names used by `--input` and keys used by `--env` must match
+`[A-Za-z][A-Za-z0-9_]{0,31}`. The `HOME_PLATFORM_` prefix is reserved and
+cannot be set through `--env`. Never put a secret in a script header.
 Repeating an input name or environment key in the base header is invalid.
 
 The live parser accepts named `--input`, default logical paths, `--env`,
@@ -175,7 +161,7 @@ arbitrary Docker image, registry URL, host path, or mutable `latest` tag. The
 runtime supplies Bash and all program dependencies because jobs have no network
 access.
 
-Logical input references MUST NOT be absolute host paths and MUST NOT contain
+Logical input references cannot be absolute host paths and cannot contain
 `..` path segments. Upload identifiers and verified remote-source objects are
 normally supplied by the client rather than hard-coded in a reusable script.
 
@@ -264,8 +250,8 @@ The container starts in `HOME_PLATFORM_PROJECT_DIR`. The platform exposes:
 | `HOME_PLATFORM_ARRAY_INDEX` | value | Current numeric array index; present only for an array child |
 
 For `#HP --input observations`, the stable path is
-`$HOME_PLATFORM_INPUT_DIR/observations`. Scripts MUST NOT assume a worker
-hostname, host path, user home, NAS mount, or drive letter.
+`$HOME_PLATFORM_INPUT_DIR/observations`. Never assume a worker hostname, host
+path, user home, NAS mount, or drive letter.
 
 The worker invokes the entrypoint with Bash inside the selected container. It
 never runs submitted Bash in the macOS or Windows host shell. The container is
@@ -283,27 +269,25 @@ credentials, no Docker socket, and only the declared mounts.
 - Each array child publishes into its own directory beneath the submission's,
   keyed by array index, so one run reads as one tree:
 
-  ```text
-  artifacts/<owner-id>/cohort-analysis-3b2e91c4/
-  ├── 1/result.txt
-  └── 2/result.txt
-  ```
+```text
+artifacts/<owner-id>/cohort-analysis-3b2e91c4/
+├── 1/result.txt
+└── 2/result.txt
+```
 
-  The directory name comes from `#HP --name` plus a short group UUID. A script
-  cannot choose it, and two submissions sharing a name never collide. The
-  `<owner-id>/` level is the prepared owner-scoped layout; the current
-  deployment stores runs flat directly under the artifact root, and access is
-  derived from job ownership in both — see
-  [files in and out of a job](storage-workflow.md).
+The directory name comes from `#HP --name` plus a short group UUID. A script
+cannot choose it, and two submissions sharing a name never collide. Access is
+derived from job ownership rather than from the `<owner-id>/` layout — see
+[files in and out of a job](../storage/workflow.md).
 - Symlinks, devices, sockets, absolute paths, and paths containing traversal
-  segments MUST NOT be published.
+  segments are never published.
 - Standard output and error are diagnostic logs, not the result transport.
 - Normal artifacts are published only after successful completion. Failure
   diagnostics are retained separately; partial output is not presented as a
   successful result.
 
-Authors SHOULD begin non-trivial scripts with `set -euo pipefail`, quote path
-variables, and write temporary intermediate data to `HOME_PLATFORM_TMP_DIR`.
+Begin non-trivial scripts with `set -euo pipefail`, quote path variables, and
+write temporary intermediate data to `HOME_PLATFORM_TMP_DIR`.
 Current transfer limits are 100 MiB per file and 512 MiB per job; authors must
 not assume those limits will be raised for the general runner.
 
@@ -365,10 +349,8 @@ running children. Cancelling one child affects only that task. A group ID and
 task ID are distinct from every child job UUID; repeated display names never
 establish membership.
 
-Group persistence, atomic child creation, numeric `#HP --array` expansion,
-independent claiming, aggregate state, Bash execution, artifact publication,
-and the expandable Job Desk view are implemented and live-verified. Group-wide
-cancellation remains pending; individual children can already be cancelled.
+Cancelling one child affects only that task. Group-wide cancellation is not
+yet available.
 
 ## Complete project example
 
@@ -420,31 +402,25 @@ python "$HOME_PLATFORM_PROJECT_DIR/forecast.py" \
   --output "$HOME_PLATFORM_OUTPUT_DIR"
 ```
 
-## Rules for human and AI authors
+## Checklist
 
-Before presenting a batch script, verify every item:
+Before submitting:
 
-- Use only directives listed in this document; never invent a PBS or Slurm flag.
-- Include the exact Bash shebang and all six required singleton directives.
-- Put every directive before the first executable statement.
-- In Job Desk, declare ordinary NAS defaults as
-  `#HP --input NAME=Home/...` or `Shared/...`. Leave off the default only when
-  the submitter should choose a file for every run.
-- In the operator CLI, bind small local files with `--input NAME=PATH`, NAS
-  files with `--input-storage NAME=Shared/...` or `NAME=Home/USER_ID/...`, or
-  externally hosted large files with the URL, SHA-256, and byte-size triple.
-- Address project files through `HOME_PLATFORM_PROJECT_DIR` and write durable
-  results only below `HOME_PLATFORM_OUTPUT_DIR`.
-- Give the submission a `#HP --name` worth reading later; it becomes the
-  directory its array children publish into.
-- Never embed credentials, device names, host paths, or private network details.
-- Do not install dependencies or download data during execution.
-- Use a named immutable runtime containing all dependencies.
-- Use a numeric array for independently schedulable work, not a hidden loop.
-- Treat `HOME_PLATFORM_ARRAY_INDEX` as the only scheduler-provided task
-  selector; keep index-to-input logic in project code.
-- Treat non-zero exit as failure and keep important output out of stdout alone.
+- Only directives from this page — never an invented PBS or Slurm flag.
+- The exact Bash shebang, every required directive, all before the first
+  executable statement.
+- Project files addressed through `HOME_PLATFORM_PROJECT_DIR`; durable results
+  written only below `HOME_PLATFORM_OUTPUT_DIR`.
+- A `#HP --name` worth reading later — it becomes the results directory.
+- No credentials, host paths, or private network details anywhere in the
+  project.
+- No dependency installation or data download at run time; the runtime has no
+  network.
+- A numeric array for independently schedulable work, rather than a loop hidden
+  inside one task.
+- `HOME_PLATFORM_ARRAY_INDEX` as the only scheduler-provided selector, with
+  index-to-work logic in your own code.
+- Important output written to files, not left in stdout.
 
-If a requirement cannot be represented by this contract, say so explicitly.
-Do not silently encode it in an unrecognized header or depend on worker-specific
-behaviour.
+If something you need cannot be expressed here, say so rather than encoding it
+in an unrecognized header or relying on a particular worker's behaviour.

@@ -3,9 +3,9 @@
 One household application with Overview, Water, and Budget pages. It owns one
 container, authentication boundary, SQLite database, and backup lifecycle.
 
-The feature and data reference is [Habit Tracker](../../docs/habit-tracker.md).
-The hosting pattern is [Application services](../../docs/services.md).
-Deployment-specific paths and commands live in the ignored
+The hosting pattern is
+[Application services](../../docs/services.md). The feature reference,
+data model, API routes, and deployment-specific paths live in the ignored
 `local/docs/habit-tracker.md` runbook.
 
 ## Source map
@@ -46,7 +46,8 @@ curl -H 'X-Habit-Tracker-Dev-User: demo@example.test' \
 
 Local pages are `/`, `/water`, and `/budget`. Production uses the `/habits`
 prefix and disables development identity. The only environment prefix is
-`HABIT_TRACKER_`; see [Configuration](../../docs/configuration.md#habit-tracker).
+`HABIT_TRACKER_`; see
+[Configuration](../../docs/configuration.md#habit-tracker).
 
 ```bash
 pixi run check
@@ -64,5 +65,6 @@ git diff --check
 
 The host state and identity-token paths are supplied to Compose by the private
 deployment environment. The source rename does not move or recreate live data.
-The legacy `/water` external prefix and unnamespaced water API routes are
-compatibility aliases. New UI code uses `/habits/api/water/...`.
+The unnamespaced water API routes (`/api/today`, `/api/drinks`,
+`/api/settings`, `/api/history`) remain compatibility aliases. New UI code uses
+`/habits/api/water/...`.

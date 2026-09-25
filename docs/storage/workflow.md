@@ -3,10 +3,6 @@
 How a member's files are organised, how the platform resolves them, and how they
 reach a job and come back as published output.
 
-> Home/Shared selection, owner-scoped artifacts, and Workspace mutations are
-> live for the provisioned member. A second-member cross-user acceptance test
-> remains pending; other members fail closed until provisioned.
-
 Files reach a job through the Synology `HomeStorage` share rather than a browser
 upload form, which keeps projects and datasets out of SQLite while preserving
 the same PBS-style job contract. Synology is also the owner-scoped artifact
@@ -105,13 +101,13 @@ large trees, or use **Files** in Job Desk for browsing, downloads, and bounded
    project-relative name.
 6. Review the contract detected from `submit.hp`. A declaration such as:
 
-   ```bash
-   #HP --input cohort=Home/Inputs/cohort.csv
-   #HP --input reference=Shared/References/reference.fa
-   ```
+```bash
+#HP --input cohort=Home/Inputs/cohort.csv
+#HP --input reference=Shared/References/reference.fa
+```
 
-   resolves automatically. Use **Input overrides** only for a declaration with
-   no default or to replace a default for this run.
+resolves automatically. Use **Input overrides** only for a declaration with
+no default or to replace a default for this run.
 
 7. Choose automatic placement or a specific worker and submit.
 
@@ -156,9 +152,10 @@ pixi run client submit-python-batch train.py \
   fail closed until explicitly provisioned.
 - Job Desk folder creation and file upload are limited to
   `Home/Workspace/...` and require a separate workspace service mount. Those
-  mutations are live for the provisioned pilot member after the separate mount
-  and NAS access matrix passed. The global flag remains false, and browser
-  create/upload acceptance plus second-member isolation are still pending.
+  mutations require a separate workspace mount and are enabled per account.
+- Operator Files can inspect the complete provider and use that same constrained
+  mount to manage a named member's Workspace. It cannot write Shared or other
+  Home paths, and move/copy operations cannot cross member accounts.
 - Do not rename or edit an input after submission. If its bytes no longer match
   the recorded digest, the worker fails safely instead of running changed data.
 - The coordinator currently streams selected Synology file bytes to workers.

@@ -2,6 +2,7 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from services.habit_tracker.main import Identity, create_app
@@ -105,14 +106,24 @@ def test_drink_type_defaults_to_water_and_rejects_unknown_type(
 ) -> None:
     with client(tmp_path) as test_client:
         defaulted = test_client.post("/api/drinks", json={"amount_ml": 250})
+        protein_shake = test_client.post(
+            "/api/drinks",
+            json={"amount_ml": 400, "drink_type": "protein_shake"},
+        )
         invalid = test_client.post(
             "/api/drinks", json={"amount_ml": 250, "drink_type": "energy_potion"}
         )
+        today = test_client.get("/api/today")
+        page = test_client.get("/water")
 
     assert defaulted.status_code == 201
     assert defaulted.json()["drink_type"] == "water"
     assert defaulted.json()["temperature"] == "normal"
     assert defaulted.json()["sweetness"] is None
+    assert protein_shake.status_code == 201
+    assert protein_shake.json()["drink_type"] == "protein_shake"
+    assert today.json()["breakdown_ml"] == {"protein_shake": 400, "water": 250}
+    assert '"value": "protein_shake", "label": "Protein shake"' in page.text
     assert invalid.status_code == 422
 
 
@@ -140,6 +151,70 @@ def test_temperature_and_sweetness_validation(tmp_path: Path) -> None:
     assert iced_tea.json()["sweetness"] == "none"
     assert invalid_temperature.status_code == 422
     assert sweetness_on_water.status_code == 422
+
+
+def test_soft_and_sports_drinks_accept_sweetness(tmp_path: Path) -> None:
+    with client(tmp_path) as test_client:
+        soft = test_client.post(
+            "/api/drinks",
+            json={
+                "amount_ml": 330,
+                "drink_type": "soft_drink",
+                "sweetness": "regular",
+            },
+        )
+        sports = test_client.post(
+            "/api/drinks",
+            json={
+                "amount_ml": 500,
+                "drink_type": "sports_drink",
+                "temperature": "iced",
+                "sweetness": "less",
+            },
+        )
+        juice = test_client.post(
+            "/api/drinks",
+            json={"amount_ml": 200, "drink_type": "juice", "sweetness": "extra"},
+        )
+        page = test_client.get("/water")
+
+    assert soft.status_code == 201
+    assert soft.json()["sweetness"] == "regular"
+    assert sports.status_code == 201
+    assert sports.json()["sweetness"] == "less"
+    # Still refused for drinks that are not sweetened by the drinker.
+    assert juice.status_code == 422
+    # The page tells the browser which types offer the control, so the UI and
+    # the API validator cannot drift apart.
+    assert (
+        '"sweetenedTypes": ["coffee", "tea", "soft_drink", "sports_drink"]' in page.text
+    )
+
+
+def test_database_rejects_sweetness_on_an_unsweetened_type(tmp_path: Path) -> None:
+    database_path = tmp_path / "water.db"
+    with client(tmp_path) as test_client:
+        assert test_client.get("/api/today").status_code == 200
+
+    with (
+        sqlite3.connect(database_path) as connection,
+        pytest.raises(sqlite3.IntegrityError),
+    ):
+        connection.execute(
+            """
+            INSERT INTO drinks(
+                id, owner_identity, amount_ml, drink_type, sweetness, consumed_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "bypass",
+                "development:member@example.test",
+                250,
+                "milk",
+                "extra",
+                datetime.now(UTC).isoformat(),
+            ),
+        )
 
 
 def test_existing_database_entries_migrate_to_water(tmp_path: Path) -> None:

@@ -12,7 +12,7 @@
   <main class="shell">
     <header class="top"><div><div class="eyebrow">Home Platform / Habits</div><h1 class="title">habit tracker<span class="muted">.</span></h1></div><div class="user" id="user"></div></header>
     __NAVIGATION__
-    <div class="overview-heading"><p>A little, every day.</p><span id="today" class="label"></span></div>
+    <div class="overview-heading"><span id="today" class="label"></span></div>
     <div id="error" class="error" role="alert" hidden><span></span><button type="button" id="retry">Try again</button></div>
     <div class="habit-grid">
       <section class="habit-card water-card" aria-labelledby="water-heading">
@@ -71,7 +71,6 @@
         <footer class="card-footer"><span class="label">Builds over time</span><a class="open-link" id="open-budget">Open budget <span aria-hidden="true">↗</span></a></footer>
       </section>
     </div>
-    <p class="footnote" id="footnote">Water follows your logged drink volume. The fund grows with your settled daily savings.</p>
   </main>
   <script>window.habitConfig=__HABIT_TRACKER_CONFIG__;</script>
   <script src="__BASE_PATH__/static/dashboard.js?v=__VERSION__" defer></script>

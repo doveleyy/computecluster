@@ -50,9 +50,10 @@ NAS snapshots and a second off-device copy are separate layers.
 
 ## Habit Tracker
 
-The independent Habit Tracker uses the `services.habit_tracker` package and
-only the `HABIT_TRACKER_` environment prefix. Its private pages are served under
-`/habits` by default. See [Habit Tracker](habit-tracker.md) for data semantics.
+The Habit Tracker is a hosted application service using the
+`services.habit_tracker` package and only the `HABIT_TRACKER_` environment
+prefix. Its private pages are served under `/habits` by default. See
+[Application services](services.md) for the hosting pattern.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -79,8 +80,8 @@ configuration. The old `WATER_TRACKER_` names and `water-dev` task are retired.
 | `HOME_PLATFORM_MAX_SCRIPT_UPLOAD_BYTES` | `262144` (256 KiB) | Per-script upload ceiling |
 | `HOME_PLATFORM_MAX_PROJECT_UPLOAD_BYTES` | `20971520` (20 MiB) | Compressed ZIP ceiling for a batch project |
 | `HOME_PLATFORM_STORAGE_DIR` | `/srv/home-platform/storage/nas` | Root exposed as logical `home-storage`; Job Desk and CLI paths must remain relative to it |
-| `HOME_PLATFORM_MEMBER_STORAGE_ENABLED` | false | Enables member Home/Shared browsing only after the NAS cross-user ACL denial test passes |
-| `HOME_PLATFORM_MEMBER_STORAGE_USER_IDS` | empty | Comma-separated stable user UUIDs allowed during a limited, explicitly unaccepted pilot |
+| `HOME_PLATFORM_MEMBER_STORAGE_ENABLED` | false | Enable member Home/Shared browsing |
+| `HOME_PLATFORM_MEMBER_STORAGE_USER_IDS` | empty | Comma-separated stable user UUIDs allowed while the global flag stays false |
 | `HOME_PLATFORM_WORKSPACE_DIR` | unset | Separate CIFS mount used by the constrained Job Desk workspace writer |
 | `HOME_PLATFORM_MEMBER_WORKSPACE_ENABLED` | false | Globally enable member create/upload operations inside `Home/Workspace` only |
 | `HOME_PLATFORM_MEMBER_WORKSPACE_USER_IDS` | empty | Stable UUID pilot allowlist for workspace writes while the global flag stays false |
@@ -93,9 +94,10 @@ their original client paths and filenames are not execution paths.
 Uploads are deleted automatically once the job referencing them reaches a
 terminal state, unless another unfinished job still references the same upload.
 
-Keep the dataset and project ceilings low. Uploads pass *through* the coordinator, so this is
-the one data path where it sits in the byte stream; anything large should use a
-linked URL instead, which goes directly to the worker.
+Keep the dataset and project ceilings low. Uploads pass *through* the
+coordinator, so this is the one data path where it sits in the byte stream;
+anything large should use a linked URL instead, which goes directly to the
+worker.
 
 HomeStorage project imports and input references do not copy the original file
 into ordinary upload staging. A project folder is packaged into the bounded
@@ -106,31 +108,25 @@ worker. A future provider can resolve the same logical contract through a
 direct worker-to-NAS storage path.
 
 For members, storage is fail-closed by default. When member storage is enabled,
-Job Desk exposes only two virtual roots: `Home` maps to that account's stable
-UUID directory and `Shared` maps to the household collaboration directory.
-Administrators continue to see provider-relative paths. The flag is not a
-substitute for NAS ACLs: enable it only after proving that one member cannot
-read another member's directory over SMB.
+the browser exposes only two virtual roots: `Home` maps to that account's
+stable UUID directory and `Shared` maps to the household collaboration
+directory. Administrators continue to see provider-relative paths.
 
-Before multi-user acceptance, an operator may keep the global flag false and
-allow only explicitly provisioned UUIDs with
-`HOME_PLATFORM_MEMBER_STORAGE_USER_IDS`. This is a rollout control, not an ACL
-replacement: NAS permissions still enforce the disk boundary, and a new member
-must not be added to the allowlist until their owner directories are ready.
+The flag is a rollout control, not a substitute for file-server permissions:
+those still enforce the disk boundary. Enable it only after proving that one
+member cannot read another member's directory over SMB, and use the UUID
+allowlist to admit accounts one at a time while the global flag stays false.
 
 Workspace mutation is a separate privilege from storage browsing. The API uses
-`HOME_PLATFORM_WORKSPACE_DIR`, which should be a second mount authenticated as
-a dedicated workspace service identity. That identity receives read/write only
-on each provisioned `users/<id>/Workspace/` subtree; it must not replace the
-read-oriented storage mount or inherit artifact write privileges. A NAS may
-also require Read/Write at its share-level SMB gate before the mount can open;
-in that case, enforce least privilege with directory ACLs, including an explicit
-artifact deny, and prove the access matrix from the coordinator. The API maps
-every member mutation to its immutable UUID, accepts only `Home/Workspace/...`,
-rejects traversal and links, refuses overwrites, stages uploads under a hidden
-temporary name, and atomically promotes a completed upload. Keep the global
-flag false until multi-user acceptance; provisioned pilot UUIDs can be enabled
-individually only after their mount and ACL checks pass.
+`HOME_PLATFORM_WORKSPACE_DIR`, a second mount authenticated as a dedicated
+workspace service identity. That identity receives read/write only on each
+provisioned workspace subtree; it must not replace the read-oriented storage
+mount or inherit artifact write privileges.
+
+The API maps every member mutation to its immutable UUID, accepts only paths
+inside that member's workspace, rejects traversal and links, refuses
+overwrites, stages uploads under a hidden temporary name, and atomically
+promotes a completed upload.
 
 ## Artifacts (published job results)
 
@@ -143,14 +139,15 @@ individually only after their mount and ACL checks pass.
 | `HOME_PLATFORM_ARTIFACT_REQUIRE_MOUNT` | unset (false) | Refuse to write unless the artifact directory is on a different device from `/` |
 | `HOME_PLATFORM_ARTIFACT_OWNER_SCOPED` | unset (false) | Place runs under a provisioned `<owner-id>/` directory; enable only with the NAS cutover |
 
-Results never expire by age. The store ceiling only evicts least-recently-touched
-runs if a runaway threatens the disk, and logs each eviction at `WARNING`. The
-evicted unit is one submission, so an array's children go together.
-In owner-scoped mode, the server derives the owner directory from the immutable
-job record; workers cannot select it. An owner directory must be provisioned
-before publication, preventing a newly created account from inheriting an
-overly broad NAS ACL. The flag exists so the new code can be deployed safely
-before the legacy artifact tree is migrated and the storage path is cut over.
+Results never expire by age. The store ceiling only evicts
+least-recently-touched runs if a runaway threatens the disk, and logs each
+eviction at `WARNING`. The evicted unit is one submission, so an array's
+children go together. In owner-scoped mode, the server derives the owner
+directory from the immutable job record; workers cannot select it. An owner
+directory must be provisioned before publication, preventing a newly created
+account from inheriting an overly broad NAS ACL. The flag exists so the new
+code can be deployed safely before the legacy artifact tree is migrated and the
+storage path is cut over.
 
 The run directory beneath the owner is derived from the job's name so results
 are recognisable over SMB rather than a wall of UUIDs. Names are neither unique
@@ -162,16 +159,18 @@ strands no completed work; migrate them with the artifact migration helper.
 
 These limits also define the practical download system today. Each artifact is
 served as a streamed file response with byte-range support and a SHA-256 value
-in its listing. `hp pull` resumes retained `.part` files and verifies the final
-size and digest before atomically exposing the completed file. The single-file
-CLI command and authenticated Job Desk still provide ordinary streaming
-downloads. Job Desk only previews text-like files up to 256 KiB; that preview
-threshold is a browser-interface safety limit, not an artifact storage limit.
+in its listing. `pixi run client pull` resumes retained `.part` files and
+verifies the final size and digest before atomically exposing the completed
+file. The single-file CLI command and authenticated Job Desk still provide
+ordinary streaming downloads. Job Desk only previews text-like files up to
+256 KiB; that preview threshold is a browser-interface safety limit, not an
+artifact storage limit.
 
-**Set `ARTIFACT_REQUIRE_MOUNT` whenever the artifact directory lives on removable
-storage.** If that disk is absent, its mount point is still a perfectly writable
-directory on the system disk, so writes would succeed and quietly fill it. The
-check compares device identity against the root filesystem.
+**Set `ARTIFACT_REQUIRE_MOUNT` whenever the artifact directory lives on
+removable storage.** If that disk is absent, its mount point is still a
+perfectly writable directory on the system disk, so writes would succeed and
+quietly fill it. The check compares device identity against the root
+filesystem.
 
 ## Service health reporting
 
@@ -199,7 +198,7 @@ local SSD are intentionally not part of this service-health response.
 | `HOME_PLATFORM_WORKER_ID` | `worker-<hostname>` | Identity in the registry. Stable across restarts |
 | `HOME_PLATFORM_API_TOKEN_FILE` | `~/.config/home-platform/api-token` | Token used for every call |
 | `HOME_PLATFORM_WORKER_DATA_DIR` | `~/.local/share/home-platform-worker` | Cache, staged inputs, and outputs |
-| `HOME_PLATFORM_POLL_SECONDS` | `2` | How often to ask for work |
+| `HOME_PLATFORM_POLL_SECONDS` | `5` | How often an idle worker asks for work and refreshes liveness |
 | `HOME_PLATFORM_HEARTBEAT_SECONDS` | `5` | Lease renewal interval. Must be well under `LEASE_SECONDS` |
 | `HOME_PLATFORM_DATASET_ALLOWED_HOSTS` | unset | Comma-separated hosts from which this worker may fetch digest-and-size-verified `python_batch` datasets or general `batch` named inputs. Empty disables linked inputs but not coordinator-staged work. |
 | `HOME_PLATFORM_MAX_DATASET_BYTES` | `10737418240` (10 GiB) | Largest linked dataset or named input this worker accepts |
@@ -218,20 +217,26 @@ the agent does not start Docker, build an image, or enable scheduling.
 
 These are set *by* the worker and read *by* your script.
 
-| Variable | Meaning |
-|---|---|
-| `HOME_PLATFORM_DATASET` | Absolute path to the input CSV, read-only |
-| `HOME_PLATFORM_INPUT_DIR` | Directory of logical named batch inputs, read-only |
-| `HOME_PLATFORM_PROJECT_DIR` | Extracted batch project tree, read-only |
-| `HOME_PLATFORM_ARRAY_INDEX` | Numeric index for the current array child |
-| `HOME_PLATFORM_OUTPUT_DIR` | Write results here — everything left behind is published as an artifact |
-| `HOME_PLATFORM_JOB_ID` | The job's UUID |
-| `HOME_PLATFORM_CPU_LIMIT` | The CPU quota this job was given, as a float |
+| Variable | Job types | Meaning |
+|---|---|---|
+| `HOME_PLATFORM_INPUT_DIR` | both | Read-only directory of logical named inputs |
+| `HOME_PLATFORM_OUTPUT_DIR` | both | Write results here — everything left behind is published as an artifact |
+| `HOME_PLATFORM_JOB_ID` | both | The job's UUID |
+| `HOME_PLATFORM_JOB_NAME` | both | The submitted job name, or the UUID when unnamed |
+| `HOME_PLATFORM_CPU_LIMIT` | both | The CPU quota this job was given, as a float |
+| `HOME_PLATFORM_DATASET` | `python_batch` | Absolute path to the input CSV, read-only |
+| `HOME_PLATFORM_PROJECT_DIR` | `batch` | Extracted project tree, read-only |
+| `HOME_PLATFORM_TMP_DIR` | `batch` | Writable scratch, discarded after the attempt |
+| `HOME_PLATFORM_ARRAY_INDEX` | `batch` | Numeric index for the current array child |
+| `HOME_PLATFORM_WORKER_ID` | `batch` | Worker executing this attempt |
+| `HOME_PLATFORM_ATTEMPT` | `batch` | One-based attempt number |
+| `HOME_PLATFORM_MEMORY_MB` | `batch` | Effective memory limit |
+| `HOME_PLATFORM_TIMEOUT_SECONDS` | `batch` | Effective wall-time in seconds |
 
 Thread-pool variables (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`,
-`MKL_NUM_THREADS`, `NUMEXPR_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS`) are also set,
-pinned to the CPU quota. See [Job contract](job-contract.md#resource-limits) for
-why that matters.
+`MKL_NUM_THREADS`, `NUMEXPR_NUM_THREADS`, `VECLIB_MAXIMUM_THREADS`) are also
+set, pinned to the CPU quota. See [Job
+contract](compute/job-contract.md#resource-limits) for why that matters.
 
 ## Per-job resource limits
 

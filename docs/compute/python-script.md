@@ -1,10 +1,10 @@
 # Python Script Job
 
-**Job type:** `python_batch`  
-**Status:** implemented, deployed, and live-verified
+**Job type:** `python_batch`
 
-Use this job type to run one Python file against one input file. The operator may
-submit both through Job Desk or the CLI and choose an eligible compute worker.
+Use this job type to run one Python file against one input file. The operator
+may submit both through Job Desk or the CLI and choose an eligible compute
+worker.
 
 Both interfaces create the same `python_batch` job and accept the same three
 input sources:
@@ -17,7 +17,7 @@ input sources:
 
 NAS files are named by the same logical paths the batch job type uses —
 `Home/...` for your private tree and `Shared/...` for deliberately shared data.
-See [Files in and out of a job](storage-workflow.md). A verified HTTPS file
+See [Files in and out of a job](../storage/workflow.md). A verified HTTPS file
 travels directly to the selected worker rather than through the coordinator;
 its SHA-256 and byte size are integrity requirements, not hints.
 
@@ -134,14 +134,15 @@ artifacts/<owner-id>/
 └── SVM_model-1a4be012/        a second run of the same script
 ```
 
-Job names are not unique, so the directory carries the first eight characters
-of the job's UUID as well. The `<owner-id>/` level is the prepared owner-scoped
-layout; the current deployment stores runs flat directly under the artifact
-root. Either way access is derived from job ownership, so the layout does not
-decide who can read a run — see
-[files in and out of a job](storage-workflow.md). Two runs sharing a name therefore stay separate —
-publication never overwrites an earlier result. The layout is identical for the
-[batch job type](batch-script.md), which nests array children one level deeper.
+Job names are not unique, so the directory carries the first eight characters of
+the job's UUID as well. Two runs sharing a name therefore stay separate —
+publication never overwrites an earlier result. Access is derived from job
+ownership rather than from the layout, so the `<owner-id>/` level organises
+storage without deciding who may read a run — see
+[files in and out of a job](../storage/workflow.md). Runs published before this
+layout existed are still served from their original directory. The layout is
+identical for the [batch job type](batch-script.md), which nests array children
+one level deeper.
 
 Current defaults allow up to 100 MiB per artifact and 512 MiB across one job.
 The job result records at most 100 output filenames. Publication is intended
@@ -177,4 +178,4 @@ available only after successful completion.
 - The operator knows the expected CPU, memory, and maximum runtime.
 
 See the runnable examples under [`examples/`](../../examples/) and the complete
-[job contract](../job-contract.md).
+[job contract](job-contract.md).

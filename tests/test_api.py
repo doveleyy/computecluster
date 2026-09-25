@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import sqlite3
 from dataclasses import replace
 from pathlib import Path
@@ -9,7 +10,27 @@ from fastapi.testclient import TestClient
 
 from app.artifacts import run_directory_name
 from app.identity import ADMIN_USER_ID
-from app.main import create_app
+from app.main import RoutineWorkerAccessFilter, create_app
+
+
+def test_routine_worker_access_filter_keeps_errors_and_other_routes() -> None:
+    access_filter = RoutineWorkerAccessFilter()
+
+    def record(path: str, status_code: int) -> logging.LogRecord:
+        return logging.LogRecord(
+            "uvicorn.access",
+            logging.INFO,
+            __file__,
+            1,
+            '%s - "%s %s HTTP/%s" %d',
+            ("client", "POST", path, "1.1", status_code),
+            None,
+        )
+
+    assert access_filter.filter(record("/workers/claim", 200)) is False
+    assert access_filter.filter(record("/workers/heartbeat", 200)) is False
+    assert access_filter.filter(record("/workers/claim", 500)) is True
+    assert access_filter.filter(record("/jobs", 200)) is True
 
 
 def create_sleep_job(
@@ -955,6 +976,27 @@ def test_dashboard_requires_login_and_exposes_operational_data(
             "/workers/mac-one", json={"enabled": False}
         )
         accepted = client.post("/dashboard/login", json={"token": "test-secret"})
+        member = client.post(
+            "/dashboard/api/users",
+            json={
+                "username": "family",
+                "password": "family password 1234",
+                "role": "MEMBER",
+            },
+        )
+        administrator_submit = client.post(
+            "/jobs-ui/api/jobs",
+            json={
+                "name": "Administrator must not submit",
+                "type": "sleep",
+                "parameters": {"seconds": 1},
+            },
+        )
+        client.post("/dashboard/logout")
+        member_login = client.post(
+            "/dashboard/login",
+            json={"username": "family", "password": "family password 1234"},
+        )
         uploaded = client.post(
             "/jobs-ui/api/uploads",
             files={"file": ("family.csv", b"name,value\na,1\n", "text/csv")},
@@ -976,12 +1018,6 @@ def test_dashboard_requires_login_and_exposes_operational_data(
             f"/scripts/uploads/{script_body['upload_id']}",
             headers={"X-API-Token": "test-secret"},
         )
-        dashboard_update = client.patch(
-            "/dashboard/api/workers/mac-one", json={"enabled": False}
-        )
-        metrics = client.get("/dashboard/api/system")
-        services = client.get("/dashboard/api/services")
-        jobs = client.get("/dashboard/api/jobs")
         portal_submit = client.post(
             "/jobs-ui/api/jobs",
             headers={"Idempotency-Key": "family-check-01"},
@@ -1015,19 +1051,28 @@ def test_dashboard_requires_login_and_exposes_operational_data(
                 },
             },
         )
+        client.post("/dashboard/logout")
+        client.post("/dashboard/login", json={"token": "test-secret"})
+        dashboard_update = client.patch(
+            "/dashboard/api/workers/mac-one", json={"enabled": False}
+        )
+        metrics = client.get("/dashboard/api/system")
+        services = client.get("/dashboard/api/services")
+        jobs = client.get("/dashboard/api/jobs")
 
     assert page.status_code == 200
     assert "Homelab Dashboard" in page.text
     assert "homelab dashboard" in page.text
     assert "viewport-fit=cover" in page.text
-    assert 'href="/jobs-ui"' in page.text
-    assert 'href="/jobs-ui/new"' in page.text
+    assert 'href="/dashboard/jobs"' in page.text
+    assert 'href="/dashboard/files"' in page.text
+    assert 'href="/jobs-ui/new"' not in page.text
     assert 'aria-label="Home Platform"' in page.text
     assert "width:min(1240px,100%)" in page.text
     assert 'class="topbar-actions"' in page.text
     assert 'id="host" class="context-line"' in page.text
     jobs_card_position = page.text.index('class="service-card jobs"')
-    jobs_link_position = page.text.index('class="service-link" href="/jobs-ui"')
+    jobs_link_position = page.text.index('class="service-link" href="/dashboard/jobs"')
     assert jobs_card_position < jobs_link_position
     assert operations_page.status_code == 200
     assert 'href="/dashboard/operations"' in page.text
@@ -1058,7 +1103,7 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert jobs_page.status_code == 200
     assert submit_page.status_code == 200
     assert files_page.status_code == 200
-    assert 'href="/jobs-ui/files"' in page.text
+    assert 'href="/dashboard/files"' in page.text
     assert 'href="/jobs-ui/new"' in jobs_page.text
     assert 'href="/jobs-ui/files"' in jobs_page.text
     assert 'href="/dashboard/operations"' in jobs_page.text
@@ -1135,6 +1180,9 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert dashboard_update_without_session.status_code == 401
     assert api_update_without_token.status_code == 401
     assert accepted.status_code == 204
+    assert member.status_code == 201
+    assert member_login.status_code == 204
+    assert administrator_submit.status_code == 403
     assert uploaded.status_code == 201
     assert script_uploaded.status_code == 201
     assert upload_body["size_bytes"] == len(b"name,value\na,1\n")
@@ -1249,7 +1297,8 @@ def test_dashboard_power_control_rejects_running_job(
         client.post("/dashboard/login", json={"token": "test-secret"})
         token_header = {"X-API-Token": "test-secret"}
         created_response = client.post(
-            "/jobs-ui/api/jobs",
+            "/jobs",
+            headers=token_header,
             json={"type": "sleep", "parameters": {"seconds": 1}},
         )
         assert created_response.status_code == 201
@@ -1302,6 +1351,19 @@ def test_dashboard_upload_rejects_invalid_or_oversized_files(
     monkeypatch.setenv("HOME_PLATFORM_MAX_UPLOAD_BYTES", "8")
     with TestClient(create_app(tmp_path / "jobs.db")) as client:
         client.post("/dashboard/login", json={"token": "test-secret"})
+        client.post(
+            "/dashboard/api/users",
+            json={
+                "username": "member",
+                "password": "member password 1234",
+                "role": "MEMBER",
+            },
+        )
+        client.post("/dashboard/logout")
+        client.post(
+            "/dashboard/login",
+            json={"username": "member", "password": "member password 1234"},
+        )
         wrong_type = client.post(
             "/jobs-ui/api/uploads",
             files={"file": ("notes.txt", b"hello", "text/plain")},
@@ -1335,6 +1397,23 @@ def test_cli_and_job_desk_adapters_share_submission_validation(
         )
         assert (
             client.post("/dashboard/login", json={"token": "test-secret"}).status_code
+            == 204
+        )
+        created = client.post(
+            "/dashboard/api/users",
+            json={
+                "username": "member",
+                "password": "member password 1234",
+                "role": "MEMBER",
+            },
+        )
+        assert created.status_code == 201
+        client.post("/dashboard/logout")
+        assert (
+            client.post(
+                "/dashboard/login",
+                json={"username": "member", "password": "member password 1234"},
+            ).status_code
             == 204
         )
         browser_response = client.post("/jobs-ui/api/jobs", json=payload)
@@ -1464,6 +1543,19 @@ def test_tailscale_identity_self_link_and_internal_resolution(
             ).status_code
             == 204
         )
+        member = direct_client.post(
+            "/dashboard/api/users",
+            json={
+                "username": "owner",
+                "password": "owner password 1234",
+                "role": "MEMBER",
+            },
+        ).json()
+        direct_client.post("/dashboard/logout")
+        direct_client.post(
+            "/dashboard/login",
+            json={"username": "owner", "password": "owner password 1234"},
+        )
         refused = direct_client.post(
             "/jobs-ui/api/account/identities/tailscale",
             headers={"Tailscale-User-Login": "owner@example.test"},
@@ -1472,7 +1564,10 @@ def test_tailscale_identity_self_link_and_internal_resolution(
 
     with TestClient(application, base_url="https://testserver") as client:
         assert (
-            client.post("/dashboard/login", json={"token": "test-secret"}).status_code
+            client.post(
+                "/dashboard/login",
+                json={"username": "owner", "password": "owner password 1234"},
+            ).status_code
             == 204
         )
         available = client.get(
@@ -1505,7 +1600,7 @@ def test_tailscale_identity_self_link_and_internal_resolution(
     assert linked.json()["subject"] == "owner@example.test"
     assert unauthorized.status_code == 401
     assert resolved.status_code == 200
-    assert resolved.json()["id"] == ADMIN_USER_ID
+    assert resolved.json()["id"] == member["id"]
 
 
 def test_member_sessions_enforce_job_upload_artifact_and_admin_boundaries(
@@ -2191,6 +2286,105 @@ def test_member_workspace_create_and_upload_are_scoped_and_non_overwriting(
     assert escaped.status_code == 422
 
 
+def test_administrator_files_manage_only_workspaces_and_artifacts(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HOME_PLATFORM_API_TOKEN", "test-secret")
+    storage = tmp_path / "storage"
+    artifacts = tmp_path / "artifacts"
+    monkeypatch.setenv("HOME_PLATFORM_STORAGE_DIR", str(storage))
+    monkeypatch.setenv("HOME_PLATFORM_WORKSPACE_DIR", str(storage))
+    monkeypatch.setenv("HOME_PLATFORM_ARTIFACT_DIR", str(artifacts))
+    monkeypatch.setenv("HOME_PLATFORM_ARTIFACT_OWNER_SCOPED", "true")
+
+    with TestClient(create_app(tmp_path / "jobs.db")) as client:
+        client.post("/dashboard/login", json={"token": "test-secret"})
+        alice = client.post(
+            "/dashboard/api/users",
+            json={
+                "username": "alice",
+                "password": "member password 1234",
+                "role": "MEMBER",
+            },
+        ).json()
+        bob = client.post(
+            "/dashboard/api/users",
+            json={
+                "username": "bob",
+                "password": "member password 1234",
+                "role": "MEMBER",
+            },
+        ).json()
+        alice_workspace = storage / "users" / alice["id"] / "Workspace"
+        bob_workspace = storage / "users" / bob["id"] / "Workspace"
+        alice_workspace.mkdir(parents=True)
+        bob_workspace.mkdir(parents=True)
+        (storage / "shared").mkdir()
+        (storage / "shared" / "common.txt").write_text("shared")
+        result = artifacts / alice["id"] / "finished-run"
+        result.mkdir(parents=True)
+        (result / "metrics.json").write_text("{}")
+
+        workspace_path = f"Storage/users/{alice['id']}/Workspace"
+        workspace_listing = client.get(
+            "/jobs-ui/api/files", params={"path": workspace_path}
+        )
+        shared_listing = client.get(
+            "/jobs-ui/api/files", params={"path": "Storage/shared"}
+        )
+        created = client.post(
+            "/jobs-ui/api/workspace/directories",
+            json={"path": f"{workspace_path}/Managed"},
+        )
+        uploaded = client.post(
+            "/jobs-ui/api/workspace/uploads",
+            data={"directory": f"{workspace_path}/Managed"},
+            files={"file": ("notes.txt", b"operator")},
+        )
+        moved = client.post(
+            "/jobs-ui/api/files/move",
+            json={
+                "source": f"{workspace_path}/Managed/notes.txt",
+                "destination": f"{workspace_path}/Managed/renamed.txt",
+            },
+        )
+        cross_account = client.post(
+            "/jobs-ui/api/files/move",
+            json={
+                "source": f"{workspace_path}/Managed/renamed.txt",
+                "destination": (f"Storage/users/{bob['id']}/Workspace/stolen.txt"),
+            },
+        )
+        shared_delete = client.request(
+            "DELETE",
+            "/jobs-ui/api/files",
+            json={"path": "Storage/shared/common.txt"},
+        )
+        artifact_listing = client.get(
+            "/jobs-ui/api/files", params={"path": f"Artifacts/{alice['id']}"}
+        )
+        artifact_delete = client.request(
+            "DELETE",
+            "/jobs-ui/api/files",
+            json={"path": f"Artifacts/{alice['id']}/finished-run"},
+        )
+
+    assert workspace_listing.status_code == 200
+    assert workspace_listing.json()["can_manage"] is True
+    assert shared_listing.json()["can_manage"] is False
+    assert created.status_code == 201
+    assert uploaded.status_code == 201
+    assert moved.status_code == 200
+    assert (alice_workspace / "Managed" / "renamed.txt").read_bytes() == b"operator"
+    assert cross_account.status_code == 422
+    assert not (bob_workspace / "stolen.txt").exists()
+    assert shared_delete.status_code == 422
+    assert (storage / "shared" / "common.txt").read_text() == "shared"
+    assert artifact_listing.json()["can_delete_artifacts"] is True
+    assert artifact_delete.status_code == 200
+    assert not result.exists()
+
+
 def running_job_with_lease(
     client: TestClient, *, provision_artifacts: bool = True
 ) -> tuple[dict, dict]:
@@ -2661,3 +2855,95 @@ def test_results_published_before_the_rename_stay_reachable(
     assert [item["filename"] for item in listed.json()] == ["report.txt"]
     assert downloaded.status_code == 200
     assert downloaded.text == "published before the rename"
+
+
+# Every member-gated Job Desk route, so swapping one back to DashboardSession
+# fails here rather than silently re-opening a submission path to the operator.
+MEMBER_ONLY_ROUTES = [
+    ("GET", "/jobs-ui/api/account/identities/tailscale"),
+    ("POST", "/jobs-ui/api/account/identities/tailscale"),
+    ("DELETE", "/jobs-ui/api/account/identities/tailscale"),
+    ("POST", "/jobs-ui/api/account/password"),
+    ("POST", "/jobs-ui/api/jobs"),
+    ("POST", "/jobs-ui/api/job-groups"),
+    ("POST", "/jobs-ui/api/uploads"),
+    ("POST", "/jobs-ui/api/script-uploads"),
+    ("POST", "/jobs-ui/api/project-uploads"),
+    ("POST", "/jobs-ui/api/input-uploads"),
+    ("GET", "/jobs-ui/api/storage"),
+    ("GET", "/jobs-ui/api/storage/download"),
+    ("POST", "/jobs-ui/api/storage/references"),
+    ("POST", "/jobs-ui/api/storage/project-uploads"),
+    ("POST", "/jobs-ui/api/storage/project-preview"),
+    ("POST", "/jobs-ui/api/batch-submissions"),
+]
+
+
+def test_administrator_is_refused_on_every_member_job_desk_route(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HOME_PLATFORM_API_TOKEN", "test-secret")
+
+    with TestClient(create_app(tmp_path / "jobs.db")) as client:
+        assert (
+            client.post("/dashboard/login", json={"token": "test-secret"}).status_code
+            == 204
+        )
+        refusals = {
+            (method, path): client.request(method, path, json={})
+            for method, path in MEMBER_ONLY_ROUTES
+        }
+
+    for (method, path), response in refusals.items():
+        assert response.status_code == 403, (
+            f"{method} {path} returned {response.status_code}"
+        )
+        assert response.json()["detail"] == (
+            "Member access required; use the operator dashboard"
+        ), f"{method} {path}"
+
+
+def test_member_still_reaches_its_own_job_desk_routes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HOME_PLATFORM_API_TOKEN", "test-secret")
+
+    with TestClient(create_app(tmp_path / "jobs.db")) as client:
+        client.post("/dashboard/login", json={"token": "test-secret"})
+        client.post(
+            "/dashboard/api/users",
+            json={
+                "username": "member",
+                "password": "member password 1234",
+                "role": "MEMBER",
+            },
+        )
+        assert (
+            client.post(
+                "/dashboard/login",
+                json={"username": "member", "password": "member password 1234"},
+            ).status_code
+            == 204
+        )
+        identity = client.get("/jobs-ui/api/account/identities/tailscale")
+        submission = client.post("/jobs-ui/api/jobs", json={})
+
+    # The segregation must not also lock members out of their own surfaces:
+    # identity reads succeed, and a submission fails validation rather than 403.
+    assert identity.status_code == 200
+    assert submission.status_code == 422
+
+
+def test_operator_jobs_and_files_pages_are_served(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME_PLATFORM_API_TOKEN", "test-secret")
+
+    with TestClient(create_app(tmp_path / "jobs.db")) as client:
+        jobs_page = client.get("/dashboard/jobs")
+        files_page = client.get("/dashboard/files")
+
+    for page in (jobs_page, files_page):
+        assert page.status_code == 200
+        # Both operator surfaces reuse the Job Desk shell, which switches into
+        # its operator layout from the /dashboard/ path prefix.
+        assert 'id="files-panel"' in page.text
+        assert 'operatorView=location.pathname.startsWith("/dashboard/")' in page.text

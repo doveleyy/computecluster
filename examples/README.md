@@ -3,9 +3,9 @@
 Scripts you can submit as `python_batch` jobs, and the data they expect.
 
 ```bash
-client submit-python-batch model-training/train.py \
-                           model-training/training-data.csv \
-                           --name "quick check"
+pixi run client submit-python-batch model-training/train.py \
+                                    model-training/training-data.csv \
+                                    --name "quick check"
 ```
 
 ## What a job script must do
@@ -35,9 +35,9 @@ The input can also be a file already on the NAS, using the same logical paths
 Job Desk shows:
 
 ```bash
-client submit-python-batch model-training/train.py \
-                           --dataset-storage Shared/Datasets/training-data.csv \
-                           --name "quick check"
+pixi run client submit-python-batch model-training/train.py \
+                                    --dataset-storage Shared/Datasets/training-data.csv \
+                                    --name "quick check"
 ```
 
 ## The examples
@@ -72,10 +72,10 @@ Both produce identical results. Running it slowly costs proportional time and
 nothing else, so an overnight search can share a laptop you are still using:
 
 ```bash
-client submit-python-batch model-training/svm-grid-search.py \
-                           model-training/svm-data.csv \
-                           --name "overnight search" \
-                           --cpus 0.5 --timeout-seconds 86400
+pixi run client submit-python-batch model-training/svm-grid-search.py \
+                                    model-training/svm-data.csv \
+                                    --name "overnight search" \
+                                    --cpus 0.5 --timeout-seconds 86400
 ```
 
 ## The one thing to copy

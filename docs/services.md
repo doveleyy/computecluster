@@ -1,86 +1,64 @@
 # Application services
 
-The Home Platform can host small, long-running household applications alongside
-the batch control plane. Each application is an independent service, not a new
-router inside the job API.
+The platform hosts small, long-running household applications beside the
+compute system. Each is an independent service, not a new router inside the job
+API.
 
-## Service contract
+## Why not just add it to the control plane
 
-Every service should have:
+Adding a household app as another router inside the job API would share its
+process, its database, its deploy cycle, and its failure modes. A dependency
+upgrade for one becomes a risk for the other, and a crash in a habit tracker
+takes the job queue with it.
+
+Independence costs one container and one proxy route. That is cheap enough that
+it is the default.
+
+## The service contract
+
+Every service has:
 
 - a source directory under `services/`;
 - its own container image and Compose definition;
 - its own process, loopback-only port, health check, and durable state;
 - a systemd lifecycle on the always-on host;
-- one tailnet-only HTTPS route through the reverse proxy;
+- one private HTTPS route through the reverse proxy;
 - explicit CPU, memory, PID, filesystem, and privilege limits; and
-- an online backup and tested restore procedure for each local SQLite database.
+- an online backup and tested restore procedure for its database.
 
-The first implementation is [Habit Tracker](habit-tracker.md) under
-`services/habit_tracker`. Overview, Water, and Budget are pages of one cohesive
-application—not separately operated services—so they share one container,
-linked identity, SQLite database, backup lifecycle, and persistent tab
-navigation. The application does not read or write the job-control database.
+The request path is the platform's standard one — private HTTPS to the reverse
+proxy, then plain HTTP to a loopback port with authenticated identity headers.
+Because the container port is published only on `127.0.0.1`, no other machine
+can bypass the proxy and forge those headers, and the service refuses user data
+routes when proxy identity is absent. See [Network](network.md).
 
-Water records owner-scoped drink entries and settings. Every entry stores a
-stable classification code and temperature as well as amount and time. Tea and
-coffee may also carry a constrained sweetness marker. Today and history APIs
-return category breakdowns while raw totals remain literal beverage volume.
-
-Budget records integer-cent daily spending, explicit sinking-fund redemptions,
-and direct fund contributions. A new account starts at S$10 per day. Daily
-allowances are effective-dated: a change applies from that local date without
-rewriting prior days. Every adjustment also appends its timestamp, effective
-date, prior amount, new amount, and delta to the Budget ledger, including
-multiple changes on one day. At the Singapore
-midnight boundary, a completed day's allowance minus daily spending becomes a
-fund settlement. A current-day deficit reduces the displayed fund immediately;
-a positive remainder remains pending until midnight. Direct redemptions never
-also consume the daily allowance.
-
-## Request path
-
-```text
-authorized device
-    |
-    | HTTPS /habits/... on the private tailnet
-    v
-Tailscale Serve reverse proxy
-    |
-    | HTTP to a loopback-only port + authenticated tailnet identity headers
-    v
-habit-tracker container
-    |
-    v
-habit-tracker SQLite database
-```
-
-The legacy `/water` path remains a compatibility alias to the same container;
-`/habits` is canonical. The container port is published only on `127.0.0.1`, so another machine cannot
-bypass the proxy and forge its identity headers. The service refuses user data
-routes when the proxy identity is absent. Its development-only identity header
-works only after an explicit local opt-in and is disabled by the production
-Compose definition.
-
-Tailscale identifies the network caller, but durable application ownership uses
-the existing Home Platform user UUID. A user explicitly links those identities
-while signed into Job Desk through the private HTTPS proxy. The service then
-resolves the Tailscale subject through a narrow internal API and stores the
-returned Home Platform UUID. It does not open the control-plane database or
-reuse the elevated job-system API token.
-
-The reverse proxy is routing infrastructure, not the application. It terminates
-private HTTPS and chooses a backend from the request path; the application still
-owns validation, authorization, persistence, and its UI.
+Ownership uses the platform's stable user ID rather than the network login. A
+user links the two once while signed in, and the service resolves the network
+subject through a narrow internal call protected by its own least-privilege
+token. A service never opens the control-plane database and never receives the
+elevated job API token.
 
 ## When to create another service
 
-Create a service when a capability has its own lifecycle, data, or failure
-boundary. Do not split one small application into services merely because it
-has several screens. The Habit Tracker therefore keeps Water, Budget, their UI,
-API, and history together. A future calendar synchronizer that owns OAuth credentials
-and a schedule would be a separate service.
+Create one when a capability has its own lifecycle, data, or failure boundary.
+Do **not** split one small application into several services merely because it
+has several screens — that multiplies containers, backups, and routes while
+adding no isolation anyone benefits from.
 
-The Pi remains a single host, not a high-availability cluster. Independent
-containers prevent dependency and process failures from being shared, but the
-Pi is still a common power, disk, network, and Docker failure domain.
+A future calendar synchronizer owning OAuth credentials and a schedule would be
+a separate service. Another page of an existing app would not.
+
+The host is a single machine, not a cluster. Independent containers stop
+dependency and process failures from being shared, but power, disk, network,
+and the container runtime remain a common failure domain.
+
+## Current example: Habit Tracker
+
+One application with three pages — an Overview, Water for logging drinks, and
+Budget for daily spending and a sinking fund. They are pages of one cohesive
+app, not separate services, so they share a single container, identity
+boundary, SQLite database, backup lifecycle, and tab navigation. It reads and
+writes nothing in the job-control database.
+
+It is served at `/habits`. Source and a development recipe are in
+[`services/habit_tracker/`](../services/habit_tracker/README.md).

@@ -101,7 +101,8 @@ class WaterRepository:
                 BEFORE INSERT ON drinks
                 WHEN NEW.drink_type NOT IN (
                     'water', 'supplement_water', 'coffee', 'tea', 'milk',
-                    'juice', 'soft_drink', 'sports_drink', 'alcohol', 'other'
+                    'protein_shake', 'juice', 'soft_drink', 'sports_drink',
+                    'alcohol', 'other'
                 )
                 BEGIN
                     SELECT RAISE(ABORT, 'invalid drink type');
@@ -111,7 +112,8 @@ class WaterRepository:
                 BEFORE UPDATE OF drink_type ON drinks
                 WHEN NEW.drink_type NOT IN (
                     'water', 'supplement_water', 'coffee', 'tea', 'milk',
-                    'juice', 'soft_drink', 'sports_drink', 'alcohol', 'other'
+                    'protein_shake', 'juice', 'soft_drink', 'sports_drink',
+                    'alcohol', 'other'
                 )
                 BEGIN
                     SELECT RAISE(ABORT, 'invalid drink type');
@@ -135,7 +137,9 @@ class WaterRepository:
                 BEFORE INSERT ON drinks
                 WHEN NEW.sweetness IS NOT NULL AND (
                     NEW.sweetness NOT IN ('none', 'less', 'regular', 'extra')
-                    OR NEW.drink_type NOT IN ('coffee', 'tea')
+                    OR NEW.drink_type NOT IN (
+                        'coffee', 'tea', 'soft_drink', 'sports_drink'
+                    )
                 )
                 BEGIN
                     SELECT RAISE(ABORT, 'invalid drink sweetness');
@@ -145,7 +149,9 @@ class WaterRepository:
                 BEFORE UPDATE OF sweetness, drink_type ON drinks
                 WHEN NEW.sweetness IS NOT NULL AND (
                     NEW.sweetness NOT IN ('none', 'less', 'regular', 'extra')
-                    OR NEW.drink_type NOT IN ('coffee', 'tea')
+                    OR NEW.drink_type NOT IN (
+                        'coffee', 'tea', 'soft_drink', 'sports_drink'
+                    )
                 )
                 BEGIN
                     SELECT RAISE(ABORT, 'invalid drink sweetness');

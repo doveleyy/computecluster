@@ -199,6 +199,16 @@ def create_dashboard_router() -> APIRouter:
             )
         return identity
 
+    def require_member_session(
+        identity: Annotated[SessionIdentity, Depends(require_dashboard_session)],
+    ) -> SessionIdentity:
+        if identity.is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Member access required; use the operator dashboard",
+            )
+        return identity
+
     def require_api_token(
         request: Request,
         supplied: Annotated[str | None, Header(alias="X-API-Token")] = None,
@@ -214,6 +224,7 @@ def create_dashboard_router() -> APIRouter:
 
     DashboardSession = Annotated[SessionIdentity, Depends(require_dashboard_session)]
     AdminSession = Annotated[SessionIdentity, Depends(require_admin_session)]
+    MemberSession = Annotated[SessionIdentity, Depends(require_member_session)]
     ApiToken = Annotated[None, Depends(require_api_token)]
 
     def require_service_identity_token(
@@ -354,6 +365,14 @@ def create_dashboard_router() -> APIRouter:
     def dashboard_operations() -> str:
         return DASHBOARD_HTML
 
+    @router.get("/dashboard/jobs", response_class=HTMLResponse)
+    def dashboard_jobs_page() -> str:
+        return JOBS_HTML
+
+    @router.get("/dashboard/files", response_class=HTMLResponse)
+    def dashboard_files_page() -> str:
+        return JOBS_HTML
+
     @router.post("/dashboard/login", status_code=status.HTTP_204_NO_CONTENT)
     def login(
         credentials: DashboardLogin,
@@ -426,7 +445,7 @@ def create_dashboard_router() -> APIRouter:
     )
     def tailscale_identity_status(
         request: Request,
-        identity: DashboardSession,
+        identity: MemberSession,
         account_store: Annotated[AccountStore, Depends(get_account_store)],
         tailscale_login: Annotated[
             str | None, Header(alias="Tailscale-User-Login")
@@ -450,7 +469,7 @@ def create_dashboard_router() -> APIRouter:
     )
     def link_tailscale_identity(
         request: Request,
-        identity: DashboardSession,
+        identity: MemberSession,
         account_store: Annotated[AccountStore, Depends(get_account_store)],
         tailscale_login: Annotated[
             str | None, Header(alias="Tailscale-User-Login")
@@ -485,7 +504,7 @@ def create_dashboard_router() -> APIRouter:
         status_code=status.HTTP_204_NO_CONTENT,
     )
     def unlink_tailscale_identity(
-        identity: DashboardSession,
+        identity: MemberSession,
         account_store: Annotated[AccountStore, Depends(get_account_store)],
     ) -> Response:
         account_store.unlink_external_identity(identity.id, "tailscale")
@@ -517,14 +536,9 @@ def create_dashboard_router() -> APIRouter:
     def jobs_portal_change_password(
         password: PasswordChange,
         response: Response,
-        identity: DashboardSession,
+        identity: MemberSession,
         account_store: Annotated[AccountStore, Depends(get_account_store)],
     ) -> None:
-        if identity.is_admin:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="The owner API token is managed outside Job Desk",
-            )
         try:
             account_store.change_password(
                 identity.id, password.current_password, password.new_password
@@ -764,7 +778,7 @@ def create_dashboard_router() -> APIRouter:
         job_create: JobCreate,
         request: Request,
         job_service: JobServiceDependency,
-        identity: DashboardSession,
+        identity: MemberSession,
         account_store: Annotated[AccountStore, Depends(get_account_store)],
         idempotency_key: Annotated[
             str | None,
@@ -833,7 +847,7 @@ def create_dashboard_router() -> APIRouter:
     def jobs_portal_create_group(
         group_create: JobGroupCreate,
         job_service: JobServiceDependency,
-        identity: DashboardSession,
+        identity: MemberSession,
         account_store: Annotated[AccountStore, Depends(get_account_store)],
         idempotency_key: Annotated[
             str | None,
@@ -887,7 +901,7 @@ def create_dashboard_router() -> APIRouter:
     )
     async def jobs_portal_upload(
         request: Request,
-        identity: DashboardSession,
+        identity: MemberSession,
         account_store: Annotated[AccountStore, Depends(get_account_store)],
         file: Annotated[UploadFile, File()],
     ) -> UploadedDatasetReference:
@@ -913,7 +927,7 @@ def create_dashboard_router() -> APIRouter:
     )
     async def jobs_portal_script_upload(
         request: Request,
-        identity: DashboardSession,
+        identity: MemberSession,
         account_store: Annotated[AccountStore, Depends(get_account_store)],
         file: Annotated[UploadFile, File()],
     ) -> UploadedScriptReference:
@@ -939,7 +953,7 @@ def create_dashboard_router() -> APIRouter:
     )
     async def jobs_portal_project_upload(
         request: Request,
-        identity: DashboardSession,
+        identity: MemberSession,
         account_store: Annotated[AccountStore, Depends(get_account_store)],
         file: Annotated[UploadFile, File()],
     ) -> UploadedProjectReference:
@@ -954,7 +968,7 @@ def create_dashboard_router() -> APIRouter:
     )
     async def jobs_portal_input_upload(
         request: Request,
-        identity: DashboardSession,
+        identity: MemberSession,
         account_store: Annotated[AccountStore, Depends(get_account_store)],
         file: Annotated[UploadFile, File()],
     ) -> UploadedInputReference:
@@ -1023,6 +1037,50 @@ def create_dashboard_router() -> APIRouter:
                 detail="Job Desk workspace editing is not provisioned yet",
             )
         return cast(Path, request.app.state.settings.workspace_directory)
+
+    def require_administrator_workspace(request: Request) -> Path:
+        root = request.app.state.settings.workspace_directory
+        if root is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Administrator Workspace management is not provisioned",
+            )
+        return cast(Path, root)
+
+    def administrator_workspace_path(path: str) -> tuple[UUID, str]:
+        """Map an operator Files path to one member's constrained Workspace.
+
+        The writer mount can alter only ``users/*/Workspace``. Keeping the
+        visible ``Storage/users/<uuid>/Workspace`` prefix in the request makes
+        the administrator's wider scope explicit without creating a second
+        path vocabulary for the same NAS tree.
+        """
+        normalized = path.strip().replace("\\", "/").strip("/")
+        parts = PurePosixPath(normalized).parts
+        if (
+            len(parts) < 4
+            or tuple(part.lower() for part in parts[:2]) != ("storage", "users")
+            or parts[3].lower() != "workspace"
+            or any(part in {"", ".", ".."} for part in parts)
+        ):
+            raise StoragePolicyError(
+                "administrator changes must stay inside Storage/users/<user-id>/Workspace"
+            )
+        try:
+            owner_id = UUID(parts[2])
+        except ValueError as error:
+            raise StoragePolicyError(
+                "administrator Workspace paths must name a stable user ID"
+            ) from error
+        logical = PurePosixPath("Home", "Workspace", *parts[4:]).as_posix()
+        return owner_id, logical
+
+    def administrator_workspace_available(path: str) -> bool:
+        try:
+            administrator_workspace_path(path)
+        except StoragePolicyError:
+            return False
+        return True
 
     def scoped_storage_path(identity: SessionIdentity, logical_path: str) -> str:
         return (
@@ -1214,7 +1272,7 @@ def create_dashboard_router() -> APIRouter:
     @router.get("/jobs-ui/api/storage")
     def jobs_portal_storage(
         request: Request,
-        identity: DashboardSession,
+        identity: MemberSession,
         path: str = "",
     ) -> dict[str, Any]:
         require_member_storage(request, identity)
@@ -1248,7 +1306,7 @@ def create_dashboard_router() -> APIRouter:
     def jobs_portal_storage_download(
         path: str,
         request: Request,
-        identity: DashboardSession,
+        identity: MemberSession,
     ) -> FileResponse:
         """Stream an authorized Home/Shared file through the Job Desk session.
 
@@ -1338,13 +1396,24 @@ def create_dashboard_router() -> APIRouter:
         return {
             "path": normalized,
             "can_manage": bool(
-                not identity.is_admin
-                and (lower == "home/workspace" or lower.startswith("home/workspace/"))
+                (
+                    identity.is_admin
+                    and request.app.state.settings.workspace_directory is not None
+                    and administrator_workspace_available(normalized)
+                )
+                or (
+                    not identity.is_admin
+                    and (
+                        lower == "home/workspace" or lower.startswith("home/workspace/")
+                    )
+                )
             ),
             "can_clear_artifacts": bool(
                 not identity.is_admin and area == "Artifacts" and not relative
             ),
-            "can_delete_artifacts": bool(not identity.is_admin and area == "Artifacts"),
+            "can_delete_artifacts": bool(
+                area == "Artifacts" and (not identity.is_admin or bool(relative))
+            ),
             "entries": entries,
         }
 
@@ -1382,19 +1451,37 @@ def create_dashboard_router() -> APIRouter:
         request: Request,
         identity: DashboardSession,
     ) -> dict[str, Any]:
-        workspace_root = require_member_workspace(request, identity)
+        if identity.is_admin:
+            workspace_root = require_administrator_workspace(request)
+            try:
+                source_owner, source = administrator_workspace_path(transfer.source)
+                destination_owner, destination = administrator_workspace_path(
+                    transfer.destination
+                )
+            except StoragePolicyError as error:
+                raise storage_error(error) from error
+            if source_owner != destination_owner:
+                raise storage_error(
+                    StoragePolicyError("Workspace moves cannot cross member accounts")
+                )
+            owner_id = source_owner
+        else:
+            workspace_root = require_member_workspace(request, identity)
+            owner_id = identity.id
+            source = transfer.source
+            destination = transfer.destination
         try:
             move_workspace_entry(
                 workspace_root,
-                identity.id,
-                transfer.source,
-                transfer.destination,
+                owner_id,
+                source,
+                destination,
             )
         except StoragePolicyError as error:
             raise storage_error(error) from error
         logging.info(
             "workspace entry moved owner=%s source=%s destination=%s",
-            identity.id,
+            owner_id,
             transfer.source,
             transfer.destination,
         )
@@ -1406,20 +1493,38 @@ def create_dashboard_router() -> APIRouter:
         request: Request,
         identity: DashboardSession,
     ) -> dict[str, Any]:
-        workspace_root = require_member_workspace(request, identity)
+        if identity.is_admin:
+            workspace_root = require_administrator_workspace(request)
+            try:
+                source_owner, source = administrator_workspace_path(transfer.source)
+                destination_owner, destination = administrator_workspace_path(
+                    transfer.destination
+                )
+            except StoragePolicyError as error:
+                raise storage_error(error) from error
+            if source_owner != destination_owner:
+                raise storage_error(
+                    StoragePolicyError("Workspace copies cannot cross member accounts")
+                )
+            owner_id = source_owner
+        else:
+            workspace_root = require_member_workspace(request, identity)
+            owner_id = identity.id
+            source = transfer.source
+            destination = transfer.destination
         try:
             copied = copy_workspace_entry(
                 workspace_root,
-                identity.id,
-                transfer.source,
-                transfer.destination,
+                owner_id,
+                source,
+                destination,
                 max_bytes=request.app.state.settings.max_workspace_upload_bytes,
             )
         except StoragePolicyError as error:
             raise storage_error(error) from error
         logging.info(
             "workspace entry copied owner=%s source=%s destination=%s bytes=%d",
-            identity.id,
+            owner_id,
             transfer.source,
             transfer.destination,
             copied,
@@ -1437,15 +1542,29 @@ def create_dashboard_router() -> APIRouter:
         identity: DashboardSession,
         job_service: JobServiceDependency,
     ) -> dict[str, Any]:
-        if identity.is_admin:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Use an owner-scoped job or member session for deletion",
-            )
         normalized = selection.path.strip().replace("\\", "/").strip("/")
         lower = normalized.lower()
         try:
-            if lower.startswith("home/workspace/"):
+            if identity.is_admin and administrator_workspace_available(normalized):
+                workspace_root = require_administrator_workspace(request)
+                owner_id, logical_path = administrator_workspace_path(normalized)
+                freed = delete_workspace_entry(workspace_root, owner_id, logical_path)
+            elif identity.is_admin and lower.startswith("artifacts/"):
+                if any(job.status is JobStatus.RUNNING for job in job_service.list()):
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Wait for running jobs before deleting artifacts",
+                    )
+                provider_root, relative, _ = logical_file_location(
+                    request, identity, normalized, job_service
+                )
+                target = resolve_storage_path(provider_root, relative)
+                freed = remove_permanently(target)
+            elif identity.is_admin:
+                raise StoragePolicyError(
+                    "administrators may delete only member Workspace entries or artifact entries"
+                )
+            elif lower.startswith("home/workspace/"):
                 workspace_root = require_member_workspace(request, identity)
                 freed = delete_workspace_entry(workspace_root, identity.id, normalized)
             elif lower == "artifacts" or lower.startswith("artifacts/"):
@@ -1474,8 +1593,10 @@ def create_dashboard_router() -> APIRouter:
                     selected = runs.get(parts[0]) if parts else None
                     if selected is None:
                         raise StoragePolicyError("artifact not found")
-                    relative = PurePosixPath(*parts)
-                    target = resolve_storage_path(selected.parent, relative.as_posix())
+                    member_relative = PurePosixPath(*parts)
+                    target = resolve_storage_path(
+                        selected.parent, member_relative.as_posix()
+                    )
                     freed = remove_permanently(target)
             else:
                 raise StoragePolicyError(
@@ -1505,9 +1626,18 @@ def create_dashboard_router() -> APIRouter:
         request: Request,
         identity: DashboardSession,
     ) -> dict[str, str]:
-        workspace_root = require_member_workspace(request, identity)
+        if identity.is_admin:
+            workspace_root = require_administrator_workspace(request)
+            try:
+                owner_id, logical_path = administrator_workspace_path(creation.path)
+            except StoragePolicyError as error:
+                raise storage_error(error) from error
+        else:
+            workspace_root = require_member_workspace(request, identity)
+            owner_id = identity.id
+            logical_path = creation.path
         try:
-            create_workspace_directory(workspace_root, identity.id, creation.path)
+            create_workspace_directory(workspace_root, owner_id, logical_path)
         except StoragePolicyError as error:
             raise storage_error(error) from error
         return {"path": creation.path}
@@ -1522,11 +1652,21 @@ def create_dashboard_router() -> APIRouter:
         directory: Annotated[str, Form()],
         file: Annotated[UploadFile, File()],
     ) -> dict[str, Any]:
-        workspace_root = require_member_workspace(request, identity)
+        if identity.is_admin:
+            workspace_root = require_administrator_workspace(request)
+            try:
+                owner_id, logical_directory = administrator_workspace_path(directory)
+            except StoragePolicyError as error:
+                await file.close()
+                raise storage_error(error) from error
+        else:
+            workspace_root = require_member_workspace(request, identity)
+            owner_id = identity.id
+            logical_directory = directory
         filename = file.filename or ""
         try:
             target = workspace_upload_target(
-                workspace_root, identity.id, directory, filename
+                workspace_root, owner_id, logical_directory, filename
             )
         except StoragePolicyError as error:
             await file.close()
@@ -1582,7 +1722,7 @@ def create_dashboard_router() -> APIRouter:
     def jobs_portal_storage_reference(
         selection: StoragePathRequest,
         request: Request,
-        identity: DashboardSession,
+        identity: MemberSession,
     ) -> StorageInputReference:
         require_member_storage(request, identity)
         try:
@@ -1601,7 +1741,7 @@ def create_dashboard_router() -> APIRouter:
     def jobs_portal_storage_project(
         selection: StoragePathRequest,
         request: Request,
-        identity: DashboardSession,
+        identity: MemberSession,
         account_store: Annotated[AccountStore, Depends(get_account_store)],
     ) -> UploadedProjectReference:
         settings = request.app.state.settings
@@ -1622,7 +1762,7 @@ def create_dashboard_router() -> APIRouter:
     def jobs_portal_storage_project_preview(
         selection: StorageProjectPreviewRequest,
         request: Request,
-        identity: DashboardSession,
+        identity: MemberSession,
     ) -> dict[str, Any]:
         require_member_storage(request, identity)
         try:
@@ -1660,7 +1800,7 @@ def create_dashboard_router() -> APIRouter:
         submission: BatchSubmissionCreate,
         request: Request,
         job_service: JobServiceDependency,
-        identity: DashboardSession,
+        identity: MemberSession,
         account_store: Annotated[AccountStore, Depends(get_account_store)],
         idempotency_key: Annotated[
             str | None,

@@ -1,4 +1,6 @@
+import logging
 from datetime import UTC, datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,9 +18,12 @@ from contracts.models import (
 from worker.container_runner import BatchExecutionFailure
 from worker.data_plane import WorkerWorkspace
 from worker.main import (
+    MAX_IDLE_POLL_SECONDS,
     _libre_hardware_temperatures,
+    configure_logging,
     execute,
     load_settings,
+    next_idle_interval,
     publish_artifacts,
     run_once,
 )
@@ -113,7 +118,9 @@ def test_worker_does_nothing_when_queue_is_empty() -> None:
     assert run_once(client) is False
     assert client.completed_result is None
     assert client.failure is None
-    assert client.heartbeats == [None]
+    # The claim request already carries idle liveness and metrics. Heartbeats
+    # are reserved for active lease renewal and cancellation.
+    assert client.heartbeats == []
 
 
 def test_worker_reports_execution_failure(monkeypatch) -> None:
@@ -210,6 +217,30 @@ def test_worker_settings_accept_cli_overrides(tmp_path: Path, monkeypatch) -> No
     assert settings.api_url == "http://raspberrypi.local:8000"
     assert settings.poll_seconds == 3
     assert settings.heartbeat_seconds == 4
+
+
+def test_worker_logging_suppresses_successful_http_noise_and_rotates(
+    tmp_path: Path, monkeypatch
+) -> None:
+    configured: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        "worker.main.logging.basicConfig", lambda **values: configured.append(values)
+    )
+    httpx_logger = logging.getLogger("httpx")
+    previous_level = httpx_logger.level
+    try:
+        configure_logging(tmp_path / "worker.log")
+        assert httpx_logger.level == logging.WARNING
+        handlers = configured[0]["handlers"]
+        assert isinstance(handlers, list)
+        rotating = next(
+            item for item in handlers if isinstance(item, RotatingFileHandler)
+        )
+        assert rotating.maxBytes == 5 * 1024 * 1024
+        assert rotating.backupCount == 3
+        rotating.close()
+    finally:
+        httpx_logger.setLevel(previous_level)
 
 
 def test_libre_hardware_monitor_temperature_parsing(monkeypatch) -> None:
@@ -333,3 +364,27 @@ def test_publishing_removes_the_worker_copy(tmp_path: Path) -> None:
     assert not (tmp_path / "runs" / str(job.id)).exists()
     # The content-addressed caches are shared between jobs and must survive.
     assert (tmp_path / "artifacts").exists()
+
+
+def test_idle_backoff_grows_to_a_cap_and_resets_after_work() -> None:
+    base = 5.0
+    interval = base
+    observed = []
+    for _ in range(6):
+        observed.append(interval)
+        interval = next_idle_interval(interval, base)
+
+    # Idle polling doubles until it reaches the cap, then holds there.
+    assert observed == [5.0, 10.0, 20.0, 30.0, 30.0, 30.0]
+    # A worker configured to poll slower than the cap is never sped up.
+    assert next_idle_interval(60.0, 60.0) == 60.0
+
+
+def test_idle_backoff_cap_stays_within_the_stale_window() -> None:
+    from app.config import load_settings
+
+    settings = load_settings()
+    # A worker that is idling correctly must not be reported STALE. If the cap
+    # ever exceeds the stale window, healthy workers disappear from best-fit
+    # placement and the dashboard.
+    assert settings.worker_stale_seconds >= MAX_IDLE_POLL_SECONDS * 2

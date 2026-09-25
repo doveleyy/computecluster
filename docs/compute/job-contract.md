@@ -67,13 +67,13 @@ readable only so completed historical records do not corrupt job history.
 `python_batch` remains the lightweight convenience path. The implemented first
 general-batch slice provides a shell entrypoint, project bundle, uploaded,
 verified-HTTPS, or HomeStorage named file inputs, a resource request, and a
-numeric task array. Directory inputs and
-reusable runtime selection remain planned. Machine learning is one possible workload,
-not the scheduler's organizing abstraction.
+numeric task array. Directory inputs and reusable runtime selection remain
+planned. Machine learning is one possible workload, not the scheduler's
+organizing abstraction.
 
 Contributor-facing instructions are separated by job type in the
-[authoring index](jobs/README.md). The [Python script guide](jobs/python-script.md)
-describes the lightweight contract; the [batch script standard](jobs/batch-script.md)
+[authoring index](README.md). The [Python script guide](python-script.md)
+describes the lightweight contract; the [batch script standard](batch-script.md)
 defines the live numeric-array subset and marks later features explicitly.
 
 ## Resource limits
@@ -146,9 +146,13 @@ A job's script receives:
 | `HOME_PLATFORM_JOB_NAME` | The submitted job name, or the UUID when unnamed |
 | `HOME_PLATFORM_CPU_LIMIT` | The CPU quota, as a float |
 
-Both job types expose this same set, so a script can move between them without
-rewriting its I/O. The batch type adds `HOME_PLATFORM_PROJECT_DIR` and
-`HOME_PLATFORM_ARRAY_INDEX`; see [batch script](jobs/batch-script.md).
+Every variable above except `HOME_PLATFORM_DATASET` is set for both job types,
+so a script can move between them without rewriting its I/O. The batch type
+replaces the single dataset path with named inputs and adds
+`HOME_PLATFORM_PROJECT_DIR`, `HOME_PLATFORM_TMP_DIR`,
+`HOME_PLATFORM_ARRAY_INDEX`, `HOME_PLATFORM_WORKER_ID`,
+`HOME_PLATFORM_ATTEMPT`, `HOME_PLATFORM_MEMORY_MB`, and
+`HOME_PLATFORM_TIMEOUT_SECONDS`; see [batch script](batch-script.md).
 
 The container has no network, no credentials, and no container-runtime socket.
 Standard output is captured but **truncated to the last 8000 characters**, so
@@ -177,7 +181,8 @@ size, and SHA-256. The coordinator resolves only regular files below its
 configured storage root, rejects traversal and symbolic links, and never puts
 host paths into the job. The coordinator serves the file from its authenticated
 Synology mount to an authenticated worker, which verifies and caches it.
-Directory references and direct worker-to-NAS resolution remain pending.
+Directory references and direct worker-to-file-server resolution are not yet
+available.
 
 ## Worker protocol
 
@@ -214,10 +219,10 @@ receive a cancellation within one heartbeat interval.
 ## Job endpoints
 
 All human interfaces use this canonical flow: stage the script or project,
-stage small inputs or describe large inputs by verified URL, then submit the resulting
-references inside one `JobCreate`. The CLI and Job Desk are different clients
-of this contract, not different execution modes. Browser-session routes are
-authentication adapters and must preserve the same validation, idempotency,
+stage small inputs or describe large inputs by verified URL, then submit the
+resulting references inside one `JobCreate`. The CLI and Job Desk are different
+clients of this contract, not different execution modes. Browser-session routes
+are authentication adapters and must preserve the same validation, idempotency,
 scheduling, cancellation, and result semantics.
 
 | Call | Purpose |
@@ -258,7 +263,7 @@ never define membership.
 Equivalent session-authenticated routes exist under `/jobs-ui/api/job-groups`.
 The Job Desk hides group children from the top-level flat list and displays them
 under one expandable group row. Automatic creation from a numeric
-`#HP --array` range is live; group-wide cancellation remains pending.
+`#HP --array` range is supported; group-wide cancellation is not yet available.
 
 ## Probes
 
@@ -274,15 +279,18 @@ the database is not reachable, and that must not read as healthy.
 ## Authentication
 
 CLI and worker API calls use the elevated `X-API-Token` header. The owner may
-exchange that token for an administrator browser session. Members instead sign
-in with an individual username and password; the password is checked against a
-salted scrypt hash and is never stored in browser JavaScript.
+exchange that token for an administrator browser session used for monitoring,
+cancellation, worker/account control, and bounded file operations. That browser
+session cannot submit jobs or stage inputs. Members sign in to Job Desk with an
+individual username and password; the password is checked against a salted
+scrypt hash and is never stored in browser JavaScript.
 
 Both login methods produce an HttpOnly, `SameSite=Strict`, signed session cookie
-containing only a stable user ID and expiry. Job Desk queries are scoped by that
-identity. A member receives not-found for another owner's job, group, staged
-upload, or artifact even if the UUID is known. Dashboard metrics, account
-management, worker controls, and power control require `ADMIN`.
+containing only a stable user ID and expiry. Member Job Desk queries are scoped
+by that identity. A member receives not-found for another owner's job, group,
+staged upload, or artifact even if the UUID is known. Dashboard metrics,
+all-user job/file views, account management, worker controls, and power control
+require `ADMIN`.
 
 Uploads are size-capped, stored under generated identifiers rather than
 client-supplied filenames, and registered to the authenticated uploader.
@@ -306,9 +314,9 @@ Authenticated browser sessions expose equivalent read-only routes under
 `/jobs-ui/api/jobs/{id}/artifacts`. Job Desk can preview text-like files up to
 256 KiB and download any accepted artifact. Binary files are download-only.
 
-Publishing is authorised by `worker_id` **plus the current lease token**, sent as
-form fields alongside the file. It carries the same authority as completing the
-job, because it changes the job's output: a worker whose lease has expired
+Publishing is authorised by `worker_id` **plus the current lease token**, sent
+as form fields alongside the file. It carries the same authority as completing
+the job, because it changes the job's output: a worker whose lease has expired
 receives `409` and cannot overwrite the results of its replacement. Once a job
 reaches a terminal state its lease is gone, so publishing stops working too.
 
@@ -339,14 +347,14 @@ runs sharing a name cannot collide and a crafted name cannot escape the owner's
 root. Results published before this layout existed are still served from their
 original `<job-id>/` directory.
 
-The default ceilings are 100 MiB per file and 512 MiB across one job. Publication
-uses one HTTP request per file; it is not chunked or resumable at the application
-protocol level. Downloads are different: the manifest carries each file's size
-and SHA-256, the response supports byte ranges, and `hp pull <job-id>` retains a
-hidden `.part` file, resumes it, verifies it, and atomically renames it. There is
-not yet a browser download-all workflow or transfer progress UI. Outputs beyond
-the publication limits need a separate upload contract rather than a larger JSON
-job result.
+The default ceilings are 100 MiB per file and 512 MiB across one job.
+Publication uses one HTTP request per file; it is not chunked or resumable at
+the application protocol level. Downloads are different: the manifest carries
+each file's size and SHA-256, the response supports byte ranges, and `pixi run
+client pull` keeps a hidden `.part` file, resumes it, verifies it, and
+atomically renames it. There is not yet a browser download-all workflow or
+transfer progress UI. Outputs beyond the publication limits need a separate
+upload contract rather than a larger JSON job result.
 
 The `worker://` URI in the result remains as a record of which worker produced
 the files. Retrieval goes through the endpoints above.

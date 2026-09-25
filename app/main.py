@@ -16,6 +16,38 @@ from app.repository import JobRepository
 from app.service import JobService
 from app.version import VERSION
 
+ROUTINE_WORKER_PATHS = frozenset({"/workers/claim", "/workers/heartbeat"})
+
+
+class RoutineWorkerAccessFilter(logging.Filter):
+    """Drop only successful high-frequency worker access lines.
+
+    Application warnings, failed requests, and every other access route remain
+    visible. Uvicorn supplies access fields as positional logging arguments.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        arguments = record.args
+        if not isinstance(arguments, tuple) or len(arguments) < 5:
+            return True
+        method = str(arguments[1])
+        path = str(arguments[2]).split("?", 1)[0]
+        try:
+            status_code = int(str(arguments[4]))
+        except ValueError:
+            return True
+        return not (
+            method == "POST"
+            and path in ROUTINE_WORKER_PATHS
+            and 200 <= status_code < 300
+        )
+
+
+def configure_access_logging() -> None:
+    logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(item, RoutineWorkerAccessFilter) for item in logger.filters):
+        logger.addFilter(RoutineWorkerAccessFilter())
+
 
 def create_app(database_path: Path | None = None) -> FastAPI:
     settings = load_settings()
@@ -23,6 +55,7 @@ def create_app(database_path: Path | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+        configure_access_logging()
         database.initialize()
         job_service = JobService(
             JobRepository(database),

@@ -45,7 +45,12 @@ def load_settings() -> Settings:
         required=api_token_file is not None,
     )
     lease_seconds = positive_int("HOME_PLATFORM_LEASE_SECONDS", 15)
-    worker_stale_seconds = positive_int("HOME_PLATFORM_WORKER_STALE_SECONDS", 20)
+    # Must comfortably exceed the worker's maximum idle poll interval
+    # (worker.main.MAX_IDLE_POLL_SECONDS, 30s), or an idle worker that is
+    # backing off correctly is reported STALE and skipped by best-fit
+    # placement. Three missed polls is the threshold; a job already running is
+    # protected by lease expiry, not by this.
+    worker_stale_seconds = positive_int("HOME_PLATFORM_WORKER_STALE_SECONDS", 90)
     recovery_interval_seconds = positive_float(
         "HOME_PLATFORM_RECOVERY_INTERVAL_SECONDS", 2.0
     )

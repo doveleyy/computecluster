@@ -170,7 +170,7 @@ class ControlPlaneClient:
 
     def _refresh_container_capability(self, *, force: bool = False) -> None:
         now = time.monotonic()
-        if not force and now - self._container_checked_at < 15:
+        if not force and now - self._container_checked_at < 60:
             return
         ready = _container_runtime_ready(
             self._settings.docker_executable,
@@ -481,7 +481,7 @@ def load_settings(
     resolved_poll_seconds = (
         poll_seconds
         if poll_seconds is not None
-        else float(os.environ.get("HOME_PLATFORM_POLL_SECONDS", "2"))
+        else float(os.environ.get("HOME_PLATFORM_POLL_SECONDS", "5"))
     )
     if resolved_poll_seconds <= 0:
         raise ValueError("poll interval must be greater than zero")
@@ -696,6 +696,22 @@ def discard_job_files(job: JobRead, workspace: WorkerWorkspace | None) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
+MAX_IDLE_POLL_SECONDS = 30.0
+
+
+def next_idle_interval(current: float, base: float) -> float:
+    """Back off while nothing is queued, capped so pickup stays predictable.
+
+    A worker that just finished a job is likely to be offered another, so the
+    caller resets to `base` on every claim. A worker that has been idle for
+    minutes — including a scheduling-disabled one, which can never claim — is
+    asking a question whose answer has been "no" for a while, so it asks less
+    often. The cap bounds worst-case pickup latency for the first job after a
+    quiet period.
+    """
+    return min(current * 2, max(base, MAX_IDLE_POLL_SECONDS))
+
+
 def run_once(
     client: WorkerAPI,
     heartbeat_seconds: float = 5,
@@ -703,7 +719,6 @@ def run_once(
 ) -> bool:
     job = client.claim()
     if job is None:
-        client.heartbeat()
         return False
 
     if job.lease_token is None:
@@ -829,6 +844,11 @@ def configure_logging(log_file: Path | None) -> None:
         handlers=handlers,
         force=True,
     )
+    # httpx logs every successful request at INFO. An idle worker makes the
+    # same authenticated claim repeatedly, so those routine 200 lines can grow
+    # by tens of megabytes per day without adding operational information.
+    # Keep warnings and failures while leaving job lifecycle logs at INFO.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
 def main() -> None:
@@ -867,6 +887,7 @@ def main() -> None:
             run_once(client, settings.heartbeat_seconds, workspace)
             return
 
+        idle_seconds = settings.poll_seconds
         while True:
             try:
                 processed_job = run_once(client, settings.heartbeat_seconds, workspace)
@@ -878,8 +899,11 @@ def main() -> None:
             except httpx.RequestError as error:
                 logging.warning("control plane unavailable: %s", error)
                 processed_job = False
-            if not processed_job:
-                time.sleep(settings.poll_seconds)
+            if processed_job:
+                idle_seconds = settings.poll_seconds
+            else:
+                time.sleep(idle_seconds)
+                idle_seconds = next_idle_interval(idle_seconds, settings.poll_seconds)
     finally:
         client.close()
 

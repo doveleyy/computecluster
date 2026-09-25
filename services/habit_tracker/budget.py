@@ -8,6 +8,17 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 TRANSACTION_KINDS = {"daily_spend", "fund_redemption", "fund_contribution"}
+SPEND_CATEGORIES = (
+    "food",
+    "drinks",
+    "transport",
+    "shopping",
+    "bills",
+    "entertainment",
+    "health",
+    "other",
+)
+_CATEGORY_SQL_LIST = ", ".join(f"'{category}'" for category in SPEND_CATEGORIES)
 
 
 @dataclass(frozen=True)
@@ -17,6 +28,7 @@ class BudgetTransaction:
     amount_cents: int
     description: str
     occurred_at: datetime
+    category: str = "other"
 
 
 @dataclass(frozen=True)
@@ -114,7 +126,8 @@ class BudgetRepository:
                     amount_cents INTEGER NOT NULL
                         CHECK (amount_cents BETWEEN 1 AND 100000000),
                     description TEXT NOT NULL,
-                    occurred_at TEXT NOT NULL
+                    occurred_at TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT 'other'
                 );
 
                 CREATE INDEX IF NOT EXISTS budget_transactions_owner_time
@@ -136,6 +149,39 @@ class BudgetRepository:
                 )
                 BEGIN
                     SELECT RAISE(ABORT, 'invalid budget transaction kind');
+                END;
+                """
+            )
+            columns = {
+                str(row[1])
+                for row in connection.execute(
+                    "PRAGMA table_info(budget_transactions)"
+                ).fetchall()
+            }
+            if "category" not in columns:
+                connection.execute(
+                    "ALTER TABLE budget_transactions ADD COLUMN category TEXT "
+                    "NOT NULL DEFAULT 'other'"
+                )
+            # Recreated every start so the vocabulary can widen without a
+            # bespoke migration, matching the drink triggers in water.py.
+            connection.executescript(
+                f"""
+                DROP TRIGGER IF EXISTS budget_category_insert;
+                DROP TRIGGER IF EXISTS budget_category_update;
+
+                CREATE TRIGGER budget_category_insert
+                BEFORE INSERT ON budget_transactions
+                WHEN NEW.category NOT IN ({_CATEGORY_SQL_LIST})
+                BEGIN
+                    SELECT RAISE(ABORT, 'invalid budget category');
+                END;
+
+                CREATE TRIGGER budget_category_update
+                BEFORE UPDATE OF category ON budget_transactions
+                WHEN NEW.category NOT IN ({_CATEGORY_SQL_LIST})
+                BEGIN
+                    SELECT RAISE(ABORT, 'invalid budget category');
                 END;
                 """
             )
@@ -347,24 +393,32 @@ class BudgetRepository:
             )
 
     def add_transaction(
-        self, identity: str, kind: str, amount_cents: int, description: str
+        self,
+        identity: str,
+        kind: str,
+        amount_cents: int,
+        description: str,
+        category: str = "other",
     ) -> BudgetTransaction:
         if kind not in TRANSACTION_KINDS:
             raise ValueError("invalid budget transaction kind")
+        if category not in SPEND_CATEGORIES:
+            raise ValueError("invalid budget category")
         transaction = BudgetTransaction(
             id=str(uuid4()),
             kind=kind,
             amount_cents=amount_cents,
             description=description,
             occurred_at=datetime.now(UTC),
+            category=category,
         )
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO budget_transactions(
                     id, owner_identity, kind, amount_cents,
-                    description, occurred_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    description, occurred_at, category
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     transaction.id,
@@ -373,6 +427,7 @@ class BudgetRepository:
                     transaction.amount_cents,
                     transaction.description,
                     transaction.occurred_at.isoformat(),
+                    transaction.category,
                 ),
             )
         return transaction
@@ -556,7 +611,7 @@ class BudgetRepository:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT id, kind, amount_cents, description, occurred_at
+                SELECT id, kind, amount_cents, description, occurred_at, category
                 FROM budget_transactions
                 WHERE owner_identity = ?
                   AND occurred_at >= ?
@@ -572,6 +627,7 @@ class BudgetRepository:
                 amount_cents=int(row[2]),
                 description=str(row[3]),
                 occurred_at=datetime.fromisoformat(str(row[4])),
+                category=str(row[5]),
             )
             for row in rows
         ]

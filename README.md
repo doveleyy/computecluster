@@ -1,12 +1,19 @@
 # Home Platform
 
-A small distributed job system for a home network. One always-on coordinator
-owns job state; laptops join as compute workers when they happen to be
-available, and queued work waits when none are.
+A private homelab. One always-on host routes, coordinates, and runs household
+applications behind a single private entrance; a file server holds the data;
+laptops join as compute workers when they happen to be available.
 
-Built to explore the parts of distributed systems that are easy to describe and
-hard to get right: atomic work claiming, lease-based failure recovery, verifying
-data you did not produce, and running untrusted code without trusting it.
+The largest application is a distributed job system — one coordinator owns job
+state, and queued work waits when no worker is online. It was built to explore
+the parts of distributed systems that are easy to describe and hard to get
+right: atomic work claiming, lease-based failure recovery, verifying data you
+did not produce, and running untrusted code without trusting it.
+
+Nothing is exposed to the public internet. Every device reaches the platform
+over a private overlay network, where a reverse proxy presents each application
+under one HTTPS origin. See [Architecture](docs/architecture.md) for the whole
+picture and [Network](docs/network.md) for how requests are routed.
 
 ## What it does
 
@@ -52,9 +59,11 @@ data you did not produce, and running untrusted code without trusting it.
   and job submission have focused routes instead of one oversized dashboard or
   job page.
 - **User-scoped Job Desk** — members sign in with individual credentials and
-  can access only their own jobs, groups, staged uploads, and artifacts. The
-  owner retains worker, host, and account controls. Members can change their
-  password, while an owner reset revokes every existing member session.
+  can access only their own jobs, groups, staged uploads, and artifacts.
+- **Separate operator control plane** — the owner monitors every workload,
+  manages bounded file areas plus worker, host, and account controls, and has no
+  browser submission path. Members can change their password, while an owner
+  reset revokes every existing member session.
 - **Guarded Pi power control** — the authenticated owner dashboard can request
   reboot or shutdown only after all workers are drained and jobs are idle. A
   root-owned helper flushes writes and unmounts local removable storage before
@@ -66,8 +75,8 @@ data you did not produce, and running untrusted code without trusting it.
 ## Interfaces
 
 The browser UI has five focused routes: owner Overview, owner Operations, job
-history/results, Files, and Submit. They retain one terminal-inspired visual language
-and one responsive 1240 px content shell without forcing monitoring,
+history/results, Files, and Submit. They retain one terminal-inspired visual
+language and one responsive 1240 px content shell without forcing monitoring,
 destructive controls, forms, and history into one screen. Submission uses a
 roomy two-column form on larger screens and a single-column phone layout.
 
@@ -84,22 +93,24 @@ public repository does not disclose details of the live deployment.
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — design, job lifecycle, leases,
-  scheduling behaviour, isolation model, trust boundaries, failure behaviour.
-- [Job and API contract](docs/job-contract.md) — job types, state machine,
-  worker protocol, endpoints, authentication.
-- [Job types and authoring](docs/jobs/README.md) — separate guides for the live
-  [Python script job](docs/jobs/python-script.md) and numeric-array
-  [PBS-like batch script](docs/jobs/batch-script.md).
-- [Web interfaces](docs/interfaces.md) — what the dashboard and Job Desk do
-  today, and the boundary for their next redesign.
+- [Architecture](docs/architecture.md) — the overview: physical shape, the
+  subsystems, trust boundaries, failure behaviour, known limits.
+- [Network](docs/network.md) — the private overlay network, reverse
+  proxy routing, and why a loopback binding is what makes proxy identity
+  headers trustworthy.
+- [Compute](docs/compute/README.md) — the job engine: leases, atomic claiming,
+  placement, data plane, isolation. With its
+  [wire contract](docs/compute/job-contract.md) and authoring guides for
+  [Python scripts](docs/compute/python-script.md) and
+  [batch projects](docs/compute/batch-script.md).
+- [Storage](docs/storage/README.md) — one file server, logical areas, published
+  results, backups, and [files in and out of a job](docs/storage/workflow.md).
+- [Accounts and access control](docs/access-control.md) — roles, sessions,
+  immutable ownership, and linking a network login to a platform account.
+- [Application services](docs/services.md) — independent containers,
+  proxy routing, and state ownership for hosted household applications.
 - [Configuration](docs/configuration.md) — control-plane, storage, worker, and
   execution settings.
-- [Accounts and access control](docs/access-control.md) — roles, sessions,
-  immutable ownership, and the pending NAS ACL boundary.
-- [Application services](docs/services.md) — independent containers, reverse
-  proxy routing and state ownership. [Habit Tracker](docs/habit-tracker.md)
-  covers the pixel-art overview, daily Water tracking, Budget, and savings goals.
 
 ## Layout
 
@@ -149,7 +160,7 @@ The retired CSV Summary handler is no longer submittable or advertised. The
 single-file `python_batch` remains available while the compute layer evolves
 toward the general PBS-style batch design described in the
 [architecture](docs/architecture.md) and its normative
-[batch script standard](docs/jobs/batch-script.md).
+[batch script standard](docs/compute/batch-script.md).
 
 ## Client
 

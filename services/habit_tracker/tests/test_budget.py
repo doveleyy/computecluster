@@ -217,6 +217,115 @@ def test_every_same_day_budget_adjustment_is_preserved_in_the_ledger(
     ] == [(800, 650, -150), (1000, 800, -200), (0, 1000, 1000)]
 
 
+def test_spending_carries_a_category(tmp_path: Path) -> None:
+    with client(tmp_path) as test_client:
+        lunch = test_client.post(
+            "/api/budget/transactions",
+            json={
+                "kind": "daily_spend",
+                "amount_cents": 800,
+                "description": "Lunch",
+                "category": "food",
+            },
+        )
+        bus = test_client.post(
+            "/api/budget/transactions",
+            json={"kind": "daily_spend", "amount_cents": 200, "category": "transport"},
+        )
+        drink = test_client.post(
+            "/api/budget/transactions",
+            json={"kind": "daily_spend", "amount_cents": 300, "category": "drinks"},
+        )
+        default = test_client.post(
+            "/api/budget/transactions",
+            json={"kind": "daily_spend", "amount_cents": 100},
+        )
+        unknown = test_client.post(
+            "/api/budget/transactions",
+            json={"kind": "daily_spend", "amount_cents": 100, "category": "crypto"},
+        )
+        page = test_client.get("/budget")
+        summary = test_client.get("/api/budget/summary").json()
+
+    assert lunch.json()["category"] == "food"
+    assert lunch.json()["description"] == "Lunch"
+    assert bus.json()["category"] == "transport"
+    assert drink.json()["category"] == "drinks"
+    assert default.json()["category"] == "other"
+    assert unknown.status_code == 422
+    assert "Category" in page.text
+    assert '"value": "drinks", "label": "Drinks"' in page.text
+    assert {t["category"] for t in summary["transactions"]} == {
+        "food",
+        "drinks",
+        "transport",
+        "other",
+    }
+
+
+def test_only_daily_spending_carries_a_category(tmp_path: Path) -> None:
+    with client(tmp_path) as test_client:
+        redemption = test_client.post(
+            "/api/budget/transactions",
+            json={
+                "kind": "fund_redemption",
+                "amount_cents": 500,
+                "category": "entertainment",
+            },
+        )
+        contribution = test_client.post(
+            "/api/budget/transactions",
+            json={
+                "kind": "fund_contribution",
+                "amount_cents": 100,
+                "category": "food",
+            },
+        )
+        plain_redemption = test_client.post(
+            "/api/budget/transactions",
+            json={"kind": "fund_redemption", "amount_cents": 500},
+        )
+
+    # Fund movements are not spending, so they carry no category to analyse.
+    assert redemption.status_code == 422
+    assert contribution.status_code == 422
+    assert plain_redemption.status_code == 201
+    assert plain_redemption.json()["category"] == "other"
+
+
+def test_existing_transactions_migrate_to_the_other_category(tmp_path: Path) -> None:
+    database_path = tmp_path / "habits.db"
+    timezone = ZoneInfo("Asia/Singapore")
+    water = WaterRepository(database_path, timezone)
+    water.initialize()
+    identity = "development:legacy@example.test"
+    water.ensure_user(identity, "legacy")
+    with sqlite3.connect(database_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE budget_transactions (
+                id TEXT PRIMARY KEY,
+                owner_identity TEXT NOT NULL REFERENCES users(identity),
+                kind TEXT NOT NULL,
+                amount_cents INTEGER NOT NULL,
+                description TEXT NOT NULL,
+                occurred_at TEXT NOT NULL
+            );
+            """
+        )
+        connection.execute(
+            "INSERT INTO budget_transactions VALUES (?, ?, 'daily_spend', ?, ?, ?)",
+            ("old", identity, 450, "Before categories", datetime.now(UTC).isoformat()),
+        )
+
+    budget = BudgetRepository(database_path, timezone)
+    budget.initialize()
+    budget.ensure_user(identity, date.today())
+    rows = budget.transactions_for_day(identity, date.today())
+
+    assert [row.category for row in rows] == ["other"]
+
+
 def test_new_account_starts_with_ten_dollar_daily_budget(tmp_path: Path) -> None:
     with client(tmp_path) as test_client:
         summary = test_client.get("/api/budget/summary").json()
