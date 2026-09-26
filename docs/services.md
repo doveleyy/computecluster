@@ -70,5 +70,13 @@ change its response without notice, and none of that should reach an
 application for logging daily habits. It is served at `/wishlist` with its own
 container and database, and shares only the identity mechanism.
 
-That pair is the rule in practice — several screens of one idea stay together;
-a capability that fails for unrelated reasons gets its own service.
+**Transport** keeps a deliberately small personal view of public-transport
+data. Its train card downloads a GTFS timetable only on explicit refresh and
+answers today's last-train lookup locally. Its bus card stores a short list of
+stop/service pairs and requests live arrival estimates only when that card is
+refreshed. Grouping saved services by stop avoids duplicate upstream calls.
+Transport owns its cache, saved selections, credential, and upstream failure
+boundary, so it is independent of both the control plane and other apps.
+
+These services show the rule in practice — several screens of one idea stay
+together; a capability that fails for unrelated reasons gets its own service.

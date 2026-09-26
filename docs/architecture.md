@@ -44,7 +44,8 @@ go. Most of the design follows from that:
     |                                                       |
     |   reverse proxy  --+-->  control plane (jobs, web UI)  |
     |                    +-->  habit tracker container       |
-    |                    +-->  ...future applications        |
+    |                    +-->  wishlist container            |
+    |                    +-->  transport container           |
     |                                                       |
     |   SQLite (job truth) · systemd lifecycle · backups     |
     +-------------------------------------------------------+
@@ -79,6 +80,8 @@ the host serves. It terminates HTTPS once and dispatches by path:
 ```text
     /          ->  127.0.0.1:8000     control plane: jobs, dashboard, API
     /habits    ->  127.0.0.1:8100     habit tracker
+    /wishlist  ->  127.0.0.1:8101     wishlist
+    /transport ->  127.0.0.1:8102     transport dashboard
 ```
 
 Every backend binds to loopback only, so the proxy is the sole route in, and a
@@ -155,7 +158,8 @@ host, the proxy, and the identity system.
 
 Adding one is a deliberate, bounded exercise: a source directory, an image, a
 loopback port, a systemd unit, one proxy route, explicit limits, and a tested
-backup. The current example is a habit tracker.
+backup. Current examples include the habit tracker, wishlist, and personal
+transport dashboard.
 
 Detail: [Application services](services.md).
 

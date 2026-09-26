@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Transport</title>
+  <link rel="stylesheet" href="__BASE_PATH__/static/transport.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">HOME PLATFORM</p>
+        <h1>Transport</h1>
+      </div>
+      <div class="today" id="today"></div>
+    </header>
+
+    <section class="dashboard" aria-label="Transport cards">
+      <article class="card train-card">
+        <header class="card-header">
+          <div>
+            <p class="eyebrow">TODAY</p>
+            <h2>Last train</h2>
+          </div>
+          <button class="refresh" id="refresh-trains" type="button">Refresh timetable</button>
+        </header>
+        <p class="muted snapshot" id="train-snapshot">No timetable saved yet.</p>
+
+        <div class="train-selectors">
+          <label>Line
+            <select id="line" disabled><option>Refresh first</option></select>
+          </label>
+          <label>Direction
+            <select id="direction" disabled><option>Select a line</option></select>
+          </label>
+          <label>Station
+            <select id="station" disabled><option>Select a direction</option></select>
+          </label>
+        </div>
+        <button class="primary" id="find-train" type="button" disabled>Show last train</button>
+
+        <div class="train-result empty" id="train-result" aria-live="polite">
+          Choose a line, direction, and station.
+        </div>
+      </article>
+
+      <article class="card bus-card">
+        <header class="card-header">
+          <div>
+            <p class="eyebrow">LIVE</p>
+            <h2>My buses</h2>
+          </div>
+          <button class="refresh" id="refresh-buses" type="button">Refresh arrivals</button>
+        </header>
+        <p class="muted snapshot" id="bus-snapshot">Not refreshed.</p>
+
+        <form id="bus-form" class="bus-form">
+          <label>Stop code
+            <input name="stop_code" inputmode="numeric" maxlength="5" pattern="[0-9]{5}" placeholder="20251" required>
+          </label>
+          <label>Bus
+            <input name="service_no" maxlength="8" placeholder="176" required>
+          </label>
+          <label class="stop-name">Your stop name
+            <input name="stop_name" maxlength="80" placeholder="Home" required>
+          </label>
+          <button class="secondary" type="submit">Save</button>
+        </form>
+
+        <div class="bus-list" id="bus-list" aria-live="polite"></div>
+      </article>
+    </section>
+    <footer>Transport <span>v__VERSION__</span></footer>
+  </main>
+  <script>window.TRANSPORT_CONFIG = __TRANSPORT_CONFIG__;</script>
+  <script src="__BASE_PATH__/static/transport.js" defer></script>
+</body>
+</html>

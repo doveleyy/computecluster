@@ -1,0 +1,43 @@
+name: home-platform-transport
+
+services:
+  transport:
+    build:
+      context: ../..
+      dockerfile: services/transport/Dockerfile
+    image: home-platform-transport:0.1.0
+    container_name: home-platform-transport
+    restart: unless-stopped
+    user: "${SERVICE_UID:-1000}:${SERVICE_GID:-1000}"
+    ports:
+      - "127.0.0.1:8102:8102"
+    environment:
+      TRANSPORT_DB_PATH: /data/transport.db
+      TRANSPORT_BASE_PATH: /transport
+      TRANSPORT_TIMEZONE: Asia/Singapore
+      TRANSPORT_ALLOW_DEV_IDENTITY: "false"
+      TRANSPORT_DATAMALL_KEY_FILE: /run/secrets/datamall-key
+      TRANSPORT_IDENTITY_RESOLVER_URL: http://host.docker.internal:8000/internal/service-identities/resolve
+      TRANSPORT_IDENTITY_TOKEN_FILE: /run/secrets/service-identity-token
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ${TRANSPORT_STATE_DIR:?Set the private state directory}:/data
+      - ${TRANSPORT_DATAMALL_KEY_FILE:?Set the private DataMall key file}:/run/secrets/datamall-key:ro
+      - ${TRANSPORT_IDENTITY_TOKEN_FILE:?Set the private identity token file}:/run/secrets/service-identity-token:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.50
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8102/ready', timeout=2).read()"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
