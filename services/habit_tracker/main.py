@@ -5,7 +5,7 @@ import urllib.request
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from html import escape
 from pathlib import Path
@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from services.habit_tracker.budget import BudgetRepository, BudgetTransaction
 from services.habit_tracker.water import Drink, WaterRepository
 
-SERVICE_VERSION = "0.7.0"
+SERVICE_VERSION = "0.8.1"
 DEFAULT_DATABASE_PATH = Path("data/habit-tracker.db")
 SERVICE_DIR = Path(__file__).parent
 TEMPLATES = {
@@ -541,6 +541,25 @@ def create_app(
             ]
         }
 
+    @application.get("/api/water/day")
+    def water_day(
+        user: Annotated[Identity, Depends(current_identity)],
+        request: Request,
+        selected_date: Annotated[date, Query(alias="date")],
+    ) -> dict[str, object]:
+        local_day = _historical_day(request, selected_date)
+        repository: WaterRepository = request.app.state.repository
+        drinks = repository.drinks_for_day(user.key, local_day)
+        return {
+            "date": local_day.isoformat(),
+            "goal_ml": repository.goal(user.key),
+            "total_ml": sum(drink.amount_ml for drink in drinks),
+            "entry_count": len(drinks),
+            "breakdown_ml": _breakdown(drinks),
+            "temperature_breakdown_ml": _breakdown(drinks, "temperature"),
+            "sweetness_breakdown_ml": _breakdown(drinks, "sweetness"),
+        }
+
     @application.get("/api/budget/summary")
     def budget_summary(
         user: Annotated[Identity, Depends(current_identity)], request: Request
@@ -652,6 +671,36 @@ def create_app(
             ]
         }
 
+    @application.get("/api/budget/day")
+    def budget_day(
+        user: Annotated[Identity, Depends(current_identity)],
+        request: Request,
+        selected_date: Annotated[date, Query(alias="date")],
+    ) -> dict[str, object]:
+        local_day = _historical_day(request, selected_date)
+        repository: BudgetRepository = request.app.state.budget_repository
+        day = repository.day(user.key, local_day)
+        transactions = repository.transactions_for_day(user.key, local_day)
+        spending = [
+            transaction
+            for transaction in transactions
+            if transaction.kind == BudgetTransactionKind.DAILY_SPEND
+        ]
+        breakdown: dict[str, int] = {}
+        for transaction in spending:
+            breakdown[transaction.category] = (
+                breakdown.get(transaction.category, 0) + transaction.amount_cents
+            )
+        return {
+            "date": local_day.isoformat(),
+            "currency": repository.currency(user.key),
+            "budget_cents": day.budget_cents,
+            "spent_cents": day.spent_cents,
+            "remaining_cents": day.net_cents,
+            "entry_count": len(spending),
+            "category_breakdown_cents": breakdown,
+        }
+
     @application.get("/api/budget/ledger")
     def budget_ledger(
         user: Annotated[Identity, Depends(current_identity)],
@@ -707,11 +756,23 @@ def _budget_transaction_read(
     )
 
 
-def _breakdown(drinks: list[Drink]) -> dict[str, int]:
+def _breakdown(drinks: list[Drink], attribute: str = "drink_type") -> dict[str, int]:
     totals: dict[str, int] = {}
     for drink in drinks:
-        totals[drink.drink_type] = totals.get(drink.drink_type, 0) + drink.amount_ml
+        value = getattr(drink, attribute)
+        if value is not None:
+            totals[value] = totals.get(value, 0) + drink.amount_ml
     return totals
+
+
+def _historical_day(request: Request, selected_date: date) -> date:
+    today = datetime.now(request.app.state.settings.timezone).date()
+    if selected_date > today:
+        raise HTTPException(
+            status_code=422,
+            detail="Analysis date cannot be in the future",
+        )
+    return selected_date
 
 
 def _load_optional_secret(path_value: str) -> str | None:

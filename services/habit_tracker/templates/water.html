@@ -42,10 +42,22 @@
       </section>
     </div>
     <section class="panel analytics">
-      <div class="panel-head"><span class="panel-title">Daily analysis</span><span class="label">Volume by day and type</span></div>
+      <div class="panel-head analysis-head">
+        <div><span class="panel-title">Daily analysis</span><span class="analysis-date" id="analysis-date-label"></span></div>
+        <div class="date-controls">
+          <button type="button" id="previous-day" aria-label="Previous day">←</button>
+          <input type="date" id="analysis-date" aria-label="Analysis date" required>
+          <button type="button" id="next-day" aria-label="Next day">→</button>
+          <button type="button" id="today-day">TODAY</button>
+        </div>
+      </div>
       <div class="analytics-grid">
-        <div class="chart-block"><div class="section-caption"><span class="label">7 day rhythm</span><span class="label" id="timezone"></span></div><div class="history" id="history"></div></div>
-        <div class="mix-block"><div class="label">Today’s mix</div><div class="mix-items" id="mix"><span class="mix-item">Nothing logged yet</span></div></div>
+        <div class="chart-block"><div class="section-caption"><span class="label">7 day rhythm · choose a bar</span><span class="label" id="timezone"></span></div><div class="history" id="history"></div></div>
+        <div class="analysis-detail">
+          <div class="day-total"><strong><span id="analysis-total">—</span><span class="analysis-unit"> ml</span></strong><span id="analysis-progress" class="day-progress"></span></div>
+          <div class="breakdown-head"><span class="label">Break down by</span><div class="analysis-switch" id="analysis-switch"><button type="button" data-breakdown="drink_type" class="active" aria-pressed="true">Drink type</button><button type="button" data-breakdown="temperature" aria-pressed="false">Temperature</button></div></div>
+          <div class="breakdown-items" id="analysis-breakdown"></div>
+        </div>
       </div>
     </section>
   </main>

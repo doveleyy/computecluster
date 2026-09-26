@@ -1,5 +1,5 @@
 import sqlite3
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -261,6 +261,60 @@ def test_spending_carries_a_category(tmp_path: Path) -> None:
         "transport",
         "other",
     }
+
+
+def test_previous_day_budget_analysis_breaks_down_spending_categories(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "habits.db"
+    timezone = ZoneInfo("Asia/Singapore")
+    identity = "development:member@example.test"
+    previous_day = datetime.now(timezone).date() - timedelta(days=1)
+    occurred_at = datetime.combine(previous_day, time(12), timezone).astimezone(UTC)
+    with client(tmp_path) as test_client:
+        assert test_client.get("/api/budget/summary").status_code == 200
+        with sqlite3.connect(database_path) as connection:
+            connection.executemany(
+                """
+                INSERT INTO budget_transactions(
+                    id, owner_identity, kind, amount_cents, description,
+                    occurred_at, category
+                ) VALUES (?, ?, 'daily_spend', ?, ?, ?, ?)
+                """,
+                (
+                    (
+                        "yesterday-food",
+                        identity,
+                        450,
+                        "Lunch",
+                        occurred_at.isoformat(),
+                        "food",
+                    ),
+                    (
+                        "yesterday-drink",
+                        identity,
+                        250,
+                        "Coffee",
+                        occurred_at.isoformat(),
+                        "drinks",
+                    ),
+                ),
+            )
+        analysis = test_client.get(f"/api/budget/day?date={previous_day}")
+        future = test_client.get(
+            f"/api/budget/day?date={datetime.now(timezone).date() + timedelta(days=1)}"
+        )
+        page = test_client.get("/budget")
+
+    assert analysis.status_code == 200
+    assert analysis.json()["spent_cents"] == 700
+    assert analysis.json()["entry_count"] == 2
+    assert analysis.json()["category_breakdown_cents"] == {
+        "drinks": 250,
+        "food": 450,
+    }
+    assert future.status_code == 422
+    assert 'id="category-breakdown"' in page.text
 
 
 def test_only_daily_spending_carries_a_category(tmp_path: Path) -> None:

@@ -467,6 +467,9 @@ class BudgetRepository:
         all_days = self._days(identity, local_day)
         return all_days[-days:]
 
+    def day(self, identity: str, local_day: date) -> BudgetDay:
+        return self._days(identity, local_day)[-1]
+
     def fund_ledger(
         self, identity: str, local_day: date, limit: int
     ) -> list[FundEntry]:

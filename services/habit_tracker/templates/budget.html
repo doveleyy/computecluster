@@ -20,7 +20,22 @@
       <section class="panel action-panel"><div class="label">Record money</div><div class="mode-options" id="modes"><button type="button" data-kind="daily_spend" class="active">Spend today</button><button type="button" data-kind="fund_redemption">Redeem fund</button><button type="button" data-kind="fund_contribution">Add to fund</button></div><p class="mode-help" id="mode-help"></p><div class="category-picker" id="category-picker"><div class="label">Category <span class="choice-hint">spending only</span></div><div class="category-options" id="categories"></div></div><form class="transaction-form" id="transaction-form"><input id="amount" type="number" min="0.01" max="1000000" step="0.01" inputmode="decimal" placeholder="Amount" required><input id="description" maxlength="120" placeholder="What was it for? (optional)"><button type="submit">ADD</button></form><div class="message" id="message"></div></section>
       <section class="panel activity-panel"><div class="panel-head"><span class="panel-title">Today’s activity</span><span class="label" id="activity-count"></span></div><div class="activity" id="activity"></div></section>
     </div>
-    <section class="panel analysis"><div class="panel-head"><span class="panel-title">Budget history</span><span class="label" id="timezone"></span></div><div class="analysis-grid"><div class="history-block"><div class="label">Last 7 tracked days</div><div class="history" id="history"></div></div><div class="ledger-block"><div class="label">Budget ledger</div><div class="ledger" id="ledger"></div></div></div></section>
+    <section class="panel analysis">
+      <div class="panel-head analysis-head">
+        <div><span class="panel-title">Budget analysis</span><span class="analysis-date" id="analysis-date-label"></span></div>
+        <div class="date-controls">
+          <button type="button" id="previous-day" aria-label="Previous day">←</button>
+          <input type="date" id="analysis-date" aria-label="Analysis date" required>
+          <button type="button" id="next-day" aria-label="Next day">→</button>
+          <button type="button" id="today-day">TODAY</button>
+        </div>
+      </div>
+      <div class="analysis-grid">
+        <div class="history-block"><div class="section-caption"><span class="label">Last 7 days · choose a bar</span><span class="label" id="timezone"></span></div><div class="history" id="history"></div></div>
+        <div class="day-breakdown"><div class="day-figures"><div><span class="label">Budget</span><strong id="analysis-budget">—</strong></div><div><span class="label">Spent</span><strong id="analysis-spent">—</strong></div><div><span class="label">Remaining</span><strong id="analysis-remaining">—</strong></div></div><div class="label">Spending by category</div><div class="category-breakdown" id="category-breakdown"></div></div>
+      </div>
+      <div class="ledger-block"><div class="label">Budget ledger</div><div class="ledger" id="ledger"></div></div>
+    </section>
   </main>
   <script>window.habitConfig=__HABIT_TRACKER_CONFIG__;</script>
   <script src="__BASE_PATH__/static/budget.js?v=__VERSION__" defer></script>

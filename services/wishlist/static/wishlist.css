@@ -1,0 +1,32 @@
+:root{color-scheme:dark;--bg:#050505;--raised:#121212;--line:#272727;--text:#f5f5f5;--muted:#8b8b8b;--dim:#5f5f5f;--accent:#7cf2b8;--danger:#ff7474;--warn:#ffb454;--mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
+*{box-sizing:border-box}[hidden]{display:none!important}html{background:var(--bg)}
+body{margin:0;min-width:280px;min-height:100dvh;background:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px),var(--bg);background-size:32px 32px;color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+button,input{font:inherit}button{min-height:42px;border:1px solid var(--line);border-radius:9px;background:#0a0a0a;color:var(--text);cursor:pointer;padding:0 14px}button:hover{border-color:#555;background:var(--raised)}button:disabled{cursor:wait;opacity:.45}
+input{min-width:0;min-height:44px;padding:0 13px;border:1px solid var(--line);border-radius:9px;outline:0;background:#060606;color:var(--text)}input:focus{border-color:var(--accent)}
+.shell{width:min(1100px,100%);margin:auto;padding:max(24px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(52px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left))}
+.top{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;margin-bottom:20px}
+.eyebrow,.label{color:var(--muted);font:600 10px var(--mono);letter-spacing:.13em;text-transform:uppercase}
+.title{margin:6px 0 0;font:600 clamp(26px,5vw,40px)/1 var(--mono);letter-spacing:-.06em}.muted{color:var(--dim)}
+.user{color:var(--muted);font:11px var(--mono);text-align:right}
+.panel{overflow:hidden;border:1px solid var(--line);border-radius:14px;background:rgba(10,10,10,.96)}
+.add-panel{padding:20px;margin-bottom:12px}
+.add-form{display:grid;grid-template-columns:minmax(0,1fr) 150px 120px 96px;gap:8px;margin-top:10px}
+.add-form button{background:var(--text);color:var(--bg);font:700 9px var(--mono);letter-spacing:.08em}
+.message{min-height:18px;margin-top:10px;color:var(--muted);font:10px var(--mono)}.message.bad{color:var(--danger)}
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 17px;border-bottom:1px solid var(--line)}
+.panel-title{font:600 13px var(--mono)}.ghost{min-height:34px;font:600 9px var(--mono);letter-spacing:.08em;color:var(--muted)}
+.item{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:14px;padding:16px 17px;border-bottom:1px solid var(--line)}.item:last-child{border-bottom:0}
+.item-name{overflow:hidden;font:600 12px var(--mono);text-overflow:ellipsis;white-space:nowrap}
+.item-name a{color:var(--text);text-decoration:none}.item-name a:hover{color:var(--accent)}
+.item-meta{margin-top:5px;color:var(--dim);font:9px var(--mono);text-transform:uppercase}
+.item-right{text-align:right;white-space:nowrap}
+.price{font:600 16px var(--mono)}.price.met{color:var(--accent)}
+.base{margin-top:3px;color:var(--muted);font:9px var(--mono)}
+.delta{margin-top:3px;font:9px var(--mono)}.delta.up{color:var(--danger)}.delta.down{color:var(--accent)}
+.chips{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap}
+.chip{padding:3px 7px;border:1px solid var(--line);border-radius:6px;color:var(--muted);font:9px var(--mono);text-transform:uppercase}
+.chip.out{border-color:#5a2a2a;color:var(--danger)}.chip.in{border-color:#2a5a3f;color:var(--accent)}.chip.warn{border-color:#5a4a2a;color:var(--warn)}
+.row-actions{display:flex;gap:6px;margin-top:8px;justify-content:flex-end}.row-actions button{min-height:30px;padding:0 9px;font:9px var(--mono);border-color:transparent;color:var(--dim)}.row-actions button:hover{color:var(--danger);border-color:var(--line)}
+.empty{padding:40px 18px;color:var(--muted);font:11px var(--mono);text-align:center}
+.footnote{margin:18px 0;color:var(--dim);font:10px/1.7 var(--mono)}
+@media(max-width:720px){.shell{padding-left:12px;padding-right:12px}.add-form{grid-template-columns:1fr 1fr}.add-form input:first-child{grid-column:1/-1}.add-form button{grid-column:1/-1}}

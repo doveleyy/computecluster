@@ -1,6 +1,7 @@
 import sqlite3
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -99,6 +100,65 @@ def test_goal_validation_and_history(tmp_path: Path) -> None:
     assert len(history.json()["days"]) == 7
     assert history.json()["days"][-1]["goal_ml"] == 2400
     assert history.json()["days"][-1]["breakdown_ml"] == {"tea": 250}
+
+
+def test_previous_day_analysis_breaks_down_drink_attributes(tmp_path: Path) -> None:
+    database_path = tmp_path / "water.db"
+    identity = "development:member@example.test"
+    timezone = ZoneInfo("Asia/Singapore")
+    previous_day = datetime.now(timezone).date() - timedelta(days=1)
+    consumed_at = datetime.combine(previous_day, time(12), timezone).astimezone(UTC)
+    with client(tmp_path) as test_client:
+        assert test_client.get("/api/today").status_code == 200
+        with sqlite3.connect(database_path) as connection:
+            connection.executemany(
+                """
+                INSERT INTO drinks(
+                    id, owner_identity, amount_ml, drink_type, temperature,
+                    sweetness, consumed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    (
+                        "yesterday-tea",
+                        identity,
+                        500,
+                        "tea",
+                        "iced",
+                        "less",
+                        consumed_at.isoformat(),
+                    ),
+                    (
+                        "yesterday-water",
+                        identity,
+                        250,
+                        "water",
+                        "normal",
+                        None,
+                        consumed_at.isoformat(),
+                    ),
+                ),
+            )
+        analysis = test_client.get(f"/api/water/day?date={previous_day}")
+        future = test_client.get(
+            f"/api/water/day?date={datetime.now(timezone).date() + timedelta(days=1)}"
+        )
+        page = test_client.get("/water")
+
+    assert analysis.status_code == 200
+    assert analysis.json()["total_ml"] == 750
+    assert analysis.json()["entry_count"] == 2
+    assert analysis.json()["breakdown_ml"] == {"tea": 500, "water": 250}
+    assert analysis.json()["temperature_breakdown_ml"] == {
+        "iced": 500,
+        "normal": 250,
+    }
+    assert analysis.json()["sweetness_breakdown_ml"] == {"less": 500}
+    assert future.status_code == 422
+    assert 'id="analysis-date"' in page.text
+    assert 'data-breakdown="drink_type"' in page.text
+    assert 'data-breakdown="temperature"' in page.text
+    assert "Selected day" not in page.text
 
 
 def test_drink_type_defaults_to_water_and_rejects_unknown_type(

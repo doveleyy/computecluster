@@ -52,7 +52,7 @@ The host is a single machine, not a cluster. Independent containers stop
 dependency and process failures from being shared, but power, disk, network,
 and the container runtime remain a common failure domain.
 
-## Current example: Habit Tracker
+## Current examples
 
 One application with three pages — an Overview, Water for logging drinks, and
 Budget for daily spending and a sinking fund. They are pages of one cohesive
@@ -62,3 +62,13 @@ writes nothing in the job-control database.
 
 It is served at `/habits`. Source and a development recipe are in
 [`services/habit_tracker/`](../services/habit_tracker/README.md).
+
+**Wishlist** tracks what a thing costs over time. It is a separate service
+rather than another Habit Tracker page, because reading prices from other
+people's shops is a different failure boundary: a shop can hang, rate-limit, or
+change its response without notice, and none of that should reach an
+application for logging daily habits. It is served at `/wishlist` with its own
+container and database, and shares only the identity mechanism.
+
+That pair is the rule in practice — several screens of one idea stay together;
+a capability that fails for unrelated reasons gets its own service.
