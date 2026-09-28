@@ -78,7 +78,7 @@ Inside that network, a single reverse proxy is the front door for everything
 the host serves. It terminates HTTPS once and dispatches by path:
 
 ```text
-    /          ->  127.0.0.1:8000     control plane: jobs, dashboard, API
+    /          ->  127.0.0.1:8000     launcher, jobs, dashboard, API
     /habits    ->  127.0.0.1:8100     habit tracker
     /wishlist  ->  127.0.0.1:8101     wishlist
     /transport ->  127.0.0.1:8102     transport dashboard

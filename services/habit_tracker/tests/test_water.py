@@ -140,13 +140,21 @@ def test_previous_day_analysis_breaks_down_drink_attributes(tmp_path: Path) -> N
                 ),
             )
         analysis = test_client.get(f"/api/water/day?date={previous_day}")
+        calendar_day = test_client.get(f"/api/water/history?days=1&end={previous_day}")
         future = test_client.get(
             f"/api/water/day?date={datetime.now(timezone).date() + timedelta(days=1)}"
+        )
+        future_history = test_client.get(
+            "/api/water/history?days=1&end="
+            f"{datetime.now(timezone).date() + timedelta(days=1)}"
         )
         page = test_client.get("/water")
 
     assert analysis.status_code == 200
     assert analysis.json()["total_ml"] == 750
+    assert calendar_day.json()["days"][0]["date"] == previous_day.isoformat()
+    assert calendar_day.json()["days"][0]["total_ml"] == 750
+    assert future_history.status_code == 422
     assert analysis.json()["entry_count"] == 2
     assert analysis.json()["breakdown_ml"] == {"tea": 500, "water": 250}
     assert analysis.json()["temperature_breakdown_ml"] == {
@@ -158,7 +166,9 @@ def test_previous_day_analysis_breaks_down_drink_attributes(tmp_path: Path) -> N
     assert 'id="analysis-date"' in page.text
     assert 'data-breakdown="drink_type"' in page.text
     assert 'data-breakdown="temperature"' in page.text
-    assert "Selected day" not in page.text
+    assert 'id="goal-calendar"' in page.text
+    assert 'id="analysis-donut"' in page.text
+    assert "Selected day" in page.text
 
 
 def test_drink_type_defaults_to_water_and_rejects_unknown_type(

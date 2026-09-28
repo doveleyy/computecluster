@@ -13,7 +13,7 @@
     <header class="top"><div><div class="eyebrow">Home Platform / Habits</div><h1 class="title">budget<span style="color:var(--dim)">.</span></h1></div><div class="user" id="user"></div></header>
     __NAVIGATION__
     <div class="summary-grid">
-      <section class="panel daily"><div class="row"><div><div class="label">Available today</div><div class="big" id="remaining">—</div></div><div><button class="budget-trigger" id="budget-trigger" type="button">daily budget <strong id="budget-value">—</strong></button><form class="budget-edit" id="budget-form" hidden><input id="budget-input" type="number" min="0" max="10000" step="0.01" inputmode="decimal" aria-label="Daily budget in dollars" required><button type="submit">SAVE</button></form></div></div><div class="meter" aria-label="Remaining daily allowance"><span class="fill" id="fill"></span></div><div class="figures"><div class="figure"><span class="label">Starting budget</span><strong id="budget-figure">—</strong></div><div class="figure"><span class="label">Spent</span><strong id="spent">—</strong></div><div class="figure"><span class="label">At midnight</span><strong id="settlement">—</strong></div></div></section>
+      <section class="panel daily"><div class="row"><div><div class="label">Available today</div><div class="big" id="remaining">—</div></div><div><button class="budget-trigger" id="budget-trigger" type="button">daily budget <strong id="budget-value">—</strong></button><form class="budget-edit" id="budget-form" hidden><input id="budget-input" type="number" min="0" max="10000" step="0.01" inputmode="decimal" aria-label="Daily budget in dollars" required><button type="submit">SAVE</button></form></div></div><div class="meter" aria-label="Remaining daily allowance"><span class="fill" id="fill"></span></div><div class="figures"><div class="figure"><span class="label">Starting budget</span><strong id="budget-figure">—</strong></div><div class="figure"><span class="label">Spent today</span><strong id="spent">—</strong></div></div></section>
       <section class="panel fund"><div class="label">Sinking fund</div><div class="big" id="fund">—</div><p class="fund-copy">Completed-day surplus builds this balance. Daily overages and explicit redemptions reduce it.</p><div class="pending">PENDING FROM TODAY <strong id="pending">—</strong></div></section>
     </div>
     <div class="work-grid">
@@ -34,7 +34,7 @@
         <div class="history-block"><div class="section-caption"><span class="label">Last 7 days · choose a bar</span><span class="label" id="timezone"></span></div><div class="history" id="history"></div></div>
         <div class="day-breakdown"><div class="day-figures"><div><span class="label">Budget</span><strong id="analysis-budget">—</strong></div><div><span class="label">Spent</span><strong id="analysis-spent">—</strong></div><div><span class="label">Remaining</span><strong id="analysis-remaining">—</strong></div></div><div class="label">Spending by category</div><div class="category-breakdown" id="category-breakdown"></div></div>
       </div>
-      <div class="ledger-block"><div class="label">Budget ledger</div><div class="ledger" id="ledger"></div></div>
+      <div class="ledger-block"><div class="label">Budget ledger · latest 5</div><div class="ledger" id="ledger"></div></div>
     </section>
   </main>
   <script>window.habitConfig=__HABIT_TRACKER_CONFIG__;</script>

@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from services.transport import datamall
 from services.transport.repository import TimetableError, TransportRepository
 
-SERVICE_VERSION = "0.1.0"
+SERVICE_VERSION = "0.1.3"
 SERVICE_DIR = Path(__file__).parent
 DEFAULT_DATABASE_PATH = Path("data/transport.db")
 TEMPLATE = (SERVICE_DIR / "templates" / "transport.html").read_text(encoding="utf-8")

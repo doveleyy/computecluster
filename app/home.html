@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0d1713">
+  <title>Home Platform</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg:#0d1713;
+      --surface:#14211b;
+      --raised:#192a22;
+      --line:#2b3d34;
+      --text:#f2f4ed;
+      --muted:#91a198;
+      --green:#73d6a6;
+      --cream:#ede8d8;
+      --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+    }
+    * { box-sizing:border-box; }
+    html { background:var(--bg); }
+    body {
+      min-width:280px;
+      min-height:100vh;
+      min-height:100dvh;
+      margin:0;
+      background:
+        radial-gradient(circle at 85% 5%,rgba(115,214,166,.12),transparent 34%),
+        var(--bg);
+      color:var(--text);
+      font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      -webkit-font-smoothing:antialiased;
+    }
+    a:focus-visible { outline:2px solid var(--green); outline-offset:3px; }
+    .shell {
+      width:min(1040px,100%);
+      margin:0 auto;
+      padding:max(34px,env(safe-area-inset-top))
+        max(20px,env(safe-area-inset-right))
+        max(50px,env(safe-area-inset-bottom))
+        max(20px,env(safe-area-inset-left));
+    }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+    .eyebrow,.section-label,.card-kind {
+      color:var(--muted);
+      font:700 10px/1.2 var(--mono);
+      letter-spacing:.14em;
+      text-transform:uppercase;
+    }
+    .identity {
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      color:var(--muted);
+      font:11px var(--mono);
+    }
+    .identity::before {
+      width:7px;
+      height:7px;
+      border-radius:50%;
+      background:var(--green);
+      box-shadow:0 0 12px rgba(115,214,166,.65);
+      content:"";
+    }
+    h1 {
+      max-width:760px;
+      margin:74px 0 14px;
+      color:var(--cream);
+      font:500 clamp(42px,8vw,82px)/.98 Georgia,serif;
+      letter-spacing:-.055em;
+    }
+    .intro { max-width:560px; margin:0; color:var(--muted); font-size:16px; }
+    .section { margin-top:52px; }
+    .section-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:13px; }
+    .section-note { color:var(--muted); font:11px var(--mono); }
+    .apps { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+    .app-card,.tool-link {
+      border:1px solid var(--line);
+      background:linear-gradient(145deg,var(--raised),var(--surface));
+      color:var(--text);
+      text-decoration:none;
+      transition:border-color .16s ease,transform .16s ease;
+    }
+    .app-card { display:flex; min-height:230px; padding:22px; border-radius:19px; flex-direction:column; }
+    .app-card:hover,.tool-link:hover { border-color:#577064; transform:translateY(-2px); }
+    .card-mark {
+      display:grid;
+      width:43px;
+      height:43px;
+      border-radius:13px;
+      place-items:center;
+      background:var(--accent);
+      color:#09110d;
+      font:800 14px var(--mono);
+    }
+    .card-copy { margin-top:auto; }
+    .card-kind { margin-bottom:8px; }
+    h2 { margin:0; font:600 24px/1.1 var(--mono); letter-spacing:-.045em; }
+    .card-detail { min-height:42px; margin:9px 0 0; color:var(--muted); font-size:13px; }
+    .card-open { margin-top:17px; color:var(--accent); font:700 10px var(--mono); letter-spacing:.08em; }
+    .habits { --accent:#75d8a9; }
+    .wishlist { --accent:#f2c96d; }
+    .transport { --accent:#7fc7ef; }
+    .tools { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; }
+    .tool-link { display:flex; min-height:72px; padding:15px; border-radius:12px; align-items:center; justify-content:space-between; gap:10px; }
+    .tool-name { font:600 13px var(--mono); }
+    .arrow { color:var(--muted); }
+    footer { margin-top:42px; color:#65766c; font:10px var(--mono); letter-spacing:.08em; }
+    @media (max-width:720px) {
+      h1 { margin-top:52px; }
+      .apps { grid-template-columns:1fr; }
+      .app-card { min-height:174px; }
+      .tools { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    }
+    @media (max-width:390px) {
+      .topbar { align-items:flex-start; flex-direction:column; gap:9px; }
+      .tools { grid-template-columns:1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="eyebrow">Home Platform</div>
+      <div class="identity">__DISPLAY_NAME__ · PRIVATE TAILNET</div>
+    </header>
+
+    <h1>Everything at home,<br>in one place.</h1>
+    <p class="intro">Open an app or jump into the platform tools. This page does not poll any service.</p>
+
+    <section class="section" aria-labelledby="apps-heading">
+      <header class="section-head">
+        <div id="apps-heading" class="section-label">Apps</div>
+        <div class="section-note">personal services</div>
+      </header>
+      <div class="apps">
+        <a class="app-card habits" href="/habits/">
+          <div class="card-mark">HB</div>
+          <div class="card-copy">
+            <div class="card-kind">Daily life</div>
+            <h2>Habits</h2>
+            <p class="card-detail">Water, spending, funds, and daily analysis.</p>
+            <div class="card-open">OPEN APP →</div>
+          </div>
+        </a>
+        <a class="app-card wishlist" href="/wishlist/">
+          <div class="card-mark">WL</div>
+          <div class="card-copy">
+            <div class="card-kind">Things to buy</div>
+            <h2>Wishlist</h2>
+            <p class="card-detail">Saved products, current prices, and targets.</p>
+            <div class="card-open">OPEN APP →</div>
+          </div>
+        </a>
+        <a class="app-card transport" href="/transport/">
+          <div class="card-mark">TR</div>
+          <div class="card-copy">
+            <div class="card-kind">Getting around</div>
+            <h2>Transport</h2>
+            <p class="card-detail">Today’s last trains and saved bus arrivals.</p>
+            <div class="card-open">OPEN APP →</div>
+          </div>
+        </a>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="platform-heading">
+      <header class="section-head">
+        <div id="platform-heading" class="section-label">Platform</div>
+        <div class="section-note">compute and storage</div>
+      </header>
+      <nav class="tools" aria-label="Platform tools">
+        <a class="tool-link" href="/jobs-ui"><span class="tool-name">Jobs</span><span class="arrow">→</span></a>
+        <a class="tool-link" href="/jobs-ui/new"><span class="tool-name">Submit</span><span class="arrow">→</span></a>
+        <a class="tool-link" href="/jobs-ui/files"><span class="tool-name">Files</span><span class="arrow">→</span></a>
+        <a class="tool-link" href="/dashboard"><span class="tool-name">System</span><span class="arrow">→</span></a>
+      </nav>
+    </section>
+
+    <footer>HOME PLATFORM · PRIVATE BY DEFAULT</footer>
+  </main>
+</body>
+</html>

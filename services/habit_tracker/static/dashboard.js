@@ -4,10 +4,11 @@ const $ = selector => document.querySelector(selector);
 const money = new Intl.NumberFormat('en-SG', {style:'currency',currency:config.currency});
 const format = cents => money.format(cents / 100);
 const clamp = ratio => Math.max(0, Math.min(1, ratio));
-let budget = null, resetTimer = null, loading = false, saving = false;
+let budget = null, resetTimer = null, studyTimer = null, studyEndClock = 0, studyDurationMs = 0, loading = false, saving = false;
 $('#user').textContent = config.displayName;
 for (const selector of ['#open-water', '#open-water-art']) $(selector).href = `${config.basePath}/water`;
 for (const selector of ['#open-budget', '#open-budget-art']) $(selector).href = `${config.basePath}/budget`;
+for (const selector of ['#open-study', '#open-study-art']) $(selector).href = `${config.basePath}/study`;
 
 async function request(path, options = {}) {
   const response = await fetch(`${config.basePath}/api${path}`, {
@@ -55,12 +56,59 @@ function renderSavings(summary) {
   progress('#savings-progress', ratio, goal ? `${format(balance)} of ${format(goal)}` : 'No savings goal set');
 }
 
+function studyTime(seconds) {
+  if (seconds === 0) return '0 min';
+  if (seconds < 60) return '<1 min';
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours ? `${hours} hr${minutes ? ` ${minutes} min` : ''}` : `${minutes} min`;
+}
+
+function updateStudyCountdown() {
+  const remaining = Math.max(0, studyEndClock - performance.now());
+  const seconds = Math.ceil(remaining / 1000);
+  const clock = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  $('#study-detail').textContent = `${$('#study-detail').dataset.activity} · ${clock} remaining`;
+  progress('#study-progress', 1 - remaining / studyDurationMs, `${clock} remaining`);
+  if (remaining === 0) {
+    clearInterval(studyTimer);
+    studyTimer = null;
+    refreshStudy().catch(error => {
+      $('#study-status').textContent = 'Refresh needed';
+      $('#error span').textContent = error.message;
+      $('#error').hidden = false;
+    });
+  }
+}
+
+function renderStudy(study) {
+  clearInterval(studyTimer);
+  studyTimer = null;
+  $('#study-total').textContent = studyTime(study.today_seconds);
+  const active = study.active;
+  $('#study-status').textContent = active ? 'Focusing' : 'Ready';
+  $('#study-progress').setAttribute('aria-hidden', String(!active));
+  if (!active) {
+    $('#study-detail').textContent = study.today_seconds
+      ? 'Focus time saved. Ready for another session?'
+      : 'No focus time yet. Start whenever you are ready.';
+    return;
+  }
+  $('#study-detail').dataset.activity = active.activity;
+  studyDurationMs = active.duration_minutes * 60000;
+  studyEndClock = performance.now() + Math.max(0, Date.parse(active.planned_end_at) - Date.parse(study.server_now));
+  studyTimer = setInterval(updateStudyCountdown, 1000);
+  updateStudyCountdown();
+}
+
+async function refreshStudy() { renderStudy(await request('/study/summary')); }
+
 async function refresh() {
   if (loading) return;
   loading = true;
   try {
-    const [water, summary] = await Promise.all([request('/water/today'),request('/budget/summary')]);
-    renderWater(water); renderSavings(summary);
+    const [water, summary, study] = await Promise.all([request('/water/today'),request('/budget/summary'),request('/study/summary')]);
+    renderWater(water); renderSavings(summary); renderStudy(study);
     $('#today').textContent = `${water.date} · ${config.timezone}`;
     $('#error').hidden = true;
     clearTimeout(resetTimer);
@@ -70,6 +118,7 @@ async function refresh() {
     $('#error').hidden = false;
     $('#water-status').textContent = 'Refresh needed';
     $('#savings-status').textContent = 'Refresh needed';
+    $('#study-status').textContent = 'Refresh needed';
   } finally { loading = false; }
 }
 

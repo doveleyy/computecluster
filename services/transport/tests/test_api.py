@@ -91,7 +91,15 @@ def test_opening_dashboard_does_not_call_datamall(tmp_path: Path) -> None:
     with client(
         tmp_path, schedule_fetcher=unexpected, bus_fetcher=unexpected
     ) as browser:
-        assert browser.get("/").status_code == 200
+        page = browser.get("/")
+        assert page.status_code == 200
+        assert 'class="dashboard"' in page.text
+        assert 'class="network-bullet ns"' in page.text
+        assert 'class="home-link"' not in page.text
+        assert "Last train today" in page.text
+        assert "Stop codes have five digits" in page.text
+        assert 'class="empty-arrow"' not in page.text
+        assert "/static/transport.js?v=0.1.3" in page.text
         assert browser.get("/api/train").json()["snapshot"] is None
         assert browser.get("/api/buses").json()["buses"] == []
 
@@ -200,3 +208,18 @@ def test_saved_buses_are_owner_scoped(tmp_path: Path) -> None:
     ) as other:
         assert other.get("/api/buses").json()["buses"] == []
         assert other.delete(f"/api/buses/{saved['id']}").status_code == 404
+
+
+def test_saved_bus_preserves_leading_zero_in_stop_code(tmp_path: Path) -> None:
+    with client(tmp_path) as browser:
+        response = browser.post(
+            "/api/buses",
+            json={
+                "stop_code": "05521",
+                "stop_name": "Maritime Hse",
+                "service_no": "121",
+            },
+        )
+
+    assert response.status_code == 201
+    assert response.json()["stop_code"] == "05521"

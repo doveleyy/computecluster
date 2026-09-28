@@ -16,7 +16,7 @@ def client(path: Path, user: str = "member@example.test") -> TestClient:
 def test_navigation_assets_and_private_dashboard(tmp_path: Path) -> None:
     path = tmp_path / "habits.db"
     with TestClient(create_app(path)) as anonymous:
-        for route in ("/", "/water", "/budget", "/api/budget/summary"):
+        for route in ("/", "/water", "/budget", "/study", "/api/budget/summary"):
             assert anonymous.get(route).status_code == 401
         assert (
             anonymous.put(
@@ -25,20 +25,43 @@ def test_navigation_assets_and_private_dashboard(tmp_path: Path) -> None:
             == 401
         )
     with client(path) as signed_in:
-        for route in ("/", "/water", "/budget"):
+        for route in ("/", "/water", "/budget", "/study"):
             page = signed_in.get(route)
             assert page.status_code == 200
-            for href in ("/habits/", "/habits/water", "/habits/budget"):
+            for href in (
+                "/habits/",
+                "/habits/water",
+                "/habits/budget",
+                "/habits/study",
+            ):
                 assert f'href="{href}"' in page.text
             assert page.text.count('aria-current="page"') == 1
-        for asset in ("dashboard", "water", "budget", "shell"):
+        for asset in ("dashboard", "water", "budget", "study", "shell"):
             assert signed_in.get(f"/static/{asset}.css").status_code == 200
-        for asset in ("dashboard", "water", "budget"):
+        for asset in ("dashboard", "water", "budget", "study"):
             assert signed_in.get(f"/static/{asset}.js").status_code == 200
         assert (
             signed_in.get("/api/water/today").json()
             == signed_in.get("/api/today").json()
         )
+
+
+def test_overview_has_three_cards_and_study_summary(tmp_path: Path) -> None:
+    with client(tmp_path / "habits.db") as signed_in:
+        page = signed_in.get("/")
+        stylesheet = signed_in.get("/static/dashboard.css").text
+        script = signed_in.get("/static/dashboard.js").text
+        summary = signed_in.get("/api/study/summary")
+
+    assert page.status_code == 200
+    assert page.text.count('class="habit-card ') == 3
+    assert page.text.count('viewBox="0 0 64 56"') == 3
+    assert 'id="open-study-art"' in page.text
+    assert 'id="study-total"' in page.text
+    assert "grid-template-columns:repeat(3,minmax(0,1fr))" in stylesheet
+    assert "request('/study/summary')" in script
+    assert summary.status_code == 200
+    assert summary.json()["today_seconds"] == 0
 
 
 def test_savings_goal_is_durable_scoped_and_does_not_change_money(

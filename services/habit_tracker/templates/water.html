@@ -43,21 +43,30 @@
     </div>
     <section class="panel analytics">
       <div class="panel-head analysis-head">
-        <div><span class="panel-title">Daily analysis</span><span class="analysis-date" id="analysis-date-label"></span></div>
-        <div class="date-controls">
-          <button type="button" id="previous-day" aria-label="Previous day">←</button>
-          <input type="date" id="analysis-date" aria-label="Analysis date" required>
-          <button type="button" id="next-day" aria-label="Next day">→</button>
-          <button type="button" id="today-day">TODAY</button>
+        <div><span class="panel-title">Goal calendar</span><span class="analysis-date" id="calendar-target"></span></div>
+        <div class="month-controls"><button type="button" id="previous-month" aria-label="Previous month">←</button><span id="calendar-month"></span><button type="button" id="next-month" aria-label="Next month">→</button></div>
+      </div>
+      <div class="calendar-layout">
+        <div class="selected-day">
+          <span class="label">Selected day</span>
+          <h2 id="analysis-date-label">—</h2>
+          <div class="selected-total"><span id="analysis-total">—</span><span class="analysis-unit"> ml</span></div>
+          <p id="analysis-progress"></p>
+          <div class="date-controls"><button type="button" id="previous-day" aria-label="Previous day">←</button><input type="date" id="analysis-date" aria-label="Analysis date" required><button type="button" id="next-day" aria-label="Next day">→</button><button type="button" id="today-day">TODAY</button></div>
+        </div>
+        <div class="calendar-block">
+          <div class="calendar-weekdays" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+          <div class="calendar-days" id="goal-calendar" aria-label="Water goal calendar"></div>
+          <div class="calendar-key"><span><i class="key-met"></i>Goal met</span><span><i class="key-logged"></i>Logged</span><span><i class="key-empty"></i>No drinks</span></div>
         </div>
       </div>
-      <div class="analytics-grid">
-        <div class="chart-block"><div class="section-caption"><span class="label">7 day rhythm · choose a bar</span><span class="label" id="timezone"></span></div><div class="history" id="history"></div></div>
-        <div class="analysis-detail">
-          <div class="day-total"><strong><span id="analysis-total">—</span><span class="analysis-unit"> ml</span></strong><span id="analysis-progress" class="day-progress"></span></div>
-          <div class="breakdown-head"><span class="label">Break down by</span><div class="analysis-switch" id="analysis-switch"><button type="button" data-breakdown="drink_type" class="active" aria-pressed="true">Drink type</button><button type="button" data-breakdown="temperature" aria-pressed="false">Temperature</button></div></div>
-          <div class="breakdown-items" id="analysis-breakdown"></div>
-        </div>
+    </section>
+    <section class="panel mix-panel" aria-labelledby="mix-heading">
+      <div class="panel-head mix-head"><span class="panel-title" id="mix-heading">Drink mix</span><div class="analysis-switch" id="analysis-switch"><button type="button" data-breakdown="drink_type" class="active" aria-pressed="true">Drink type</button><button type="button" data-breakdown="temperature" aria-pressed="false">Temperature</button></div></div>
+      <div class="mix-layout">
+        <div class="donut-figure"><svg id="analysis-donut" viewBox="0 0 180 180" role="img" aria-label="Drink mix"><circle cx="90" cy="90" r="62" fill="none" stroke="#262626" stroke-width="22"></circle></svg><div class="donut-core"><strong id="donut-total">—</strong><span>ml total</span></div></div>
+        <div class="mix-detail"><div class="label" id="mix-caption">By drink type</div><div class="breakdown-items" id="analysis-breakdown"></div></div>
+        <div class="weekly-panel"><div class="weekly-head"><span class="label">7-day rhythm</span><span class="weekly-max" id="weekly-max">—</span></div><div class="history" id="history" aria-label="Seven days of drinks ending on the selected day"></div></div>
       </div>
     </section>
   </main>

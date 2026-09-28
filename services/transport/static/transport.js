@@ -3,7 +3,7 @@
   const config = window.TRANSPORT_CONFIG;
   const base = config.basePath || "";
   const $ = (id) => document.getElementById(id);
-  const state = { buses: [], arrivals: new Map() };
+  const state = { buses: [], arrivals: new Map(), lines: new Map() };
 
   $("today").textContent = new Date(`${config.today}T12:00:00`).toLocaleDateString("en-SG", {
     weekday: "long", day: "numeric", month: "long"
@@ -37,11 +37,12 @@
   function snapshotText(snapshot) {
     if (!snapshot) return "No timetable saved yet.";
     const when = new Date(snapshot.refreshed_at).toLocaleString("en-SG", { dateStyle: "medium", timeStyle: "short" });
-    return `Saved locally · refreshed ${when}`;
+    return `Timetable updated ${when}`;
   }
 
   async function loadTrain() {
     const data = await api("/api/train");
+    state.lines = new Map(data.lines.map((line) => [line.short_name, line]));
     $("train-snapshot").textContent = snapshotText(data.snapshot);
     fill($("line"), data.lines, data.lines.length ? "Choose line" : "Refresh first", (line) => option(line.short_name, `${line.short_name} · ${line.long_name}`));
   }
@@ -72,9 +73,21 @@
     try {
       const data = await api(`/api/train/last?${query}`);
       result.classList.remove("empty");
-      const time = document.createElement("div");
+      const route = document.createElement("div");
+      const line = state.lines.get(data.line);
+      route.className = "route-bullet";
+      route.textContent = data.line;
+      route.style.backgroundColor = line?.color ? `#${line.color}` : "#fff";
+      route.style.color = line?.text_color ? `#${line.text_color}` : "#000";
+      const departure = document.createElement("div");
+      departure.className = "departure";
+      const departureLabel = document.createElement("span");
+      departureLabel.className = "result-label";
+      departureLabel.textContent = "Last scheduled departure";
+      const time = document.createElement("time");
       time.className = "train-time";
       time.textContent = data.time;
+      departure.append(departureLabel, time);
       const copy = document.createElement("div");
       copy.className = "train-copy";
       const station = document.createElement("strong");
@@ -87,7 +100,7 @@
         offset.textContent = "after midnight · following day";
         copy.append(offset);
       }
-      result.replaceChildren(time, copy);
+      result.replaceChildren(route, departure, copy);
     } catch (error) {
       result.classList.add("empty"); result.textContent = error.message;
     }
@@ -106,8 +119,9 @@
     list.replaceChildren(...state.buses.map((bus) => {
       const row = document.createElement("div"); row.className = "bus-row";
       const minutes = state.arrivals.get(bus.id);
-      const primary = minutes && minutes[0] !== null ? (minutes[0] === 0 ? "Arr" : `${minutes[0]} min`) : "—";
-      const later = minutes ? minutes.slice(1).filter((value) => value !== null).map((value) => value === 0 ? "Arr" : `${value}`).join(" · ") : "refresh";
+      const hasEstimate = (value) => Number.isInteger(value) && value >= 0;
+      const primary = Array.isArray(minutes) && hasEstimate(minutes[0]) ? (minutes[0] === 0 ? "Arr" : `${minutes[0]} min`) : "—";
+      const later = !Array.isArray(minutes) ? "Refresh for arrivals" : !minutes.some(hasEstimate) ? "No live arrival" : minutes.slice(1).filter(hasEstimate).map((value) => value === 0 ? "Arr" : `${value}`).join(" · ");
       row.innerHTML = `<div class="bus-number"></div><div class="bus-place"><strong></strong><span></span></div><div class="arrivals"><strong></strong><br><span></span></div><button class="remove" aria-label="Remove saved bus">×</button>`;
       row.querySelector(".bus-number").textContent = bus.service_no;
       row.querySelector(".bus-place strong").textContent = bus.stop_name;
@@ -123,10 +137,19 @@
 
   $("bus-form").addEventListener("submit", async (event) => {
     event.preventDefault();
+    if (!event.currentTarget.checkValidity()) {
+      $("bus-snapshot").textContent = "Enter a five-digit stop code, bus service, and stop name.";
+      $("bus-snapshot").classList.add("error");
+      event.currentTarget.reportValidity();
+      return;
+    }
     const form = new FormData(event.target);
     try {
       const saved = await api("/api/buses", { method: "POST", body: JSON.stringify(Object.fromEntries(form)) });
-      state.buses.push(saved); event.target.reset(); renderBuses();
+      state.buses.push(saved); event.target.reset();
+      $("bus-snapshot").textContent = `Saved ${saved.service_no} at ${saved.stop_name}. Refresh when you want live arrivals.`;
+      $("bus-snapshot").classList.remove("error");
+      renderBuses();
     } catch (error) { $("bus-snapshot").textContent = error.message; $("bus-snapshot").classList.add("error"); }
   });
 

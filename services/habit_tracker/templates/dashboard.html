@@ -70,6 +70,35 @@
         <p class="detail" id="savings-detail">Fetching your fund balance…</p>
         <footer class="card-footer"><span class="label">Builds over time</span><a class="open-link" id="open-budget">Open budget <span aria-hidden="true">↗</span></a></footer>
       </section>
+      <section class="habit-card study-card" aria-labelledby="study-heading">
+        <header class="card-heading"><div><div class="label">Time for one thing</div><h2 id="study-heading">Study</h2></div><span class="badge" id="study-status">Loading…</span></header>
+        <a class="art-link" id="open-study-art" aria-label="Open study tracker">
+          <svg class="pixel-art" viewBox="0 0 64 56" shape-rendering="crispEdges" aria-hidden="true">
+            <path fill="#281f36" d="M16 8H22V11H26V9H38V11H42V8H48V15H51V30H54V39H49V48H15V39H10V30H13V15H16Z"/>
+            <path fill="#896fc1" d="M17 10H21V15H25V13H39V15H43V10H47V16H49V29H46V35H18V29H15V16H17Z"/>
+            <path fill="#b69ae8" d="M18 11H20V17H26V15H38V17H44V11H46V18H48V28H45V33H19V28H16V18H18Z"/>
+            <path fill="#d7c5f4" d="M19 12H20V18H26V16H29V20H23V22H18V18H19ZM35 16H38V18H44V12H45V18H47V22H41V20H35Z"/>
+            <path fill="#3b2d52" d="M20 32H24V35H20ZM40 32H44V35H40Z"/>
+            <path fill="#241b31" d="M22 21H29V28H22ZM35 21H42V28H35Z"/>
+            <path fill="#f5f0ff" d="M23 22H28V27H23ZM36 22H41V27H36Z"/>
+            <path fill="#2a2039" d="M25 23H28V27H25ZM36 23H39V27H36Z"/>
+            <path fill="#f0aa9b" d="M29 29H35V32H33V34H31V32H29Z"/>
+            <path fill="#ca85a6" d="M23 29H26V31H23ZM38 29H41V31H38Z"/>
+            <path fill="#211c2b" d="M9 34H25V36H32V38H39V36H55V49H35V51H29V49H9Z"/>
+            <path fill="#8d77c2" d="M11 36H24V38H29V40H31V47H27V45H23V43H11ZM53 36H40V38H35V40H33V47H37V45H41V43H53Z"/>
+            <path fill="#f7e8c9" d="M12 37H23V39H28V41H30V47H27V45H22V43H12ZM52 37H41V39H36V41H34V47H37V45H42V43H52Z"/>
+            <path fill="#dcc9aa" d="M14 40H23V41H27V42H23V41H14ZM37 42H41V41H50V40H41V41H37Z"/>
+            <path fill="#b49cff" d="M30 38H34V50H30Z"/>
+            <path fill="#57416e" d="M11 47H27V49H30V50H9V48H11ZM37 49H53V47H55V50H34V49Z"/>
+            <path fill="#33273f" d="M13 53H51V54H13Z"/>
+            <path fill="#f7d480" d="M7 15H9V13H11V15H13V17H11V19H9V17H7ZM53 8H55V6H57V8H59V10H57V12H55V10H53Z"/>
+          </svg>
+        </a>
+        <div class="reading"><strong id="study-total">—</strong><span>focused today</span></div>
+        <div class="progress" id="study-progress" role="progressbar" aria-label="Current focus session progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-hidden="true"><span></span></div>
+        <p class="detail" id="study-detail">Fetching today's focus time…</p>
+        <footer class="card-footer"><span class="label">One session at a time</span><a class="open-link" id="open-study">Open study <span aria-hidden="true">↗</span></a></footer>
+      </section>
     </div>
   </main>
   <script>window.habitConfig=__HABIT_TRACKER_CONFIG__;</script>

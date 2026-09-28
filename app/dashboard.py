@@ -8,6 +8,7 @@ import socket
 import sqlite3
 import subprocess
 import time
+from html import escape
 from pathlib import Path, PurePosixPath
 from secrets import compare_digest, token_urlsafe
 from typing import Annotated, Any, cast
@@ -53,6 +54,7 @@ from app.accounts import (
     decode_session,
     encode_session,
 )
+from app.app_health import collect_application_health
 from app.artifacts import (
     job_artifact_relative_path,
     legacy_artifact_relative_path,
@@ -127,6 +129,7 @@ from contracts.models import (
 SESSION_COOKIE = "home_platform_dashboard"
 DASHBOARD_HTML = Path(__file__).with_name("dashboard.html").read_text()
 JOBS_HTML = Path(__file__).with_name("jobs.html").read_text()
+HOME_HTML = Path(__file__).with_name("home.html").read_text()
 
 
 class StoragePathRequest(BaseModel):
@@ -438,6 +441,37 @@ def create_dashboard_router() -> APIRouter:
         if not normalized_login:
             return None
         return normalized_login, (display_name or login).strip()
+
+    @router.get("/", response_class=HTMLResponse)
+    def home_page(
+        request: Request,
+        account_store: Annotated[AccountStore, Depends(get_account_store)],
+        tailscale_login: Annotated[
+            str | None, Header(alias="Tailscale-User-Login")
+        ] = None,
+        tailscale_name: Annotated[
+            str | None, Header(alias="Tailscale-User-Name")
+        ] = None,
+    ) -> str:
+        request_identity = tailscale_request_identity(
+            request, tailscale_login, tailscale_name
+        )
+        if request_identity is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Open Home Platform through its private Tailscale URL",
+            )
+        identity = account_store.resolve_external_identity(
+            "tailscale", request_identity[0]
+        )
+        if identity is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Link this Tailscale identity from your Job Desk account first",
+            )
+        return HOME_HTML.replace(
+            "__DISPLAY_NAME__", escape(identity.username, quote=True)
+        )
 
     @router.get(
         "/jobs-ui/api/account/identities/tailscale",
@@ -2488,6 +2522,7 @@ def collect_service_health(job_service: JobService) -> dict[str, Any]:
             "management": ("reachable" if synology_dsm_reachable else "unreachable"),
             "role": "primary storage",
         },
+        "applications": collect_application_health(),
     }
 
 

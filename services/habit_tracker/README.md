@@ -1,7 +1,7 @@
 # Habit Tracker
 
-One household application with Overview, Water, and Budget pages. It owns one
-container, authentication boundary, SQLite database, and backup lifecycle.
+One household application with Overview, Water, Budget, and Study pages. It owns
+one container, authentication boundary, SQLite database, and backup lifecycle.
 
 The hosting pattern is
 [Application services](../../docs/services.md). The feature reference,
@@ -15,15 +15,18 @@ services/habit_tracker/
   main.py                 app factory, identity, page rendering, API routes
   water.py                drink persistence, classification, daily water goals
   budget.py               spending, daily allowances, savings targets, ledger
+  study.py                named focus sessions and daily study totals
   templates/
-    dashboard.html        overview with dynamic pixel-art cup and piggy bank
-    water.html            drink logging and water history
+    dashboard.html        overview with cup, piggy bank, and reading owl art
+    water.html            drink logging, goal calendar, and drink mix
     budget.html           spending, sinking fund, and ledger
+    study.html            focus countdown, recent sessions, and daily calendar
   static/
     shell.css             shared page frame and navigation
     dashboard.css / .js   overview layout and progress rendering
     water.css / .js       water page
     budget.css / .js      budget page
+    study.css / .js       study page
   tests/                  app, data, migration, and authorization checks
   Dockerfile              application image
   compose.yaml            one application container
@@ -44,7 +47,8 @@ curl -H 'X-Habit-Tracker-Dev-User: demo@example.test' \
   http://127.0.0.1:8100/api/budget/summary
 ```
 
-Local pages are `/`, `/water`, and `/budget`. Production uses the `/habits`
+Local pages are `/`, `/water`, `/budget`, and `/study`. Production uses the
+`/habits`
 prefix and disables development identity. The only environment prefix is
 `HABIT_TRACKER_`; see
 [Configuration](../../docs/configuration.md#habit-tracker).

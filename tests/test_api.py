@@ -945,6 +945,7 @@ def test_dashboard_requires_login_and_exposes_operational_data(
         submit_page = client.get("/jobs-ui/new")
         files_page = client.get("/jobs-ui/files")
         unauthenticated = client.get("/dashboard/api/system")
+        unauthenticated_services = client.get("/dashboard/api/services")
         unauthenticated_jobs = client.get("/jobs-ui/api/jobs")
         unauthenticated_groups = client.get("/jobs-ui/api/job-groups")
         unauthenticated_artifacts = client.get(f"/jobs-ui/api/jobs/{uuid4()}/artifacts")
@@ -1080,7 +1081,7 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert 'id="members-section" class="section panel hidden"' in page.text
     assert 'id="reset-dialog"' in page.text
     assert 'actionMenu("Actions for "+user.username' in page.text
-    assert 'user.role+" · storage "+user.id' in page.text
+    assert 'user.role==="ADMIN"?"Administrator":"Member"' in page.text
     assert 'state=status(user.disabled?"DISABLED":"ACTIVE")' in page.text
     assert 'status(user.disabled?"OFFLINE":"ONLINE")' not in page.text
     assert "body:not(.operations-view) .worker-control" in page.text
@@ -1096,8 +1097,10 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert "Control plane</div>" not in page.text
     assert "Job database</div>" not in page.text
     assert '<div class="service-name">Jobs</div>' in page.text
-    assert '<div class="metric-label">RAM</div>' in page.text
-    assert '<div class="metric-label">Disk space</div>' in page.text
+    assert '<div class="metric-label">Pi CPU in use</div>' in page.text
+    assert '<div class="metric-label">Pi memory in use</div>' in page.text
+    assert '<div class="metric-label">Pi system disk used</div>' in page.text
+    assert "load  " not in page.text
     assert '<div class="metric-label">Pi root</div>' not in page.text
     assert 'api("/dashboard/api/jobs")' not in page.text
     assert jobs_page.status_code == 200
@@ -1134,14 +1137,15 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert 'api("/jobs-ui/api/job-groups")' in jobs_page.text
     assert 'element("div","group-block")' in jobs_page.text
     assert 'detail("Failure reason",job.failure_kind)' in jobs_page.text
-    assert "smallest capable worker" in jobs_page.text
-    assert "job ceiling" in page.text
+    assert "Choose an available worker automatically" in jobs_page.text
+    assert "Jobs up to " in page.text
     assert '"label","Artifacts"' in jobs_page.text
     assert '"DOWNLOAD"' in jobs_page.text
     assert "new URLSearchParams({path})" in jobs_page.text
     assert 'api("/jobs-ui/api/files?path="' in jobs_page.text
     assert 'fileMutation("/jobs-ui/api/files","DELETE"' in jobs_page.text
-    assert "Artifacts contains this account's published job outputs" in jobs_page.text
+    assert 'id="file-footer" class="file-footer hidden"' in jobs_page.text
+    assert "Storage exposes the complete provider read-only" not in jobs_page.text
     assert (
         "setInterval(refresh,submitView?30000:filesView?60000:10000)" in jobs_page.text
     )
@@ -1157,17 +1161,20 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert "Network storage" not in page.text
     assert 'id="synology-state"' not in page.text
     assert 'id="storage-service-state"' in page.text
+    assert 'id="applications-section"' in page.text
+    assert 'id="application-services"' in page.text
     assert "CREATE MEMBER" in page.text
-    assert "GPU thermal" in page.text
+    assert "Graphics temperature" in page.text
     assert "thermal-critical" in page.text
-    assert "DEACTIVATE" in page.text
+    assert "PAUSE JOBS" in page.text
     assert "PI POWER" in page.text
     assert 'api("/dashboard/api/system/power"' in page.text
     assert "Type REBOOT to confirm" not in page.text
-    assert "setInterval(refresh,15000)" in page.text
+    assert "setInterval(refresh,30000)" in page.text
     assert 'method:"PATCH"' in page.text
     assert "<table" not in page.text
     assert unauthenticated.status_code == 401
+    assert unauthenticated_services.status_code == 401
     assert unauthenticated_jobs.status_code == 401
     assert unauthenticated_groups.status_code == 401
     assert unauthenticated_artifacts.status_code == 401
@@ -1201,7 +1208,13 @@ def test_dashboard_requires_login_and_exposes_operational_data(
         "control_plane",
         "database",
         "synology_nas",
+        "applications",
     } == services.json().keys()
+    assert [app["key"] for app in services.json()["applications"]] == [
+        "habits",
+        "wishlist",
+        "transport",
+    ]
     assert jobs.status_code == 200
     assert portal_submit.status_code == 201
     assert portal_submit.json()["name"] == "Family check"
@@ -1561,6 +1574,12 @@ def test_tailscale_identity_self_link_and_internal_resolution(
             headers={"Tailscale-User-Login": "owner@example.test"},
         )
         assert refused.status_code == 400
+        assert (
+            direct_client.get(
+                "/", headers={"Tailscale-User-Login": "owner@example.test"}
+            ).status_code
+            == 401
+        )
 
     with TestClient(application, base_url="https://testserver") as client:
         assert (
@@ -1577,8 +1596,19 @@ def test_tailscale_identity_self_link_and_internal_resolution(
                 "Tailscale-User-Name": "Owner",
             },
         )
+        unlinked_home = client.get(
+            "/",
+            headers={"Tailscale-User-Login": "owner@example.test"},
+        )
         linked = client.post(
             "/jobs-ui/api/account/identities/tailscale",
+            headers={
+                "Tailscale-User-Login": "owner@example.test",
+                "Tailscale-User-Name": "Owner",
+            },
+        )
+        home = client.get(
+            "/",
             headers={
                 "Tailscale-User-Login": "owner@example.test",
                 "Tailscale-User-Name": "Owner",
@@ -1596,8 +1626,21 @@ def test_tailscale_identity_self_link_and_internal_resolution(
 
     assert available.json()["request_subject"] == "owner@example.test"
     assert available.json()["linked"] is None
+    assert unlinked_home.status_code == 403
     assert linked.status_code == 200
     assert linked.json()["subject"] == "owner@example.test"
+    assert home.status_code == 200
+    assert "owner · PRIVATE TAILNET" in home.text
+    for href in (
+        "/habits/",
+        "/wishlist/",
+        "/transport/",
+        "/jobs-ui",
+        "/jobs-ui/new",
+        "/jobs-ui/files",
+        "/dashboard",
+    ):
+        assert f'href="{href}"' in home.text
     assert unauthorized.status_code == 401
     assert resolved.status_code == 200
     assert resolved.json()["id"] == member["id"]

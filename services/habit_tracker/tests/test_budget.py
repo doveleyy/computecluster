@@ -27,6 +27,13 @@ def test_budget_page_is_a_tab_in_the_habit_tracker(tmp_path: Path) -> None:
     assert 'id="budget-link"' in water.text
     assert 'id="water-link"' in budget.text
     assert "Sinking fund" in budget.text
+    assert "Budget ledger · latest 5" in budget.text
+    with client(tmp_path) as test_client:
+        script = test_client.get("/static/budget.js").text
+    assert 'request("/ledger?limit=5")' in script
+    assert "if (!adjustment)" in script
+    assert "ledgerTimestamp.format" in script
+    assert "ledgerDate.format" in script
 
 
 def test_daily_spending_and_fund_movements_are_separate(tmp_path: Path) -> None:
@@ -215,6 +222,38 @@ def test_every_same_day_budget_adjustment_is_preserved_in_the_ledger(
         )
         for entry in adjustments
     ] == [(800, 650, -150), (1000, 800, -200), (0, 1000, 1000)]
+
+
+def test_budget_ledger_limit_keeps_history_and_uses_typed_dates(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "habits.db"
+    with client(tmp_path) as test_client:
+        for amount in (900, 800, 700, 600, 500, 400):
+            assert (
+                test_client.put(
+                    "/api/budget/daily-budget", json={"amount_cents": amount}
+                ).status_code
+                == 200
+            )
+        latest = test_client.get("/api/budget/ledger?limit=5").json()["entries"]
+        all_entries = test_client.get("/api/budget/ledger?limit=20").json()["entries"]
+
+    assert len(latest) == 5
+    assert len(all_entries) == 7  # includes the initial daily allowance
+    assert latest == all_entries[:5]
+    assert all(
+        date.fromisoformat(entry["date"])
+        and datetime.fromisoformat(entry["occurred_at"])
+        for entry in all_entries
+    )
+    with sqlite3.connect(path) as connection:
+        rows = connection.execute(
+            "SELECT typeof(effective_date), typeof(previous_amount_cents), "
+            "typeof(new_amount_cents), typeof(occurred_at) "
+            "FROM budget_adjustments"
+        ).fetchall()
+    assert rows == [("text", "integer", "integer", "text")] * 7
 
 
 def test_spending_carries_a_category(tmp_path: Path) -> None:

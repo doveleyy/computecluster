@@ -3,77 +3,84 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#000000">
   <title>Transport</title>
-  <link rel="stylesheet" href="__BASE_PATH__/static/transport.css">
+  <link rel="stylesheet" href="__BASE_PATH__/static/transport.css?v=__VERSION__">
 </head>
 <body>
   <main class="shell">
     <header class="masthead">
-      <div>
-        <p class="eyebrow">HOME PLATFORM</p>
+      <div class="system-mark" aria-hidden="true">
+        <span class="network-bullet ns">NS</span>
+        <span class="network-bullet ew">EW</span>
+        <span class="network-bullet dt">DT</span>
+      </div>
+      <div class="masthead-copy">
+        <p class="eyebrow">HOME PLATFORM / SINGAPORE</p>
         <h1>Transport</h1>
       </div>
-      <div class="today" id="today"></div>
+      <time class="today" id="today"></time>
     </header>
 
-    <section class="dashboard" aria-label="Transport cards">
-      <article class="card train-card">
-        <header class="card-header">
+    <section class="dashboard" aria-label="Transport information">
+      <article class="board train-card">
+        <header class="board-header">
           <div>
-            <p class="eyebrow">TODAY</p>
-            <h2>Last train</h2>
+            <p class="board-code">01 / RAIL</p>
+            <h2>Last train today</h2>
           </div>
-          <button class="refresh" id="refresh-trains" type="button">Refresh timetable</button>
+          <button class="action-button" id="refresh-trains" type="button">Refresh timetable</button>
         </header>
-        <p class="muted snapshot" id="train-snapshot">No timetable saved yet.</p>
+        <p class="snapshot" id="train-snapshot">No timetable saved yet.</p>
 
         <div class="train-selectors">
-          <label>Line
+          <label><span>Line</span>
             <select id="line" disabled><option>Refresh first</option></select>
           </label>
-          <label>Direction
+          <label><span>Direction of travel</span>
             <select id="direction" disabled><option>Select a line</option></select>
           </label>
-          <label>Station
+          <label><span>Station</span>
             <select id="station" disabled><option>Select a direction</option></select>
           </label>
         </div>
-        <button class="primary" id="find-train" type="button" disabled>Show last train</button>
+        <button class="find-button" id="find-train" type="button" disabled>Show last train <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h17m-7-7 7 7-7 7"/></svg></button>
 
         <div class="train-result empty" id="train-result" aria-live="polite">
-          Choose a line, direction, and station.
+          <span>Choose a line, direction, and station.</span>
         </div>
       </article>
 
-      <article class="card bus-card">
-        <header class="card-header">
+      <article class="board bus-card">
+        <header class="board-header">
           <div>
-            <p class="eyebrow">LIVE</p>
+            <p class="board-code">02 / BUS</p>
             <h2>My buses</h2>
           </div>
-          <button class="refresh" id="refresh-buses" type="button">Refresh arrivals</button>
+          <button class="action-button" id="refresh-buses" type="button">Refresh arrivals</button>
         </header>
-        <p class="muted snapshot" id="bus-snapshot">Not refreshed.</p>
+        <p class="snapshot" id="bus-snapshot">Not refreshed.</p>
 
-        <form id="bus-form" class="bus-form">
-          <label>Stop code
-            <input name="stop_code" inputmode="numeric" maxlength="5" pattern="[0-9]{5}" placeholder="20251" required>
+        <form id="bus-form" class="bus-form" novalidate>
+          <label><span>Stop code</span>
+            <input name="stop_code" inputmode="numeric" maxlength="5" pattern="[0-9]{5}" placeholder="05521" required>
           </label>
-          <label>Bus
-            <input name="service_no" maxlength="8" placeholder="176" required>
+          <label><span>Bus service</span>
+            <input name="service_no" maxlength="8" placeholder="121" required>
           </label>
-          <label class="stop-name">Your stop name
-            <input name="stop_name" maxlength="80" placeholder="Home" required>
+          <label class="stop-name"><span>Stop name / nickname</span>
+            <input name="stop_name" maxlength="80" placeholder="Maritime Hse" required>
           </label>
-          <button class="secondary" type="submit">Save</button>
+          <button class="save-button" type="submit">Save <span>+</span></button>
         </form>
+        <p class="form-help">Stop codes have five digits, including leading zeroes.</p>
 
         <div class="bus-list" id="bus-list" aria-live="polite"></div>
       </article>
     </section>
-    <footer>Transport <span>v__VERSION__</span></footer>
+
   </main>
   <script>window.TRANSPORT_CONFIG = __TRANSPORT_CONFIG__;</script>
-  <script src="__BASE_PATH__/static/transport.js" defer></script>
+  <script src="__BASE_PATH__/static/transport.js?v=__VERSION__" defer></script>
 </body>
 </html>

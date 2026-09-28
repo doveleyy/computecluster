@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050505">
+  <title>Study / Habit Tracker</title>
+  <link rel="stylesheet" href="__BASE_PATH__/static/study.css?v=__VERSION__">
+  <link rel="stylesheet" href="__BASE_PATH__/static/shell.css?v=__VERSION__">
+</head>
+<body>
+  <main class="shell">
+    <header class="top"><div><div class="eyebrow">Home Platform / Habits</div><h1 class="title">study<span class="dot">.</span></h1></div><div class="user" id="user"></div></header>
+    __NAVIGATION__
+    <div class="study-grid">
+      <section class="panel timer-panel" aria-labelledby="focus-heading">
+        <div class="label">Focus session</div>
+        <h2 id="focus-heading">Settle in and study.</h2>
+        <p class="intro" id="focus-intro">Pick one activity and a focus length. Your session continues if you leave this page.</p>
+        <form id="start-form">
+          <label for="activity">Activity</label>
+          <input id="activity" name="activity" type="text" maxlength="120" placeholder="What are you studying?" autocomplete="off" required>
+          <label for="duration">Focus length <span class="unit">minutes</span></label>
+          <div class="start-row"><input id="duration" name="duration" type="number" min="1" max="180" step="1" value="25" inputmode="numeric" required><button id="start" type="submit">START FOCUS</button></div>
+        </form>
+        <div id="active-session" hidden>
+          <div class="active-activity" id="active-activity"></div>
+          <div class="label timer-label">Time remaining</div>
+          <div class="countdown" id="countdown" role="timer" aria-label="Time remaining">25:00</div>
+          <div class="timer-track" aria-hidden="true"><span id="timer-fill"></span></div>
+          <p class="timer-hint">Saved to your day when you stop or finish.</p>
+          <div class="session-actions"><button id="stop" type="button">STOP & SAVE</button><button id="cancel" type="button">CANCEL SESSION</button></div>
+        </div>
+        <p id="message" role="status"></p>
+      </section>
+      <section class="panel progress-panel" aria-labelledby="today-heading">
+        <div class="label" id="today-date">Today</div>
+        <h2 id="today-heading">Focus time</h2>
+        <div class="today-total" id="today-total">—</div>
+        <p class="muted">Saved focus time today. Running time is added when the session ends.</p>
+        <div class="recent-heading"><h3>Recent sessions</h3><span class="label">Latest 5</span></div>
+        <div id="recent" class="recent"></div>
+      </section>
+    </div>
+    <section class="panel calendar-panel" aria-labelledby="calendar-heading">
+      <div class="calendar-head"><div><h2 id="calendar-heading">Focus calendar</h2><span class="label">Saved focus minutes by day</span></div><div class="month-controls"><button id="previous-month" type="button" aria-label="Previous month" disabled>←</button><span id="calendar-month">—</span><button id="next-month" type="button" aria-label="Next month" disabled>→</button></div></div>
+      <div class="calendar-layout">
+        <div class="selected-day"><span class="label">Selected day</span><h3 id="selected-date">—</h3><div class="selected-total" id="selected-total">—</div><p>Saved focus time. Running sessions appear here after they end.</p></div>
+        <div class="calendar-block"><div class="calendar-weekdays" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div><div class="calendar-days" id="focus-calendar" aria-label="Daily saved focus time"></div><div class="calendar-key"><span><i class="key-focus"></i>Focus saved</span><span><i class="key-empty"></i>No focus saved</span></div></div>
+      </div>
+    </section>
+  </main>
+  <script>window.habitConfig=__HABIT_TRACKER_CONFIG__;</script>
+  <script src="__BASE_PATH__/static/study.js?v=__VERSION__" defer></script>
+</body>
+</html>

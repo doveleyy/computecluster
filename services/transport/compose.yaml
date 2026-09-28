@@ -5,7 +5,7 @@ services:
     build:
       context: ../..
       dockerfile: services/transport/Dockerfile
-    image: home-platform-transport:0.1.0
+    image: home-platform-transport:0.1.3
     container_name: home-platform-transport
     restart: unless-stopped
     user: "${SERVICE_UID:-1000}:${SERVICE_GID:-1000}"

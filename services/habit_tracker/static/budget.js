@@ -12,6 +12,8 @@ document.querySelector("#user").textContent = config.displayName;
 document.querySelector("#timezone").textContent = config.timezone;
 const format = cents => money.format(cents / 100);
 const signed = cents => `${cents >= 0 ? "+" : "−"}${format(Math.abs(cents))}`;
+const ledgerTimestamp = new Intl.DateTimeFormat("en-SG", {timeZone:config.timezone,year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit",hour12:true});
+const ledgerDate = new Intl.DateTimeFormat("en-SG", {timeZone:"UTC",year:"numeric",month:"short",day:"numeric"});
 const localDate = value => new Date(`${value}T12:00:00`);
 function isoDate(value) { const year = value.getFullYear(); const month = String(value.getMonth() + 1).padStart(2, "0"); const day = String(value.getDate()).padStart(2, "0"); return `${year}-${month}-${day}`; }
 function moveDate(value, offset) { const day = localDate(value); day.setDate(day.getDate() + offset); return isoDate(day); }
@@ -37,7 +39,6 @@ function renderSummary(summary) {
   state.summary = summary;
   const remaining = document.querySelector("#remaining"); remaining.textContent = format(summary.daily_remaining_cents); remaining.classList.toggle("negative", summary.daily_remaining_cents < 0);
   document.querySelector("#budget-value").textContent = format(summary.daily_budget_cents); document.querySelector("#budget-figure").textContent = format(summary.daily_budget_cents); document.querySelector("#spent").textContent = format(summary.daily_spent_cents);
-  const settlement = document.querySelector("#settlement"); settlement.textContent = signed(summary.daily_remaining_cents); settlement.className = summary.daily_remaining_cents < 0 ? "negative" : "positive";
   const fund = document.querySelector("#fund"); fund.textContent = format(summary.fund_balance_cents); fund.classList.toggle("negative", summary.fund_balance_cents < 0); document.querySelector("#pending").textContent = summary.pending_surplus_cents ? `+${format(summary.pending_surplus_cents)}` : "—";
   const ratio = summary.daily_budget_cents ? Math.max(0, summary.daily_remaining_cents) / summary.daily_budget_cents : 0; const fill = document.querySelector("#fill"); fill.style.width = `${Math.min(100, ratio * 100)}%`; fill.classList.toggle("over", summary.daily_remaining_cents < 0); fill.setAttribute("aria-valuenow", String(Math.max(0, summary.daily_remaining_cents))); fill.setAttribute("aria-valuemax", String(summary.daily_budget_cents));
   if (!state.editingBudget) document.querySelector("#budget-input").value = (summary.daily_budget_cents / 100).toFixed(2);
@@ -64,11 +65,11 @@ function renderDay(data) {
 function renderLedger(data) {
   const root = document.querySelector("#ledger"); root.innerHTML = "";
   if (!data.entries.length) { root.innerHTML = '<div class="empty">No budget activity yet.</div>'; return; }
-  for (const item of data.entries) { const row = document.createElement("div"); row.className = "ledger-row"; const positive = item.amount_cents >= 0; const adjustment = item.kind === "daily_budget_adjustment"; const note = adjustment ? `Daily budget ${format(item.previous_amount_cents)} → ${format(item.new_amount_cents)}` : item.description; const when = item.occurred_at ? new Date(item.occurred_at).toLocaleString([], {month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}) : item.date; row.innerHTML = `<span class="ledger-note"></span><span class="ledger-amount ${positive ? "positive" : "negative"}">${signed(item.amount_cents)}</span>`; row.querySelector(".ledger-note").textContent = `${when} · ${note}`; root.append(row); }
+  for (const item of data.entries) { const row = document.createElement("div"); row.className = "ledger-row"; const adjustment = item.kind === "daily_budget_adjustment"; const note = adjustment ? `Daily budget ${format(item.previous_amount_cents)} → ${format(item.new_amount_cents)}` : item.description; const when = item.occurred_at ? ledgerTimestamp.format(new Date(item.occurred_at)) : ledgerDate.format(new Date(`${item.date}T12:00:00Z`)); const detail = document.createElement("span"); detail.className = "ledger-note"; detail.textContent = `${when} · ${note}`; row.append(detail); if (!adjustment) { const amount = document.createElement("span"); amount.className = `ledger-amount ${item.amount_cents >= 0 ? "positive" : "negative"}`; amount.textContent = signed(item.amount_cents); row.append(amount); } root.append(row); }
 }
 function scheduleReset(nextReset) { clearTimeout(state.resetTimer); const wait = Math.max(1000, new Date(nextReset).getTime() - Date.now() + 1000); state.resetTimer = setTimeout(refresh, Math.min(wait, 2147483647)); }
 async function selectDate(value) { const [day, history] = await Promise.all([request(`/day?date=${encodeURIComponent(value)}`), request("/history?days=7")]); renderDay(day); renderHistory(history); }
-async function refresh() { const [summary, history, ledger] = await Promise.all([request("/summary"),request("/history?days=7"),request("/ledger?limit=50")]); renderSummary(summary); if (!state.selectedDate) state.selectedDate = summary.date; renderDay(await request(`/day?date=${encodeURIComponent(state.selectedDate)}`)); renderHistory(history); renderLedger(ledger); }
+async function refresh() { const [summary, history, ledger] = await Promise.all([request("/summary"),request("/history?days=7"),request("/ledger?limit=5")]); renderSummary(summary); if (!state.selectedDate) state.selectedDate = summary.date; renderDay(await request(`/day?date=${encodeURIComponent(state.selectedDate)}`)); renderHistory(history); renderLedger(ledger); }
 function editBudget(editing) { state.editingBudget = editing; document.querySelector("#budget-trigger").hidden = editing; document.querySelector("#budget-form").hidden = !editing; if (editing) { const input = document.querySelector("#budget-input"); input.value = (state.summary.daily_budget_cents / 100).toFixed(2); input.focus(); input.select(); } }
 
 document.querySelector("#modes").addEventListener("click", event => { const kind = event.target.dataset.kind; if (!kind) return; state.kind = kind; renderMode(); });

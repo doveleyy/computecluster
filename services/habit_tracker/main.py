@@ -18,14 +18,20 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from services.habit_tracker.budget import BudgetRepository, BudgetTransaction
+from services.habit_tracker.study import (
+    ActiveStudySessionError,
+    StudyRepository,
+    StudySession,
+    StudySessionNotActiveError,
+)
 from services.habit_tracker.water import Drink, WaterRepository
 
-SERVICE_VERSION = "0.8.1"
+SERVICE_VERSION = "0.9.9"
 DEFAULT_DATABASE_PATH = Path("data/habit-tracker.db")
 SERVICE_DIR = Path(__file__).parent
 TEMPLATES = {
     page: (SERVICE_DIR / "templates" / f"{page}.html").read_text(encoding="utf-8")
-    for page in ("dashboard", "water", "budget")
+    for page in ("dashboard", "water", "budget", "study")
 }
 
 
@@ -36,6 +42,7 @@ def render_page(page: str, configuration: dict[str, object]) -> str:
         ("dashboard", "Overview", "/"),
         ("water", "Water", "/water"),
         ("budget", "Budget", "/budget"),
+        ("study", "Study", "/study"),
     ):
         active = " active" if page == name else ""
         current = ' aria-current="page"' if page == name else ""
@@ -230,6 +237,31 @@ class BudgetTransactionRead(BaseModel):
     category: SpendCategory
 
 
+class StudySessionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    activity: str = Field(min_length=1, max_length=120)
+    duration_minutes: int = Field(ge=1, le=180)
+
+    @model_validator(mode="after")
+    def trim_activity(self) -> "StudySessionCreate":
+        self.activity = self.activity.strip()
+        if not self.activity:
+            raise ValueError("activity is required")
+        return self
+
+
+class StudySessionRead(BaseModel):
+    id: str
+    activity: str
+    duration_minutes: int
+    started_at: str
+    planned_end_at: str
+    ended_at: str | None
+    elapsed_seconds: int
+    status: str
+
+
 def load_settings() -> Settings:
     base_path = os.environ.get("HABIT_TRACKER_BASE_PATH", "/habits").rstrip("/")
     if base_path and not base_path.startswith("/"):
@@ -304,13 +336,16 @@ def create_app(
         identity_resolver = _http_identity_resolver(settings)
     repository = WaterRepository(settings.database_path, settings.timezone)
     budget_repository = BudgetRepository(settings.database_path, settings.timezone)
+    study_repository = StudyRepository(settings.database_path, settings.timezone)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         repository.initialize()
         budget_repository.initialize()
+        study_repository.initialize()
         application.state.repository = repository
         application.state.budget_repository = budget_repository
+        application.state.study_repository = study_repository
         application.state.settings = settings
         yield
 
@@ -394,6 +429,7 @@ def create_app(
         is_ready = bool(
             request.app.state.repository.ready()
             and request.app.state.budget_repository.ready()
+            and request.app.state.study_repository.ready()
         )
         return JSONResponse(
             {"status": "ready" if is_ready else "not_ready"},
@@ -452,6 +488,93 @@ def create_app(
             "categorisedKinds": [kind.value for kind in CATEGORISED_KINDS],
         }
         return render_page("budget", configuration)
+
+    @application.get("/study", response_class=HTMLResponse)
+    def study_page(
+        user: Annotated[Identity, Depends(current_identity)], request: Request
+    ) -> str:
+        return render_page(
+            "study",
+            {
+                "basePath": request.app.state.settings.base_path,
+                "displayName": user.display_name,
+                "timezone": str(request.app.state.settings.timezone),
+            },
+        )
+
+    @application.get("/api/study/summary")
+    def study_summary(
+        user: Annotated[Identity, Depends(current_identity)], request: Request
+    ) -> dict[str, object]:
+        summary = request.app.state.study_repository.summary(user.key)
+        return {
+            **summary,
+            "active": (
+                _study_session_read(summary["active"]) if summary["active"] else None
+            ),
+            "recent": [_study_session_read(session) for session in summary["recent"]],
+        }
+
+    @application.get("/api/study/history")
+    def study_history(
+        user: Annotated[Identity, Depends(current_identity)],
+        request: Request,
+        days: Annotated[int, Query(ge=1, le=31)] = 31,
+        end: date | None = None,
+    ) -> dict[str, object]:
+        today = datetime.now(request.app.state.settings.timezone).date()
+        end_day = _historical_day(request, end or today)
+        history = request.app.state.study_repository.history(user.key, end_day, days)
+        return {"days": history}
+
+    @application.post(
+        "/api/study/sessions", response_model=StudySessionRead, status_code=201
+    )
+    def start_study_session(
+        payload: StudySessionCreate,
+        user: Annotated[Identity, Depends(current_identity)],
+        request: Request,
+    ) -> StudySessionRead:
+        try:
+            session = request.app.state.study_repository.start(
+                user.key, payload.activity, payload.duration_minutes
+            )
+        except ActiveStudySessionError as error:
+            raise HTTPException(409, "A study session is already active") from error
+        return _study_session_read(session)
+
+    @application.post(
+        "/api/study/sessions/{session_id}/stop", response_model=StudySessionRead
+    )
+    def stop_study_session(
+        session_id: str,
+        user: Annotated[Identity, Depends(current_identity)],
+        request: Request,
+    ) -> StudySessionRead:
+        try:
+            session = request.app.state.study_repository.finish(
+                user.key, session_id, "stop"
+            )
+        except KeyError as error:
+            raise HTTPException(404, "Study session not found") from error
+        except StudySessionNotActiveError as error:
+            raise HTTPException(409, "Study session is no longer active") from error
+        assert session is not None
+        return _study_session_read(session)
+
+    @application.post("/api/study/sessions/{session_id}/cancel", status_code=204)
+    def cancel_study_session(
+        session_id: str,
+        user: Annotated[Identity, Depends(current_identity)],
+        request: Request,
+    ) -> Response:
+        try:
+            request.app.state.study_repository.finish(user.key, session_id, "cancel")
+        except KeyError as error:
+            raise HTTPException(404, "Study session not found") from error
+        except StudySessionNotActiveError as error:
+            raise HTTPException(409, "Study session is no longer active") from error
+        return Response(status_code=204)
 
     @application.get("/api/today")
     @application.get("/api/water/today")
@@ -525,9 +648,14 @@ def create_app(
         user: Annotated[Identity, Depends(current_identity)],
         request: Request,
         days: Annotated[int, Query(ge=1, le=90)] = 14,
+        end: date | None = None,
     ) -> dict[str, object]:
         repository: WaterRepository = request.app.state.repository
-        local_day = datetime.now(request.app.state.settings.timezone).date()
+        local_day = (
+            _historical_day(request, end)
+            if end is not None
+            else datetime.now(request.app.state.settings.timezone).date()
+        )
         summaries = repository.history(user.key, local_day, days)
         return {
             "days": [
@@ -740,6 +868,19 @@ def _drink_read(drink: Drink) -> DrinkRead:
         temperature=DrinkTemperature(drink.temperature),
         sweetness=Sweetness(drink.sweetness) if drink.sweetness is not None else None,
         consumed_at=drink.consumed_at.isoformat(),
+    )
+
+
+def _study_session_read(session: StudySession) -> StudySessionRead:
+    return StudySessionRead(
+        id=session.id,
+        activity=session.activity,
+        duration_minutes=session.duration_minutes,
+        started_at=session.started_at.isoformat(),
+        planned_end_at=session.planned_end_at.isoformat(),
+        ended_at=session.ended_at.isoformat() if session.ended_at else None,
+        elapsed_seconds=session.elapsed_seconds,
+        status=session.status,
     )
 
 

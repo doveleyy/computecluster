@@ -26,6 +26,15 @@ Every service has:
 - explicit CPU, memory, PID, filesystem, and privilege limits; and
 - an online backup and tested restore procedure for its database.
 
+The operator dashboard checks each application's private `/ready` and
+`/version` endpoints over loopback every 30 seconds while an administrator
+has the Overview open. A ready response means the application and
+its database can answer a lightweight check. An unready response is shown as
+degraded; no response is shown as offline. These checks are read-only and use
+fixed local endpoints, so the control plane needs no Docker socket or restart
+privileges. They do not write database rows or contact external providers.
+They report application readiness, not container CPU usage or logs.
+
 The request path is the platform's standard one — private HTTPS to the reverse
 proxy, then plain HTTP to a loopback port with authenticated identity headers.
 Because the container port is published only on `127.0.0.1`, no other machine

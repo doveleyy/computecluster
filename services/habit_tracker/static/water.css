@@ -28,3 +28,67 @@
     @media(max-width:560px){.breakdown-grid{grid-template-columns:1fr;gap:14px}.date-controls #today-day{display:none}.analysis-date{display:none}.day-total{align-items:flex-start;flex-direction:column;gap:4px}}
     #temperature-options button.active{border-color:var(--kind);background:color-mix(in srgb,var(--kind) 12%,#090909);color:var(--text)}.analysis-unit{color:var(--dim);font-size:.55em}.breakdown-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px}.analysis-switch{display:flex;gap:6px}.analysis-switch button{min-height:34px;padding:0 12px;color:var(--muted);font:600 9px var(--mono);text-transform:uppercase}.analysis-switch button.active{border-color:var(--water);background:color-mix(in srgb,var(--water) 10%,#090909);color:var(--text)}.breakdown-items{display:grid;gap:12px;margin-top:16px}.breakdown-item{display:grid;gap:6px}.breakdown-label{display:flex;align-items:center;justify-content:space-between;gap:12px;color:var(--muted);font:10px var(--mono)}.breakdown-label>span{display:flex;align-items:center;gap:7px}.breakdown-label strong{color:var(--text);font-weight:600}.breakdown-track{height:5px;overflow:hidden;border-radius:5px;background:#1d1d1d}.breakdown-track>span{display:block;height:100%;border-radius:5px;background:var(--kind);box-shadow:0 0 12px color-mix(in srgb,var(--kind) 38%,transparent)}.empty-mix{color:var(--dim);font:10px var(--mono)}
     @media(max-width:430px){.breakdown-head{align-items:flex-start;flex-direction:column}.analysis-switch{width:100%}.analysis-switch button{flex:1}}
+    .analytics-grid{height:300px;min-height:0}
+    .analysis-detail{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+    .breakdown-items{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:min-content;gap:10px 16px;min-height:0;flex:1;align-content:start;overflow-y:auto;overscroll-behavior:contain;scrollbar-color:#383838 transparent;padding-right:6px}
+    .breakdown-item{min-width:0;gap:4px}
+    .breakdown-label{min-width:0;gap:5px;font-size:9px}
+    .breakdown-label>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .breakdown-label strong{flex:none}
+    @media(max-width:860px){.analytics-grid{height:auto}.analysis-detail{height:300px}}
+    @media(max-width:600px){.breakdown-items{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:430px){.analysis-detail{height:330px}}
+    @media(max-width:370px){.breakdown-items{grid-template-columns:1fr}}
+
+    .month-controls{display:flex;align-items:center;gap:10px;font:600 11px var(--mono)}
+    .month-controls button{width:34px;min-height:34px;padding:0;font:700 12px var(--mono)}
+    .month-controls span{min-width:130px;text-align:center}
+    .calendar-layout{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);gap:34px;padding:24px 30px}
+    .calendar-weekdays,.calendar-days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+    .calendar-weekdays{margin-bottom:8px;color:var(--dim);font:9px var(--mono);text-align:center;text-transform:uppercase}
+    .calendar-day,.calendar-spacer{display:grid;place-items:center;min-width:0;min-height:37px}
+    .calendar-day{padding:0;border-radius:7px;background:#0f0f0f;color:var(--muted);font:600 11px var(--mono)}
+    .calendar-day:hover{border-color:var(--water);color:var(--text)}
+    .calendar-day.met{border-color:var(--water);background:color-mix(in srgb,var(--water) 24%,#090909);color:var(--text)}
+    .calendar-day.logged{border-color:#40525a;color:var(--text)}
+    .calendar-day.selected{outline:2px solid var(--text);outline-offset:2px}
+    .calendar-day.today::after{content:"";width:3px;height:3px;border-radius:50%;background:var(--water);position:absolute;margin-top:26px}
+    .calendar-day{position:relative}
+    .calendar-day:disabled{border-color:var(--line);background:#090909;cursor:default;opacity:.35}
+    .calendar-key{display:flex;flex-wrap:wrap;gap:16px;margin-top:14px;color:var(--muted);font:9px var(--mono)}
+    .calendar-key span{display:flex;align-items:center;gap:6px}.calendar-key i{width:9px;height:9px;border:1px solid var(--line);border-radius:2px}
+    .calendar-key .key-met{border-color:var(--water);background:var(--water)}.calendar-key .key-logged{border-color:#647c86}.calendar-key .key-empty{background:#111}
+    .selected-day{min-width:0;padding:8px 0 0 30px;border-left:1px solid var(--line)}
+    .selected-day h2{margin:12px 0 10px;font:600 clamp(16px,2.3vw,23px)/1.2 var(--mono)}
+    .selected-total{font:500 clamp(34px,5vw,54px)/1 var(--mono);letter-spacing:-.06em}
+    .selected-day p{min-height:19px;margin:10px 0 26px;color:var(--muted);font:10px var(--mono)}
+    .selected-day .date-controls{max-width:440px}
+    .mix-panel{margin-top:12px}.mix-head{align-items:center}.mix-layout{display:grid;grid-template-columns:220px minmax(0,1fr);align-items:center;gap:34px;min-height:280px;padding:24px 30px}
+    .donut-figure{position:relative;width:210px;height:210px;margin:auto}.donut-figure svg{display:block;width:100%;height:100%}
+    .donut-core{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;pointer-events:none}
+    .donut-core strong{font:600 25px var(--mono)}.donut-core span{margin-top:3px;color:var(--muted);font:9px var(--mono);text-transform:uppercase}
+    .mix-detail{min-width:0}.mix-detail>.label{display:block;margin-bottom:16px}
+    .mix-detail .breakdown-items{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px 24px;flex:none;margin:0;padding:0;overflow:visible}
+    .mix-detail .breakdown-item{gap:6px}.mix-detail .breakdown-label{font-size:10px}
+    @media(max-width:760px){.calendar-layout{grid-template-columns:1fr;gap:20px}.selected-day{padding:20px 0 0;border-left:0;border-top:1px solid var(--line)}}
+    @media(max-width:720px){.mix-layout{grid-template-columns:1fr;gap:16px}.donut-figure{width:190px;height:190px}}
+    @media(max-width:500px){.calendar-layout,.mix-layout{padding:20px}.calendar-day,.calendar-spacer{min-height:34px}.calendar-weekdays,.calendar-days{gap:4px}.mix-detail .breakdown-items{grid-template-columns:1fr}.mix-head{align-items:flex-start;flex-direction:column}.analysis-switch{width:100%}.analysis-switch button{flex:1}}
+
+    .calendar-layout{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .calendar-block{min-width:0}
+    .selected-day{padding:8px 30px 0 0;border-left:0;border-right:1px solid var(--line)}
+    .mix-layout{grid-template-columns:210px minmax(0,1fr) minmax(260px,300px);align-items:stretch;gap:24px;height:340px;min-height:0}
+    .mix-detail{display:flex;flex-direction:column;justify-content:center;min-height:0;overflow:hidden}
+    .mix-detail>.label{flex:none}
+    .mix-detail .breakdown-items{grid-template-columns:1fr;grid-auto-rows:30px;flex:0 1 auto;max-height:214px;min-height:0;overflow-y:auto;scrollbar-color:#383838 transparent;padding-right:6px}
+    .weekly-panel{display:flex;flex-direction:column;justify-content:center;min-width:0;padding-left:20px;border-left:1px solid var(--line)}
+    .weekly-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+    .weekly-max{color:var(--muted);font:9px var(--mono);white-space:nowrap}
+    .weekly-panel .history{grid-template-columns:repeat(7,minmax(0,1fr));gap:5px;height:150px;margin-top:16px}
+    .weekly-panel .day{display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:5px;min-height:0;padding:0;border:0;background:transparent}
+    .weekly-panel .day-value{color:var(--muted);font:8px var(--mono);white-space:nowrap}
+    .weekly-panel .bar-track{min-height:0;height:100%}
+    .weekly-panel .day.selected .bar{background:#bdf1ff;opacity:1}
+    @media(max-width:900px){.mix-layout{grid-template-columns:190px minmax(0,1fr);height:auto;min-height:0}.mix-detail{overflow:visible}.mix-detail .breakdown-items{overflow:visible}.weekly-panel{grid-column:1/-1;padding:20px 0 0;border-left:0;border-top:1px solid var(--line)}.weekly-panel .history{height:130px}}
+    @media(max-width:760px){.calendar-layout{grid-template-columns:1fr}.selected-day{padding:0 0 20px;border-right:0;border-bottom:1px solid var(--line);border-top:0}}
+    @media(max-width:720px){.mix-layout{grid-template-columns:1fr}.weekly-panel{grid-column:auto}}

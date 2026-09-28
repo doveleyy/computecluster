@@ -40,12 +40,11 @@ then chooses a backend by looking at the leading path segment:
     |  authenticates the network caller    |
     |  attaches identity headers           |
     +--------------------------------------+
-         |                        |
-         | /                      | /habits
-         v                        v
-    127.0.0.1:8000           127.0.0.1:8100
-    control plane            habit tracker
-    jobs, web UI, API        Overview, Water, Budget
+         | /              | /habits        | /wishlist, /transport
+         v                v                 v
+    127.0.0.1:8000   127.0.0.1:8100   independent loopback services
+    launcher and     habit tracker     each with its own container,
+    control plane                      state, and identity boundary
 ```
 
 Adding an application means adding one route and one loopback port. Nothing

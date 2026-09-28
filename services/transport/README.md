@@ -6,6 +6,11 @@ This is a private, deliberately small transport dashboard with two cards:
 - live arrival minutes for a short owner-scoped list of saved bus-stop and
   service pairs.
 
+The interface uses a Vignelli-era transit-signage vocabulary: black and white
+information boards, a strict grid, neutral grotesque typography, directional
+arrows, and colored circular line identifiers. It borrows the wayfinding
+principles without reproducing MTA names or marks.
+
 Neither card polls. Opening the page reads only local SQLite state. The train
 card calls DataMall only when **Refresh timetable** is pressed, then imports
 the downloaded GTFS schedule into SQLite. The bus card calls Bus Arrival v3
