@@ -78,7 +78,7 @@ pixi run client submit-python-batch model-training/svm-grid-search.py \
                                     --cpus 0.5 --timeout-seconds 86400
 ```
 
-## The one thing to copy
+## Size parallelism from the quota
 
 Size your parallelism from the quota, not from the machine:
 

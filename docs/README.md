@@ -1,8 +1,9 @@
 # Documentation
 
-A private homelab: one always-on host, a file server, and laptops that supply
-compute when they are available. Several applications run behind a single
-private entrance; a distributed compute system is the largest of them.
+A private homelab: one always-on host, a file server, laptops that supply
+compute when they are available, and a Linux workstation that also serves
+media. Applications are reachable only over a private network; a distributed
+compute system is the largest of them.
 
 Start with [Architecture](architecture.md) — it is the overview of the whole
 system and links to everything else.
@@ -18,12 +19,14 @@ system and links to everything else.
 | Build against the API | [Job and API contract](compute/job-contract.md) |
 | Know who may see or do what | [Accounts and access control](access-control.md) |
 | Host another application | [Application services](services.md) |
+| Understand the media server | [Media](media.md) |
 | Deploy or configure it | [Configuration](configuration.md) |
 
 ## Sections
 
-- **[Architecture](architecture.md)** — the overview: physical shape, the
-  subsystems, trust boundaries, failure behaviour, and known limits.
+- **[Architecture](architecture.md)** — the overview: physical shape, where
+  each piece and its data live, trust boundaries, failure behaviour, and known
+  limits.
 - **[Network](network.md)** — the private overlay network, the reverse
   proxy that routes one HTTPS origin to several backends, why backends bind to
   loopback, and why that makes identity headers trustworthy.
@@ -39,6 +42,8 @@ system and links to everything else.
   immutable ownership, and linking a network login to a platform account.
 - **[Application services](services.md)** — the standard for hosting
   long-running household applications beside the compute system.
+- **[Media](media.md)** — the media server on the workstation, its
+  read-only view of the file server, and why it has its own private entrance.
 - **[Configuration](configuration.md)** — every environment variable and which
   ones matter.
 

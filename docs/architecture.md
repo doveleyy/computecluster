@@ -1,9 +1,10 @@
 # Architecture
 
-Home Platform is a private homelab: one always-on host, a file server, and a
-few laptops that supply compute when they happen to be awake. It hosts several
-applications behind a single private entrance — a distributed compute system is
-the largest of them, but not the point of the design.
+Home Platform is a private homelab: one always-on host, a file server, a few
+laptops that supply compute when they happen to be awake, and a Linux
+workstation that also serves the household media library. It hosts several
+applications, reachable only over a private network — a distributed compute
+system is the largest of them, but not the point of the design.
 
 This page is the overview. Each subsystem has its own section with the detail:
 
@@ -14,6 +15,7 @@ This page is the overview. Each subsystem has its own section with the detail:
 | Storage | Household files and published results | [storage/](storage/README.md) |
 | Identity | Accounts, roles, ownership | [access-control.md](access-control.md) |
 | Services | Hosting long-running applications | [services.md](services.md) |
+| Media | The media server and its separate entrance | [media.md](media.md) |
 | Configuration | Every environment variable | [configuration.md](configuration.md) |
 
 This document contains no hostnames, addresses, accounts, or filesystem paths.
@@ -34,38 +36,68 @@ go. Most of the design follows from that:
 ## Physical shape
 
 ```text
-                    authorized devices
-                  (phone, laptop, tablet)
-                            |
-                            | private overlay network, HTTPS
-                            v
-    +-------------------------------------------------------+
-    |                    always-on host                     |
-    |                                                       |
-    |   reverse proxy  --+-->  control plane (jobs, web UI)  |
-    |                    +-->  habit tracker container       |
-    |                    +-->  wishlist container            |
-    |                    +-->  transport container           |
-    |                                                       |
-    |   SQLite (job truth) · systemd lifecycle · backups     |
-    +-------------------------------------------------------+
-           |                                    |
-           | workers poll: claim,               | SMB / mounted shares
-           | heartbeat, report                  |
-           v                                    v
-    +-------------+  +-------------+      +--------------+
-    |  laptop A   |  |  laptop B   |      |     NAS      |
-    | per-job     |  | per-job     |      | household    |
-    | container   |  | container   |      | files +      |
-    +-------------+  +-------------+      | artifacts    |
-                                          +--------------+
+               people, on devices joined to the private overlay network
+       browser  ·  command-line client  ·  file apps (SMB)  ·  media players
+           |                 |                     |                  |
+           | HTTPS           | HTTPS               | SMB              | HTTPS
+           | host's name     | host's name         |                  | workstation's name
+           v                 v                     |                  v
+  +--------------------------------------+         |    +----------------------------+
+  | ALWAYS-ON HOST                       |         |    | LINUX WORKSTATION          |
+  |                                      |         |    |                            |
+  |  reverse proxy: TLS, caller identity |         |    |  reverse proxy: TLS only   |
+  |    /           launcher, jobs, API   |         |    |    /   media server        |
+  |    /habits     habit tracker         |         |    |        (its own logins)    |
+  |    /wishlist   wishlist              |         |    |                            |
+  |    /transport  transport             |         |    |  worker agent, polls the   |
+  |    /sorter     file sorter           |         |    |  host like any laptop      |
+  |  local disk: one SQLite db per app   |         |    +----------------------------+
+  +--------------------------------------+         |                   |
+       ^                   |                       |                   | read-only
+       | workers poll:     | mounts: results,      |                   | mount
+       | claim, heartbeat, | member files,         |                   |
+       | report            | backups, owner files  |                   |
+       |                   v                       v                   v
+  +-----------+   +------------------------------------------------------------------+
+  | laptops   |   | NAS: the only file server                                        |
+  |           |   |   Home, Shared   members' files                                  |
+  | worker    |   |   Artifacts      published job results, owned by the coordinator |
+  | agent +   |   |   Backups        verified database copies, owner-only            |
+  | per-job   |   |   Media          films and video, read-only to the media server  |
+  |           |   |   Personal       the owner's library, organized by the sorter    |
+  | containers|   +------------------------------------------------------------------+
+  +-----------+
 ```
 
-Three kinds of machine, with sharply different roles. The **host** is always on
-and low power; it routes, coordinates, stores truth, and runs applications, but
-never does heavy work. The **workers** are ordinary laptops that appear and
-disappear. The **NAS** is the only file server and the durable home for
-household data and job results.
+Four kinds of machine, with sharply different roles:
+
+- The **always-on host** is small and low power. It is the front door, the
+  coordinator, and the home of every database; it runs the household
+  applications, but never does heavy work.
+- The **workers** are ordinary laptops that appear and disappear. They run jobs
+  inside per-job containers and are reached by nobody; they poll the host.
+- The **Linux workstation** is a worker like the others, and also hosts the
+  media server behind its own private entrance.
+- The **NAS** is the only file server and the durable home for household files,
+  job results, database backups, and media.
+
+## Where everything lives
+
+| What | Where | Why there |
+|---|---|---|
+| Job truth: jobs, leases, workers, accounts | SQLite on the host's local disk | One writer, beside the only process that mutates it |
+| Each application's data | Its own SQLite file on the host's local disk | Applications never share a database |
+| Database backups | A private owner-only area on the NAS | Off the host's disk, verified before they count |
+| Members' files | `Home` and `Shared` on the NAS | One file server, reachable over SMB and the web |
+| Job results | `Artifacts` on the NAS, written only by the coordinator | One writer for published output |
+| Small upload staging and worker input caches | Local disk of the host or worker | Short-lived, bounded, rebuildable |
+| Media library | A separate `Media` share on the NAS | Kept apart from platform accounts and files |
+| The owner's personal library | A separate `Personal` share on the NAS, moved only by the owner and the file sorter | Outside members' platform storage; the sorter's account reaches no other share |
+| Media server settings and cache | The workstation's local disk | Rebuildable, and not a network-share workload |
+
+No database lives on a network share. SQLite relies on file locking that is not
+reliable over SMB, so live databases stay on local disk and only their verified
+backups travel to the NAS.
 
 ## Getting in: the network
 
@@ -74,20 +106,28 @@ public tunnel is enabled. Every device joins a private overlay network
 (Tailscale), which supplies *reachability only* — each service still
 authenticates independently.
 
-Inside that network, a single reverse proxy is the front door for everything
-the host serves. It terminates HTTPS once and dispatches by path:
+Every machine on the overlay network gets a stable private name, and each can
+run a small reverse proxy (Tailscale Serve) that terminates HTTPS for that name.
+On the host, that proxy is the front door for everything the host serves. It
+terminates HTTPS once and dispatches by path:
 
 ```text
     /          ->  127.0.0.1:8000     launcher, jobs, dashboard, API
     /habits    ->  127.0.0.1:8100     habit tracker
     /wishlist  ->  127.0.0.1:8101     wishlist
     /transport ->  127.0.0.1:8102     transport dashboard
+    /sorter    ->  127.0.0.1:8103     file sorter (administrator only)
 ```
 
 Every backend binds to loopback only, so the proxy is the sole route in, and a
 proxy-supplied identity header is therefore trustworthy. Those two facts are
 one decision. Workers are *not* reached through the proxy — they poll the
 control plane outward — so nothing needs to connect back into a laptop.
+
+The media server is the one exception to "everything through the host". It
+runs on the workstation, and the workstation's own proxy publishes it under the
+workstation's private name. Routing video through the host would put every
+stream's bandwidth on the smallest machine for no benefit.
 
 This is the part most worth reading in full: [Network](network.md).
 
@@ -158,10 +198,21 @@ host, the proxy, and the identity system.
 
 Adding one is a deliberate, bounded exercise: a source directory, an image, a
 loopback port, a systemd unit, one proxy route, explicit limits, and a tested
-backup. Current examples include the habit tracker, wishlist, and personal
-transport dashboard.
+backup. Current examples include the habit tracker, wishlist, personal
+transport dashboard, and file sorter.
 
 Detail: [Application services](services.md).
+
+## Media
+
+A Jellyfin media server runs in a container on the workstation. It sees a
+dedicated `Media` share through a read-only mount made with its own read-only
+file-server account, which can reach nothing else on the NAS. Its settings and
+cache stay on the workstation's disk. It has its own user accounts and does not
+use platform identity, so it is a neighbour on the network rather than a
+platform service.
+
+Detail: [Media](media.md).
 
 ## Human interfaces
 
@@ -196,8 +247,10 @@ cancellation, and deletion re-checks the authenticated owner's scope.
 
 ## Operations
 
-Every long-running piece is a systemd unit on the host, so the machine boots
-into a working system without anyone logging in. Services expose `/health` for
+Every long-running piece on the host is a systemd unit, so the machine boots
+into a working system without anyone logging in. The workstation manages its
+worker agent and media server the same way, and starts the media server only
+after its NAS mount is available. Services expose `/health` for
 liveness and `/ready` for readiness — deliberately distinct, because a process
 can be alive and unable to serve.
 
@@ -218,6 +271,7 @@ private overlay network        reachability only
       +-- HTTPS      -> elevated API token or signed per-user session
       +-- SSH        -> key-based authentication
       +-- file share -> its own separate account
+      +-- media      -> the media server's own accounts
 ```
 
 Network privacy is not authentication. Compromising the overlay network does
@@ -236,6 +290,8 @@ under generated identifiers rather than client-supplied names.
 | Storage volume absent at boot | Machine boots; dependent service fails its mount check | Reconnect, mount, start the service |
 | Database unavailable | Liveness may pass while readiness fails | Restore the database before accepting work |
 | One application crashes | Only that container; jobs and other applications continue | Restart that unit |
+| Workstation off or asleep | Media is unavailable and its worker stops heartbeating; the host and its applications are unaffected | Wake the workstation |
+| NAS unreachable | Files, results, backups, and media stop; the control plane waits for its storage mounts, while the household applications keep working from local disk — except the file sorter, whose work is the NAS files themselves | Restore the NAS, retry the mounts, then restart the file sorter |
 
 ## Decisions worth keeping
 

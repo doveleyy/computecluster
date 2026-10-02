@@ -60,15 +60,17 @@ function renderBreakdown(breakdown, labels, colors) {
     root.append(item);
   }
 }
-function renderToday(data) {
-  state.today = data;
+function renderLog(data) {
+  const historical = data.date !== state.today.date;
+  document.querySelector("#log-day-label").textContent = historical ? `LOGGING · ${data.date}` : "TODAY";
+  document.querySelector("#entries-title").textContent = historical ? `Drinks · ${data.date}` : "Today’s drinks";
   document.querySelector("#total").textContent = data.total_ml.toLocaleString(); document.querySelector("#goal-value").textContent = data.goal_ml.toLocaleString();
   if (!state.editingGoal) document.querySelector("#goal-input").value = data.goal_ml;
   document.querySelector("#fill").style.width = `${Math.min(100, (data.total_ml / data.goal_ml) * 100)}%`;
   document.querySelector("#entry-count").textContent = `${data.drinks.length} ${data.drinks.length === 1 ? "entry" : "entries"}`;
   const entries = document.querySelector("#entries"); entries.innerHTML = "";
-  if (!data.drinks.length) { entries.innerHTML = '<div class="empty">No drinks recorded yet.</div>'; return; }
-  for (const drink of data.drinks) { const row = document.createElement("div"); row.className = "entry"; const localTime = new Date(drink.consumed_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}); const details = [temperatureLabels[drink.temperature] || "Normal"]; if (drink.sweetness) details.push(sweetnessLabels[drink.sweetness] || drink.sweetness); row.innerHTML = `<div><div class="entry-amount">${drink.amount_ml} ml <span class="entry-kind" style="${kindStyle(drink.drink_type)}"><span class="dot"></span>${typeMap[drink.drink_type] || "Other"}</span></div><div class="entry-time">${localTime} <span class="entry-details">· ${details.join(" · ")}</span></div></div><button class="undo" data-delete="${drink.id}">UNDO</button>`; entries.append(row); }
+  if (!data.drinks.length) { entries.innerHTML = '<div class="empty">No drinks recorded on this day.</div>'; return; }
+  for (const drink of data.drinks) { const row = document.createElement("div"); row.className = "entry"; const localTime = historical ? "" : new Date(drink.consumed_at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}); const details = [temperatureLabels[drink.temperature] || "Normal"]; if (drink.sweetness) details.push(sweetnessLabels[drink.sweetness] || drink.sweetness); row.innerHTML = `<div><div class="entry-amount">${drink.amount_ml} ml <span class="entry-kind" style="${kindStyle(drink.drink_type)}"><span class="dot"></span>${typeMap[drink.drink_type] || "Other"}</span></div><div class="entry-time">${localTime}${localTime ? " · " : ""}<span class="entry-details">${details.join(" · ")}</span></div></div><button class="undo" data-delete="${drink.id}">${historical ? "REMOVE" : "UNDO"}</button>`; entries.append(row); }
 }
 function renderCalendar() {
   const month = state.calendarMonth;
@@ -120,6 +122,7 @@ async function loadCalendar(month) {
 function renderAnalysis(data) {
   state.analysisDay = data;
   state.selectedDate = data.date;
+  renderLog(data);
   const input = document.querySelector("#analysis-date"); input.value = data.date; input.max = state.today.date;
   document.querySelector("#analysis-date-label").textContent = displayDate(data.date); document.querySelector("#analysis-total").textContent = data.total_ml.toLocaleString();
   document.querySelector("#analysis-progress").textContent = `${data.entry_count} ${data.entry_count === 1 ? "entry" : "entries"} · ${Math.round((data.total_ml / data.goal_ml) * 100)}% of current target`;
@@ -133,8 +136,8 @@ function renderAnalysis(data) {
 async function selectDate(value) { const [day, history] = await Promise.all([request(`/day?date=${encodeURIComponent(value)}`), request(`/history?days=7&end=${encodeURIComponent(value)}`)]); renderAnalysis(day); renderHistory(history); if (state.calendarMonth !== monthKey(value)) await loadCalendar(monthKey(value)); }
 function changeCalendarMonth(offset) { const month = shiftMonth(state.calendarMonth, offset); const day = Math.min(Number(state.selectedDate.slice(-2)), Number(lastDayOfMonth(month).slice(-2))); const date = `${month}-${String(day).padStart(2, "0")}`; return selectDate(date > state.today.date ? state.today.date : date); }
 function editGoal(editing) { state.editingGoal = editing; document.querySelector("#goal-trigger").hidden = editing; document.querySelector("#goal-form").hidden = !editing; if (editing) { const input = document.querySelector("#goal-input"); input.value = state.today.goal_ml; input.focus(); input.select(); } }
-async function refresh() { const today = await request("/today"); renderToday(today); if (!state.selectedDate) state.selectedDate = today.date; const [day, history] = await Promise.all([request(`/day?date=${encodeURIComponent(state.selectedDate)}`), request(`/history?days=7&end=${encodeURIComponent(state.selectedDate)}`)]); renderAnalysis(day); renderHistory(history); await loadCalendar(state.calendarMonth || monthKey(state.selectedDate)); }
-async function add(amount) { busy(true); show("Saving…"); const payload = {amount_ml:Number(amount),drink_type:state.selectedType,temperature:state.temperature}; if (sweetened.has(state.selectedType)) payload.sweetness = state.sweetness; try { await request("/drinks", {method:"POST",body:JSON.stringify(payload)}); await refresh(); show(`${typeMap[state.selectedType]} saved.`); } catch (error) { show(error.message, true); } finally { busy(false); } }
+async function refresh() { const today = await request("/today"); state.today = today; if (!state.selectedDate) state.selectedDate = today.date; const [day, history] = await Promise.all([request(`/day?date=${encodeURIComponent(state.selectedDate)}`), request(`/history?days=7&end=${encodeURIComponent(state.selectedDate)}`)]); renderAnalysis(day); renderHistory(history); await loadCalendar(state.calendarMonth || monthKey(state.selectedDate)); }
+async function add(amount) { busy(true); show("Saving…"); const payload = {amount_ml:Number(amount),drink_type:state.selectedType,temperature:state.temperature,day:state.selectedDate}; if (sweetened.has(state.selectedType)) payload.sweetness = state.sweetness; try { await request("/drinks", {method:"POST",body:JSON.stringify(payload)}); await refresh(); show(`${typeMap[state.selectedType]} saved for ${state.selectedDate}.`); } catch (error) { show(error.message, true); } finally { busy(false); } }
 
 document.querySelector("#drink-types").addEventListener("click", event => { const type = event.target.dataset.type; if (!type) return; state.selectedType = type; renderTypes(); });
 document.querySelector("#temperature-options").addEventListener("click", event => { const value = event.target.dataset.temperature; if (!value) return; state.temperature = value; renderAttributes(); });
@@ -144,7 +147,8 @@ document.querySelectorAll("[data-amount]").forEach(button => button.addEventList
 document.querySelector("#custom-form").addEventListener("submit", event => { event.preventDefault(); const input = document.querySelector("#custom-amount"); add(input.value).then(() => { input.value = ""; }); });
 document.querySelector("#goal-trigger").addEventListener("click", () => editGoal(true)); document.querySelector("#goal-input").addEventListener("keydown", event => { if (event.key === "Escape") editGoal(false); });
 document.querySelector("#goal-form").addEventListener("submit", async event => { event.preventDefault(); busy(true); try { await request("/settings", {method:"PUT",body:JSON.stringify({daily_goal_ml:Number(document.querySelector("#goal-input").value)})}); editGoal(false); await refresh(); show("Daily target updated."); } catch (error) { show(error.message, true); } finally { busy(false); } });
-document.querySelector("#entries").addEventListener("click", async event => { const id = event.target.dataset.delete; if (!id) return; busy(true); try { await request(`/drinks/${id}`, {method:"DELETE"}); await refresh(); show("Entry removed."); } catch (error) { show(error.message, true); } finally { busy(false); } });
+document.querySelector("#entries").addEventListener("click", async event => { const id = event.target.dataset.delete; if (!id || (state.selectedDate !== state.today.date && !confirm(`Remove this drink from ${state.selectedDate}?`))) return; busy(true); try { await request(`/drinks/${id}`, {method:"DELETE"}); await refresh(); show("Entry removed."); } catch (error) { show(error.message, true); } finally { busy(false); } });
+document.querySelector("#edit-selected-day").addEventListener("click", () => window.scrollTo({top:0,behavior:"smooth"}));
 document.querySelector("#goal-calendar").addEventListener("click", event => { const day = event.target.closest("[data-date]"); if (day) selectDate(day.dataset.date).catch(error => show(error.message, true)); });
 document.querySelector("#history").addEventListener("click", event => { const day = event.target.closest("[data-date]"); if (day) selectDate(day.dataset.date).catch(error => show(error.message, true)); });
 document.querySelector("#previous-month").addEventListener("click", () => changeCalendarMonth(-1).catch(error => show(error.message, true)));

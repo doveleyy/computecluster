@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050505">
+  <title>Sorter · Home Platform</title>
+  <link rel="stylesheet" href="__BASE_PATH__/static/sorter.css?v=__VERSION__">
+</head>
+<body>
+  <header class="topbar">
+    <div class="identity">
+      <p class="eyebrow">file sorter</p>
+      <h1 class="brand">HOME<span>//</span>SORT</h1>
+    </div>
+    <div class="project-switch">
+      <button type="button" class="project-button" id="project-button" aria-haspopup="menu" aria-expanded="false">
+        <span class="project-name" id="project-name">NO PROJECT</span>
+        <span class="project-route" id="project-route">create one to start</span>
+      </button>
+      <div class="project-menu hidden" id="project-menu" role="menu">
+        <ul id="project-list"></ul>
+        <div class="project-menu-actions">
+          <button type="button" class="tool" id="project-new">+ NEW PROJECT</button>
+          <button type="button" class="tool" id="project-rename">RENAME…</button>
+          <button type="button" class="tool" id="project-archive">ARCHIVE</button>
+        </div>
+      </div>
+    </div>
+    <div class="mode-tabs" role="tablist" aria-label="Mode">
+      <button type="button" role="tab" id="tab-sort" aria-selected="true">SORT</button>
+      <button type="button" role="tab" id="tab-review" aria-selected="false" title="Review sorted files (R)">REVIEW<span class="tab-badge hidden" id="review-badge"></span></button>
+    </div>
+    <div class="progress-block" aria-live="polite">
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      <p class="progress-text" id="progress">Loading…</p>
+    </div>
+    <div class="more">
+      <button class="ghost-button square" type="button" id="more-button" aria-haspopup="menu" aria-expanded="false" title="More">⋯</button>
+      <div class="pop-menu hidden" id="more-menu" role="menu">
+        <a role="menuitem" id="export" href="#" title="Labels for this project's tree, from every project feeding it">Export labels</a>
+        <a role="menuitem" id="export-log" href="#" title="The complete history behind the labels">Export decision log</a>
+        <button type="button" role="menuitem" id="more-rescan">Look for new files now</button>
+        <button type="button" role="menuitem" id="index-verify" title="Re-read every file, including large ones, in the background">Check every file's contents</button>
+        <button type="button" role="menuitem" id="help-open">Keyboard shortcuts <kbd>?</kbd></button>
+        <a role="menuitem" href="/dashboard">Dashboard</a>
+      </div>
+    </div>
+  </header>
+  <div class="loading-bar" aria-hidden="true"><span></span></div>
+  <div class="banner danger hidden" id="recover-banner" role="alert">
+    <span>A duplicate choice was interrupted. Restore the original copies before continuing.</span>
+    <button type="button" class="tool" id="recover-button">RECOVER</button>
+  </div>
+
+  <main class="workspace">
+    <aside class="review-browser hidden" id="review-browser" aria-label="Sorted review">
+      <input id="review-search" type="search" placeholder="Find a file by name or path" autocomplete="off" aria-label="Find a file">
+      <select id="review-folder" aria-label="Folder"><option value="">All folders</option></select>
+      <div class="toggles">
+        <label class="toggle"><input id="review-recursive" type="checkbox">Subfolders</label>
+        <label class="toggle"><input id="review-unreviewed" type="checkbox">Needs review</label>
+      </div>
+      <p class="index-note hidden" id="index-status" aria-live="polite"></p>
+      <p class="error hidden" id="review-error" role="alert"></p>
+      <div class="dup-banner hidden" id="dup-banner">
+        <p class="dup-banner-title" id="dup-banner-title"></p>
+        <ul class="dup-groups" id="dup-groups"></ul>
+      </div>
+      <ul id="review-list" class="review-list" aria-label="Sorted files"></ul>
+      <p class="review-summary" id="review-summary" aria-live="polite"></p>
+    </aside>
+    <section class="viewer" aria-label="Current entry">
+      <header class="entry-head">
+        <span class="badge" id="entry-badge">—</span>
+        <div class="entry-copy">
+          <h2 id="entry-name">Loading…</h2>
+          <p class="meta" id="entry-meta"></p>
+        </div>
+      </header>
+      <div class="notice hidden" id="duplicate">
+        <span id="duplicate-message"></span>
+        <button type="button" class="tool" id="duplicate-review">CHOOSE ONE TO KEEP</button>
+      </div>
+      <p class="checking hidden" id="duplicate-status" aria-live="polite"></p>
+      <div class="preview" id="preview"></div>
+      <footer class="upnext" id="dump-upnext">
+        <span class="label">UP NEXT</span>
+        <div class="upnext-list" id="upnext"></div>
+      </footer>
+      <footer class="review-nav hidden" id="review-nav">
+        <button type="button" class="tool" id="review-previous"><kbd>J</kbd> ← PREVIOUS</button>
+        <span id="review-position"></span>
+        <button type="button" class="tool" id="review-next">NEXT → <kbd>K</kbd></button>
+      </footer>
+    </section>
+
+    <aside class="panel" aria-label="Decision">
+      <section class="block destination-block" id="destination-block">
+        <p class="label">DESTINATION</p>
+        <nav class="crumbs" id="crumbs" aria-label="Chosen folder"></nav>
+        <p class="final-path" id="final-path"></p>
+      </section>
+
+      <label class="block field">
+        <span class="label">SAVE AS</span>
+        <input id="filename" type="text" autocomplete="off" spellcheck="false">
+      </label>
+
+      <section class="block tree-block">
+        <div class="tree-head">
+          <p class="label">FOLDERS</p>
+          <div class="tree-tools">
+            <button type="button" class="tool" id="new-folder" title="New folder inside the chosen one (N); with nothing chosen, at the top level">+ NEW</button>
+          </div>
+        </div>
+        <input id="search" type="search" placeholder="Filter folders   /" autocomplete="off" spellcheck="false">
+        <ul class="tree" id="tree" role="tree" aria-label="Folders" tabindex="0"></ul>
+        <div class="pop-menu row-menu hidden" id="row-menu" role="menu">
+          <button type="button" role="menuitem" id="row-new">New subfolder <kbd>N</kbd></button>
+          <button type="button" role="menuitem" id="row-rename">Rename… <kbd>F2</kbd></button>
+          <button type="button" role="menuitem" id="row-move">Move to…</button>
+          <button type="button" role="menuitem" id="row-group">Group with siblings…</button>
+        </div>
+      </section>
+
+      <p class="error hidden" id="error" role="alert"></p>
+
+      <section class="actions">
+        <button type="button" class="primary" id="classify" disabled>
+          <span id="classify-label">CHOOSE A FOLDER</span><kbd>ENTER</kbd>
+        </button>
+        <button type="button" id="skip">SKIP <kbd>S</kbd></button>
+        <button type="button" id="discard">DISCARD <kbd>D</kbd></button>
+        <button type="button" id="undo">UNDO <kbd>U</kbd></button>
+      </section>
+    </aside>
+  </main>
+
+  <div class="toast hidden" id="toast" role="status">
+    <span id="toast-text"></span>
+    <button type="button" id="toast-undo">UNDO</button>
+  </div>
+
+  <dialog id="folder-dialog">
+    <form method="dialog" id="folder-form">
+      <p class="label" id="folder-dialog-kicker">NEW FOLDER</p>
+      <h3 id="folder-dialog-title">New folder</h3>
+      <p class="dialog-note" id="folder-dialog-note"></p>
+      <label class="field"><span class="label">NAME</span>
+        <input id="folder-name" type="text" autocomplete="off" spellcheck="false" required>
+      </label>
+      <label class="field" id="folder-description-field"><span class="label">WHAT BELONGS HERE (OPTIONAL, HELPS LAYA LATER)</span>
+        <input id="folder-description" type="text" autocomplete="off">
+      </label>
+      <div class="sibling-picks hidden" id="folder-siblings"></div>
+      <ul class="dialog-preview" id="folder-dialog-preview"></ul>
+      <p class="error hidden" id="folder-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" value="cancel" id="folder-cancel">CANCEL</button>
+        <button type="submit" class="primary" id="folder-submit">CREATE</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="duplicates-dialog" class="wide" aria-labelledby="duplicates-title">
+    <form id="duplicates-form">
+      <p class="label">IDENTICAL FILES</p>
+      <h3 id="duplicates-title">Keep one copy</h3>
+      <p class="dialog-note" id="duplicate-note">Pick the copy to keep. The others move to _discarded; Undo restores them all.</p>
+      <div class="copy-cards" id="duplicate-copies" role="radiogroup" aria-label="Copy to keep"></div>
+      <details class="duplicate-advanced" id="duplicate-advanced">
+        <summary>Change folder or name</summary>
+        <label class="field"><span class="label">KEEP IN</span><select id="duplicate-folder"></select></label>
+        <label class="field"><span class="label">SAVE AS</span><input id="duplicate-filename" type="text" autocomplete="off" spellcheck="false" required></label>
+        <div class="name-chips" id="duplicate-names" aria-label="Use a copy's name"></div>
+      </details>
+      <p class="dialog-note" id="duplicate-outcome"></p>
+      <p class="error hidden" id="duplicates-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" id="duplicates-close">CANCEL</button>
+        <button type="submit" class="primary" id="duplicate-submit">KEEP THIS COPY</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="move-dialog">
+    <form method="dialog" id="move-form">
+      <p class="label">MOVE FOLDER</p>
+      <h3 id="move-title">Move to…</h3>
+      <input id="move-search" type="search" placeholder="Filter destinations" autocomplete="off">
+      <ul class="tree picker" id="move-tree"></ul>
+      <p class="error hidden" id="move-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" id="move-cancel">CANCEL</button>
+        <button type="submit" class="primary" id="move-submit" disabled>MOVE HERE</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="project-dialog" class="wide">
+    <form method="dialog" id="project-form">
+      <p class="label">NEW PROJECT</p>
+      <h3>Sort a dump into a tree</h3>
+      <p class="dialog-note">Pick any folder in Personal as the dump, and any folder as the tree. Several dumps can share one tree: they share its folders and labels.</p>
+      <label class="field"><span class="label">NAME</span>
+        <input id="project-name-input" type="text" autocomplete="off" placeholder="e.g. Old phone" required>
+      </label>
+      <div class="pickers">
+        <section class="picker-block">
+          <p class="label">DUMP: WHAT TO SORT</p>
+          <p class="picked" id="source-picked">Choose a folder</p>
+          <nav class="crumbs small" id="source-crumbs"></nav>
+          <ul class="tree browse" id="source-browse"></ul>
+        </section>
+        <section class="picker-block">
+          <p class="label">TREE: WHERE IT GOES</p>
+          <p class="picked" id="target-picked">Choose a folder</p>
+          <nav class="crumbs small" id="target-crumbs"></nav>
+          <ul class="tree browse" id="target-browse"></ul>
+          <div class="new-tree">
+            <input id="new-tree-name" type="text" autocomplete="off" placeholder="…or a new tree folder here">
+            <button type="button" class="tool" id="new-tree-use">USE NEW</button>
+          </div>
+        </section>
+      </div>
+      <fieldset class="modes">
+        <legend class="label">SUBFOLDERS IN THE DUMP</legend>
+        <label><input type="radio" name="mode" value="top" checked> <b>Top-level entries</b> — each subfolder is one item and moves whole (projects, albums).</label>
+        <label><input type="radio" name="mode" value="files"> <b>Every file</b> — open up all subfolders and sort each file; emptied folders are tidied away (phone backups, year folders).</label>
+      </fieldset>
+      <p class="error hidden" id="project-error" role="alert"></p>
+      <div class="dialog-actions">
+        <button type="button" id="project-cancel">CANCEL</button>
+        <button type="submit" class="primary" id="project-submit">CREATE PROJECT</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="help-dialog">
+    <form method="dialog">
+      <p class="label">KEYBOARD</p>
+      <h3>Shortcuts</h3>
+      <dl class="keys">
+        <dt>Enter</dt><dd>Classify; in Review, confirm the place or move it, then go to the next file</dd>
+        <dt>S · D · U</dt><dd>Skip · Discard into <code>_discarded</code> (nothing is deleted) · Undo the latest action, repeatable</dd>
+        <dt>J · K</dt><dd>Review: previous · next file</dd>
+        <dt>↑ ↓</dt><dd>Move through folders</dd>
+        <dt>→ ←</dt><dd>Open or close a folder; ← on a closed folder goes to its parent</dd>
+        <dt>/</dt><dd>Filter folders; Enter picks the first match</dd>
+        <dt>N</dt><dd>New folder inside the chosen one (Esc first for the top level)</dd>
+        <dt>F2</dt><dd>Rename the chosen folder; its ⋯ menu also moves or groups it</dd>
+        <dt>R</dt><dd>Switch between Sort and Review</dd>
+        <dt>Esc</dt><dd>Close a menu or dialog, leave a text field, or clear the chosen folder</dd>
+        <dt>?</dt><dd>This list</dd>
+      </dl>
+      <p class="dialog-note">Shortcuts pause while the cursor is inside a PDF: click the side panel to resume.</p>
+      <div class="dialog-actions"><button type="submit" class="primary">CLOSE</button></div>
+    </form>
+  </dialog>
+
+  <script id="sorter-config" type="application/json">__SORTER_CONFIG__</script>
+  <script src="__BASE_PATH__/static/sorter.js?v=__VERSION__"></script>
+</body>
+</html>

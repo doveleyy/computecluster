@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -16,6 +16,7 @@ class Drink:
     temperature: str
     sweetness: str | None
     consumed_at: datetime
+    recorded_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -58,7 +59,8 @@ class WaterRepository:
                     drink_type TEXT NOT NULL DEFAULT 'water',
                     temperature TEXT NOT NULL DEFAULT 'normal',
                     sweetness TEXT,
-                    consumed_at TEXT NOT NULL
+                    consumed_at TEXT NOT NULL,
+                    recorded_at TEXT
                 );
 
                 CREATE INDEX IF NOT EXISTS drinks_owner_consumed
@@ -81,6 +83,8 @@ class WaterRepository:
                 )
             if "sweetness" not in columns:
                 connection.execute("ALTER TABLE drinks ADD COLUMN sweetness TEXT")
+            if "recorded_at" not in columns:
+                connection.execute("ALTER TABLE drinks ADD COLUMN recorded_at TEXT")
             connection.executescript(
                 """
                 DROP TRIGGER IF EXISTS drinks_valid_type_insert;
@@ -256,23 +260,32 @@ class WaterRepository:
         drink_type: str,
         temperature: str,
         sweetness: str | None,
+        day: date | None = None,
     ) -> Drink:
+        now = datetime.now(UTC)
+        local_today = now.astimezone(self._timezone).date()
+        consumed_at = (
+            now
+            if day is None or day == local_today
+            else datetime.combine(day, time(12), self._timezone).astimezone(UTC)
+        )
         drink = Drink(
             id=str(uuid4()),
             amount_ml=amount_ml,
             drink_type=drink_type,
             temperature=temperature,
             sweetness=sweetness,
-            consumed_at=datetime.now(UTC),
+            consumed_at=consumed_at,
+            recorded_at=now,
         )
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO drinks(
                     id, owner_identity, amount_ml, drink_type, temperature,
-                    sweetness, consumed_at
+                    sweetness, consumed_at, recorded_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     drink.id,
@@ -282,6 +295,7 @@ class WaterRepository:
                     drink.temperature,
                     drink.sweetness,
                     drink.consumed_at.isoformat(),
+                    now.isoformat(),
                 ),
             )
         return drink
@@ -299,7 +313,8 @@ class WaterRepository:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT id, amount_ml, drink_type, temperature, sweetness, consumed_at
+                SELECT id, amount_ml, drink_type, temperature, sweetness,
+                       consumed_at, recorded_at
                 FROM drinks
                 WHERE owner_identity = ?
                   AND consumed_at >= ?
@@ -316,6 +331,9 @@ class WaterRepository:
                 temperature=str(row[3]),
                 sweetness=str(row[4]) if row[4] is not None else None,
                 consumed_at=datetime.fromisoformat(str(row[5])),
+                recorded_at=(
+                    datetime.fromisoformat(str(row[6])) if row[6] is not None else None
+                ),
             )
             for row in rows
         ]

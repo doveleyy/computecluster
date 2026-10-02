@@ -71,6 +71,27 @@ host path; Compose mounts it read-only and gives the container its internal
 Compose file. The state and token host paths belong in private deployment
 configuration. The old `WATER_TRACKER_` names and `water-dev` task are retired.
 
+## File Sorter
+
+The File Sorter uses the `services.file_sorter` package and only the `SORTER_`
+prefix. Its private page is served under `/sorter` by default. It admits only
+the configured administrator's dashboard session, arriving through the
+private proxy.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `SORTER_DB_PATH` | `data/file_sorter.db` | Projects, skips, hashes, folder notes, and the decision and folder-move logs |
+| `SORTER_LIBRARY_DIR` | `data/sorter` | Library root; every project's dump and tree are folders inside it, on one filesystem. Compose mounts the host library here as `/library` |
+| `SORTER_SEED_SOURCE` | unset | Dump of the project created on first start, relative to the library root; also adopts rows from a pre-project database |
+| `SORTER_SEED_TARGET` | unset | Tree of that seed project; both seed values are required together |
+| `SORTER_SEED_NAME` | the source folder's name | Name of the seed project |
+| `SORTER_BASE_PATH` | `/sorter` | External proxy prefix; empty for direct local development |
+| `SORTER_ADMIN_ACCOUNT_ID` | unset | The only administrator account allowed in; unset admits nobody through the proxy |
+| `SORTER_SESSION_URL` | unset | Control-plane route that validates the forwarded dashboard session cookie; unset admits nobody through the proxy |
+| `SORTER_ALLOW_DEV_IDENTITY` | `false` | Accept requests without a proxy identity, only in local development |
+| `SORTER_STATE_DIR` | required by Compose | Private host directory mounted at `/data` |
+| `SORTER_LIBRARY_DIR` (Compose) | required | Host library path, mounted at `/library`; inside the container the same name points at `/library` |
+
 ## Uploads (staged job inputs)
 
 | Variable | Default | Purpose |

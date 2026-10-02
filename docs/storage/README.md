@@ -23,6 +23,33 @@ is local-only scratch or backup space, never advertised as a file service.
 The host remains the control plane — API, scheduler, SQLite, authentication,
 leases, and small upload staging — not a file server.
 
+The file server holds these areas:
+
+| Area | Holds | Written by |
+|---|---|---|
+| Members' trees | `Home` and `Shared` files | Members over SMB; the application only within a workspace subtree |
+| Artifacts | Published job results | The coordinator only |
+| Backups | Verified database copies | The host's backup jobs, into an owner-only area |
+| Media | The household media library | People over SMB; the media server reads it only |
+| Personal | The owner's own library, including an unsorted downloads inbox and its organized tree | The owner over SMB; the file sorter, by renaming within the share |
+
+The media share is deliberately separate: its read-only account can reach
+nothing else, and platform accounts cannot reach it. See [Media](../media.md).
+
+The personal share is likewise separate. The file sorter reaches it through
+its own file-server account, which can read and write that share and nothing
+else; members' platform storage never includes it. Sorting is a rename within
+one share, so no file passes through the host. See
+[Application services](../services.md).
+
+## Databases stay on local disk
+
+Every live SQLite database — control-plane truth and each application's own —
+is on the host's local disk, never on the file server. SQLite depends on file
+locking that network file shares do not implement reliably, and a database
+corrupted by a lock that silently did nothing is far worse than one that is
+merely unavailable. The file server receives only verified backups.
+
 ## Logical areas, not paths
 
 A member never addresses storage by its real location. Three logical areas are
@@ -107,3 +134,13 @@ of sets.
 That is the recovery copy for job truth. NAS snapshots and an off-device copy
 are independent durability layers, and each hosted application backs up its own
 database on the same pattern.
+
+## Recycle bins
+
+A file server's recycle bin keeps deleted files inside the same share, in a
+hidden folder at its root. That is useful for people's own files, but it
+quietly changes what "delete" means for anything the platform manages: while
+the bin is on, a result deleted through the application is only moved, and
+still occupies space. Shares the platform writes to should have the recycle bin disabled or
+restricted to administrators, so the application's service accounts neither
+fill nor see it.

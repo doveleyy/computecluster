@@ -100,6 +100,117 @@ def test_today_overage_reduces_fund_immediately(tmp_path: Path) -> None:
     assert summary.json()["fund_balance_cents"] == 300
 
 
+def test_backdated_spending_recalculates_fund_and_can_be_removed(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "habits.db"
+    timezone = ZoneInfo("Asia/Singapore")
+    yesterday = datetime.now(timezone).date() - timedelta(days=1)
+    tomorrow = datetime.now(timezone).date() + timedelta(days=1)
+    identity = "development:member@example.test"
+    water = WaterRepository(path, timezone)
+    budget = BudgetRepository(path, timezone)
+    water.initialize()
+    budget.initialize()
+    water.ensure_user(identity, "member")
+    budget.ensure_user(identity, yesterday)
+
+    with client(tmp_path) as test_client:
+        created = test_client.post(
+            "/api/budget/transactions",
+            json={
+                "kind": "daily_spend",
+                "amount_cents": 400,
+                "category": "food",
+                "description": "Late lunch",
+                "day": str(yesterday),
+            },
+        )
+        selected = test_client.get(f"/api/budget/day?date={yesterday}")
+        history = test_client.get(f"/api/budget/history?days=2&end={yesterday}")
+        summary = test_client.get("/api/budget/summary")
+        future = test_client.post(
+            "/api/budget/transactions",
+            json={"kind": "daily_spend", "amount_cents": 100, "day": str(tomorrow)},
+        )
+        too_early = test_client.post(
+            "/api/budget/transactions",
+            json={
+                "kind": "daily_spend",
+                "amount_cents": 100,
+                "day": str(yesterday - timedelta(days=1)),
+            },
+        )
+        removed = test_client.delete(f"/api/budget/transactions/{created.json()['id']}")
+        restored = test_client.get("/api/budget/summary")
+
+    assert created.status_code == 201
+    assert (
+        datetime.fromisoformat(created.json()["occurred_at"])
+        .astimezone(timezone)
+        .date()
+        == yesterday
+    )
+    assert selected.json()["spent_cents"] == 400
+    assert selected.json()["category_breakdown_cents"] == {"food": 400}
+    assert selected.json()["transactions"][0]["id"] == created.json()["id"]
+    assert history.json()["days"][-1]["spent_cents"] == 400
+    assert summary.json()["daily_spent_cents"] == 0
+    assert summary.json()["settled_fund_cents"] == 600
+    assert future.status_code == 422
+    assert too_early.status_code == 422
+    assert removed.status_code == 204
+    assert restored.json()["settled_fund_cents"] == 1000
+
+
+def test_backdated_fund_movement_has_a_real_recording_time(tmp_path: Path) -> None:
+    path = tmp_path / "habits.db"
+    timezone = ZoneInfo("Asia/Singapore")
+    yesterday = datetime.now(timezone).date() - timedelta(days=1)
+    with client(tmp_path) as test_client:
+        test_client.get("/api/budget/summary")
+        with sqlite3.connect(path) as connection:
+            connection.execute(
+                "UPDATE budget_settings SET plan_start_date = ?",
+                (yesterday.isoformat(),),
+            )
+            connection.execute(
+                "UPDATE daily_budget_changes SET effective_date = ?",
+                (yesterday.isoformat(),),
+            )
+        created = test_client.post(
+            "/api/budget/transactions",
+            json={
+                "kind": "fund_contribution",
+                "amount_cents": 250,
+                "description": "Found cash",
+                "day": str(yesterday),
+            },
+        )
+        selected = test_client.get(f"/api/budget/day?date={yesterday}")
+        summary = test_client.get("/api/budget/summary")
+        ledger = test_client.get("/api/budget/ledger?limit=10")
+        with sqlite3.connect(path) as connection:
+            row = connection.execute(
+                "SELECT occurred_at, recorded_at FROM budget_transactions WHERE id = ?",
+                (created.json()["id"],),
+            ).fetchone()
+
+    assert created.status_code == 201
+    assert selected.json()["spent_cents"] == 0
+    assert any(
+        item["id"] == created.json()["id"] for item in selected.json()["transactions"]
+    )
+    assert summary.json()["fund_balance_cents"] == 1250
+    assert any(
+        entry["key"] == f"transaction:{created.json()['id']}" and entry["backdated"]
+        for entry in ledger.json()["entries"]
+    )
+    assert row is not None
+    assert datetime.fromisoformat(row[0]).astimezone(timezone).date() == yesterday
+    assert datetime.fromisoformat(row[1]).astimezone(timezone).date() != yesterday
+
+
 def test_budget_transaction_validation_and_owner_isolation(tmp_path: Path) -> None:
     with client(tmp_path) as first:
         created = first.post(

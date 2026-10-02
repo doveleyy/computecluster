@@ -26,7 +26,7 @@ from services.habit_tracker.study import (
 )
 from services.habit_tracker.water import Drink, WaterRepository
 
-SERVICE_VERSION = "0.9.9"
+SERVICE_VERSION = "0.10.0"
 DEFAULT_DATABASE_PATH = Path("data/habit-tracker.db")
 SERVICE_DIR = Path(__file__).parent
 TEMPLATES = {
@@ -173,6 +173,7 @@ class DrinkCreate(BaseModel):
     drink_type: DrinkType = DrinkType.WATER
     temperature: DrinkTemperature = DrinkTemperature.NORMAL
     sweetness: Sweetness | None = None
+    day: date | None = None
 
     @model_validator(mode="after")
     def validate_sweetness(self) -> "DrinkCreate":
@@ -218,6 +219,7 @@ class BudgetTransactionCreate(BaseModel):
     amount_cents: int = Field(ge=1, le=100_000_000)
     description: str = Field(default="", max_length=120)
     category: SpendCategory = SpendCategory.OTHER
+    day: date | None = None
 
     @model_validator(mode="after")
     def validate_category(self) -> "BudgetTransactionCreate":
@@ -601,6 +603,7 @@ def create_app(
         request: Request,
     ) -> DrinkRead:
         repository: WaterRepository = request.app.state.repository
+        day = _historical_day(request, payload.day) if payload.day else None
         return _drink_read(
             repository.add_drink(
                 user.key,
@@ -608,6 +611,7 @@ def create_app(
                 payload.drink_type.value,
                 payload.temperature.value,
                 payload.sweetness.value if payload.sweetness is not None else None,
+                day,
             )
         )
 
@@ -686,6 +690,7 @@ def create_app(
             "breakdown_ml": _breakdown(drinks),
             "temperature_breakdown_ml": _breakdown(drinks, "temperature"),
             "sweetness_breakdown_ml": _breakdown(drinks, "sweetness"),
+            "drinks": [_drink_read(drink).model_dump() for drink in drinks],
         }
 
     @application.get("/api/budget/summary")
@@ -703,6 +708,7 @@ def create_app(
         return {
             "date": summary.day.isoformat(),
             "currency": summary.currency,
+            "plan_start_date": repository.plan_start_date(user.key).isoformat(),
             "savings_goal_cents": repository.savings_goal(user.key),
             "daily_budget_cents": summary.daily_budget_cents,
             "daily_spent_cents": summary.daily_spent_cents,
@@ -758,12 +764,16 @@ def create_app(
             BudgetTransactionKind.FUND_CONTRIBUTION: "Fund contribution",
         }
         description = payload.description.strip() or descriptions[payload.kind]
+        day = _historical_day(request, payload.day) if payload.day else None
+        if day and day < repository.plan_start_date(user.key):
+            raise HTTPException(422, "Date is before your budget plan began")
         transaction = repository.add_transaction(
             user.key,
             payload.kind.value,
             payload.amount_cents,
             description,
             payload.category.value,
+            day,
         )
         return _budget_transaction_read(transaction)
 
@@ -783,8 +793,10 @@ def create_app(
         user: Annotated[Identity, Depends(current_identity)],
         request: Request,
         days: Annotated[int, Query(ge=1, le=90)] = 14,
+        end: date | None = None,
     ) -> dict[str, object]:
-        local_day = datetime.now(request.app.state.settings.timezone).date()
+        today = datetime.now(request.app.state.settings.timezone).date()
+        local_day = _historical_day(request, end) if end else today
         repository: BudgetRepository = request.app.state.budget_repository
         return {
             "days": [
@@ -793,7 +805,7 @@ def create_app(
                     "budget_cents": day.budget_cents,
                     "spent_cents": day.spent_cents,
                     "net_cents": day.net_cents,
-                    "settled": day.day < local_day,
+                    "settled": day.day < today,
                 }
                 for day in repository.history(user.key, local_day, days)
             ]
@@ -827,6 +839,10 @@ def create_app(
             "remaining_cents": day.net_cents,
             "entry_count": len(spending),
             "category_breakdown_cents": breakdown,
+            "transactions": [
+                _budget_transaction_read(transaction).model_dump()
+                for transaction in transactions
+            ],
         }
 
     @application.get("/api/budget/ledger")
@@ -852,6 +868,7 @@ def create_app(
                     ),
                     "previous_amount_cents": entry.previous_amount_cents,
                     "new_amount_cents": entry.new_amount_cents,
+                    "backdated": entry.backdated,
                 }
                 for entry in repository.fund_ledger(user.key, local_day, limit)
             ]

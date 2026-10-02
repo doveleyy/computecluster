@@ -20,7 +20,7 @@
     <div class="top-grid">
       <section class="panel hero">
         <div class="hero-row">
-          <div><div class="label">Today</div><div class="total"><span id="total">—</span><span class="unit"> ml</span></div></div>
+          <div><div class="label" id="log-day-label">Today</div><div class="total"><span id="total">—</span><span class="unit"> ml</span></div></div>
           <button class="goal-button" id="goal-trigger" type="button" title="Change daily target">target <strong id="goal-value">—</strong> ml</button>
           <form class="goal-edit" id="goal-form" hidden><input id="goal-input" aria-label="Daily target in millilitres" type="number" min="250" max="10000" step="50" inputmode="numeric" required><button type="submit">SAVE</button></form>
         </div>
@@ -37,7 +37,7 @@
         <div class="message" id="message"></div>
       </section>
       <section class="panel entries-panel">
-        <div class="panel-head"><span class="panel-title">Today’s drinks</span><span class="label" id="entry-count"></span></div>
+        <div class="panel-head"><span class="panel-title" id="entries-title">Today’s drinks</span><span class="label" id="entry-count"></span></div>
         <div class="entries" id="entries"></div>
       </section>
     </div>
@@ -53,6 +53,7 @@
           <div class="selected-total"><span id="analysis-total">—</span><span class="analysis-unit"> ml</span></div>
           <p id="analysis-progress"></p>
           <div class="date-controls"><button type="button" id="previous-day" aria-label="Previous day">←</button><input type="date" id="analysis-date" aria-label="Analysis date" required><button type="button" id="next-day" aria-label="Next day">→</button><button type="button" id="today-day">TODAY</button></div>
+          <button class="edit-selected-day" id="edit-selected-day" type="button">LOG / EDIT THIS DAY ↑</button>
         </div>
         <div class="calendar-block">
           <div class="calendar-weekdays" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>

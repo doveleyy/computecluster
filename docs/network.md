@@ -40,7 +40,7 @@ then chooses a backend by looking at the leading path segment:
     |  authenticates the network caller    |
     |  attaches identity headers           |
     +--------------------------------------+
-         | /              | /habits        | /wishlist, /transport
+         | /              | /habits        | /wishlist, /transport, /sorter
          v                v                 v
     127.0.0.1:8000   127.0.0.1:8100   independent loopback services
     launcher and     habit tracker     each with its own container,
@@ -49,6 +49,28 @@ then chooses a backend by looking at the leading path segment:
 
 Adding an application means adding one route and one loopback port. Nothing
 about the certificate, the hostname, or the firewall changes.
+
+## A second entrance, on another machine
+
+The proxy is not special to the host. Every machine on the overlay network has
+its own stable private name, and any of them can run the same proxy for that
+name. The Linux workstation does, for exactly one backend: the media server.
+
+```text
+    https://<host's private name>/...          https://<workstation's private name>/
+                  |                                          |
+         host's proxy, by path                    workstation's proxy
+                  |                                          |
+    control plane and household apps               media server only
+```
+
+This is a deliberate exception to "everything through one front door". Video
+is large and continuous, and relaying it through the host would put every
+stream on the smallest machine for no gain. The rules do not change: the media
+server binds to loopback, its entrance is private to the overlay network, and
+it requires its own login. It does not consume proxy identity headers, so the
+reasoning in the next two sections is what protects the host's applications,
+not the media server. See [Media](media.md).
 
 ## Why backends bind to loopback
 
@@ -110,8 +132,9 @@ and can join or vanish without any routing change. The cost is latency bounded
 by the poll interval, which is irrelevant for jobs measured in minutes or
 hours.
 
-So the proxy fronts only what the host serves. The compute fleet is reached the
-other way round.
+So the host's proxy fronts only what the host serves. The compute fleet is
+reached the other way round — including the workstation's worker, even though
+that same machine also serves media through its own entrance.
 
 ## Other protocols on the same network
 
@@ -123,6 +146,7 @@ keeps its own authentication:
 | HTTPS | Web interfaces, API, applications | Session cookie or API token |
 | SSH | Host administration | Key-based authentication |
 | SMB | Household file access from Finder or Explorer | Its own file-server account |
+| SMB, read-only | The media server's view of the media share | A dedicated read-only file-server account |
 
 Matching account names across these is a usability choice, never a shared
 credential.

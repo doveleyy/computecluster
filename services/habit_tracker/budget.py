@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -29,6 +29,7 @@ class BudgetTransaction:
     description: str
     occurred_at: datetime
     category: str = "other"
+    recorded_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,7 @@ class FundEntry:
     occurred_at: datetime | None = None
     previous_amount_cents: int | None = None
     new_amount_cents: int | None = None
+    backdated: bool = False
 
 
 @dataclass(frozen=True)
@@ -127,7 +129,8 @@ class BudgetRepository:
                         CHECK (amount_cents BETWEEN 1 AND 100000000),
                     description TEXT NOT NULL,
                     occurred_at TEXT NOT NULL,
-                    category TEXT NOT NULL DEFAULT 'other'
+                    category TEXT NOT NULL DEFAULT 'other',
+                    recorded_at TEXT
                 );
 
                 CREATE INDEX IF NOT EXISTS budget_transactions_owner_time
@@ -162,6 +165,10 @@ class BudgetRepository:
                 connection.execute(
                     "ALTER TABLE budget_transactions ADD COLUMN category TEXT "
                     "NOT NULL DEFAULT 'other'"
+                )
+            if "recorded_at" not in columns:
+                connection.execute(
+                    "ALTER TABLE budget_transactions ADD COLUMN recorded_at TEXT"
                 )
             # Recreated every start so the vocabulary can widen without a
             # bespoke migration, matching the drink triggers in water.py.
@@ -399,26 +406,35 @@ class BudgetRepository:
         amount_cents: int,
         description: str,
         category: str = "other",
+        day: date | None = None,
     ) -> BudgetTransaction:
         if kind not in TRANSACTION_KINDS:
             raise ValueError("invalid budget transaction kind")
         if category not in SPEND_CATEGORIES:
             raise ValueError("invalid budget category")
+        now = datetime.now(UTC)
+        local_today = now.astimezone(self._timezone).date()
+        occurred_at = (
+            now
+            if day is None or day == local_today
+            else datetime.combine(day, time(12), self._timezone).astimezone(UTC)
+        )
         transaction = BudgetTransaction(
             id=str(uuid4()),
             kind=kind,
             amount_cents=amount_cents,
             description=description,
-            occurred_at=datetime.now(UTC),
+            occurred_at=occurred_at,
             category=category,
+            recorded_at=now,
         )
         with self._connect() as connection:
             connection.execute(
                 """
                 INSERT INTO budget_transactions(
                     id, owner_identity, kind, amount_cents,
-                    description, occurred_at, category
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    description, occurred_at, category, recorded_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     transaction.id,
@@ -428,6 +444,7 @@ class BudgetRepository:
                     transaction.description,
                     transaction.occurred_at.isoformat(),
                     transaction.category,
+                    now.isoformat(),
                 ),
             )
         return transaction
@@ -487,7 +504,7 @@ class BudgetRepository:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT id, kind, amount_cents, description, occurred_at
+                SELECT id, kind, amount_cents, description, occurred_at, recorded_at
                 FROM budget_transactions
                 WHERE owner_identity = ?
                   AND kind IN ('fund_redemption', 'fund_contribution')
@@ -515,6 +532,10 @@ class BudgetRepository:
                     amount_cents=amount if kind == "fund_contribution" else -amount,
                     description=str(row[3]),
                     occurred_at=occurred_at,
+                    backdated=(
+                        row[5] is not None
+                        and datetime.fromisoformat(str(row[5])) != occurred_at
+                    ),
                 )
             )
         for row in adjustment_rows:
@@ -614,7 +635,8 @@ class BudgetRepository:
         with self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT id, kind, amount_cents, description, occurred_at, category
+                SELECT id, kind, amount_cents, description, occurred_at, category,
+                       recorded_at
                 FROM budget_transactions
                 WHERE owner_identity = ?
                   AND occurred_at >= ?
@@ -631,6 +653,9 @@ class BudgetRepository:
                 description=str(row[3]),
                 occurred_at=datetime.fromisoformat(str(row[4])),
                 category=str(row[5]),
+                recorded_at=(
+                    datetime.fromisoformat(str(row[6])) if row[6] is not None else None
+                ),
             )
             for row in rows
         ]
@@ -644,6 +669,16 @@ class BudgetRepository:
         if row is None:
             raise LookupError("budget user is not initialized")
         return str(row[0])
+
+    def plan_start_date(self, identity: str) -> date:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT plan_start_date FROM budget_settings WHERE identity = ?",
+                (identity,),
+            ).fetchone()
+        if row is None:
+            raise LookupError("budget user is not initialized")
+        return date.fromisoformat(str(row[0]))
 
     def _days(self, identity: str, end_day: date) -> list[BudgetDay]:
         with self._connect() as connection:

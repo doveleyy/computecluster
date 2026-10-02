@@ -73,6 +73,40 @@ def test_record_and_remove_a_drink(tmp_path: Path) -> None:
     assert final.json()["total_ml"] == 0
 
 
+def test_backdated_drink_updates_selected_day_and_calendar(tmp_path: Path) -> None:
+    timezone = ZoneInfo("Asia/Singapore")
+    yesterday = datetime.now(timezone).date() - timedelta(days=1)
+    tomorrow = datetime.now(timezone).date() + timedelta(days=1)
+    with client(tmp_path) as test_client:
+        created = test_client.post(
+            "/api/water/drinks",
+            json={"amount_ml": 500, "drink_type": "tea", "day": str(yesterday)},
+        )
+        selected = test_client.get(f"/api/water/day?date={yesterday}")
+        calendar = test_client.get(f"/api/water/history?days=1&end={yesterday}")
+        today = test_client.get("/api/water/today")
+        future = test_client.post(
+            "/api/water/drinks", json={"amount_ml": 250, "day": str(tomorrow)}
+        )
+        removed = test_client.delete(f"/api/water/drinks/{created.json()['id']}")
+        emptied = test_client.get(f"/api/water/day?date={yesterday}")
+
+    assert created.status_code == 201
+    assert (
+        datetime.fromisoformat(created.json()["consumed_at"])
+        .astimezone(timezone)
+        .date()
+        == yesterday
+    )
+    assert selected.json()["total_ml"] == 500
+    assert selected.json()["drinks"][0]["id"] == created.json()["id"]
+    assert calendar.json()["days"][0]["total_ml"] == 500
+    assert today.json()["total_ml"] == 0
+    assert future.status_code == 422
+    assert removed.status_code == 204
+    assert emptied.json()["drinks"] == []
+
+
 def test_identity_isolation(tmp_path: Path) -> None:
     with client(tmp_path) as first:
         drink = first.post("/api/drinks", json={"amount_ml": 500}).json()

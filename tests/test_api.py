@@ -1067,6 +1067,9 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert "viewport-fit=cover" in page.text
     assert 'href="/dashboard/jobs"' in page.text
     assert 'href="/dashboard/files"' in page.text
+    # The operator dashboard is the administrator's entry to the file sorter;
+    # members sign in through Job Desk and never load this page's app view.
+    assert 'href="/sorter/"' in page.text
     assert 'href="/jobs-ui/new"' not in page.text
     assert 'aria-label="Home Platform"' in page.text
     assert "width:min(1240px,100%)" in page.text

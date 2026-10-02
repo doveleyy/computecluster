@@ -53,6 +53,20 @@ prefix and disables development identity. The only environment prefix is
 `HABIT_TRACKER_`; see
 [Configuration](../../docs/configuration.md#habit-tracker).
 
+## Logging a previous day
+
+Water's goal calendar and Budget's date controls select the day shown in the
+logging and activity cards. Today is selected on first load. Entries added
+while a past day is selected are assigned to that local date; that day's list
+also exposes each entry's removal action. Future dates are rejected. Budget
+entries cannot predate the account's budget plan. The daily allowance control
+still edits only today and takes effect from today forward.
+
+Past entries are stored at local noon for date-based calculations, without
+claiming a precise event time. A separate recording timestamp preserves when
+the user actually entered them. Editing an earlier day's spending recalculates
+the current sinking fund from the revised daily settlement.
+
 ```bash
 pixi run check
 git diff --check

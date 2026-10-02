@@ -1,21 +1,104 @@
 # Home Platform
 
-A private homelab. One always-on host routes, coordinates, and runs household
-applications behind a single private entrance; a file server holds the data;
-laptops join as compute workers when they happen to be available.
+A private homelab: several household services on a handful of ordinary
+machines, reachable only from devices on a private network. One always-on host
+is the front door and the coordinator; a NAS holds the files; laptops lend
+compute when they are awake; and a Linux workstation also serves the household
+media library.
 
-The largest application is a distributed job system — one coordinator owns job
-state, and queued work waits when no worker is online. It was built to explore
+The largest application is a distributed job system. It was built to explore
 the parts of distributed systems that are easy to describe and hard to get
 right: atomic work claiming, lease-based failure recovery, verifying data you
-did not produce, and running untrusted code without trusting it.
+did not produce, and running untrusted code without trusting it. But it is one
+tenant among several, and the platform around it is the point of the design.
 
-Nothing is exposed to the public internet. Every device reaches the platform
-over a private overlay network, where a reverse proxy presents each application
-under one HTTPS origin. See [Architecture](docs/architecture.md) for the whole
-picture and [Network](docs/network.md) for how requests are routed.
+Nothing is exposed to the public internet. No router port is forwarded and no
+public tunnel is enabled.
 
-## What it does
+## The whole system
+
+```text
+               people, on devices joined to the private overlay network
+       browser  ·  command-line client  ·  file apps (SMB)  ·  media players
+           |                 |                     |                  |
+           | HTTPS           | HTTPS               | SMB              | HTTPS
+           | host's name     | host's name         |                  | workstation's name
+           v                 v                     |                  v
+  +--------------------------------------+         |    +----------------------------+
+  | ALWAYS-ON HOST                       |         |    | LINUX WORKSTATION          |
+  |                                      |         |    |                            |
+  |  reverse proxy: TLS, caller identity |         |    |  reverse proxy: TLS only   |
+  |    /           launcher, jobs, API   |         |    |    /   media server        |
+  |    /habits     habit tracker         |         |    |        (its own logins)    |
+  |    /wishlist   wishlist              |         |    |                            |
+  |    /transport  transport             |         |    |  worker agent, polls the   |
+  |    /sorter     file sorter           |         |    |  host like any laptop      |
+  |  local disk: one SQLite db per app   |         |    +----------------------------+
+  +--------------------------------------+         |                   |
+       ^                   |                       |                   | read-only
+       | workers poll:     | mounts: results,      |                   | mount
+       | claim, heartbeat, | member files,         |                   |
+       | report            | backups, owner files  |                   |
+       |                   v                       v                   v
+  +-----------+   +------------------------------------------------------------------+
+  | laptops   |   | NAS: the only file server                                        |
+  |           |   |   Home, Shared   members' files                                  |
+  | worker    |   |   Artifacts      published job results, owned by the coordinator |
+  | agent +   |   |   Backups        verified database copies, owner-only            |
+  | per-job   |   |   Media          films and video, read-only to the media server  |
+  |           |   |   Personal       the owner's library, organized by the sorter    |
+  | containers|   +------------------------------------------------------------------+
+  +-----------+
+```
+
+Read it top to bottom:
+
+- **Clients** are people's own devices: a browser, the command-line client, a
+  file app speaking SMB, or a media player. All of them must first join the
+  private overlay network (Tailscale); a device outside it cannot see anything.
+- **Two HTTPS entrances.** Every machine on the overlay network has its own
+  private name, and any of them can run a small reverse proxy that terminates
+  HTTPS for that name. The always-on host's proxy is the main front door and
+  routes by path. The workstation runs a second proxy for one thing only, the
+  media server, so video streams never pass through the low-power host.
+- **Backends bind to loopback.** Each application listens only on its own
+  machine's `127.0.0.1`, so its proxy is the only way in. That is what lets the
+  host's applications trust the caller identity the proxy attaches.
+- **Databases live on the host's local disk,** one SQLite file per
+  application, never on a network share, because SQLite's locking is not
+  reliable over SMB. Each database is backed up online, verified, and copied to
+  the NAS daily.
+- **The NAS is the only file server.** People reach it directly over SMB and
+  through the web Files view; the control plane mounts it for member files and
+  job results; the media server mounts one share read-only.
+- **Workers connect outward.** Laptops and the workstation poll the host to
+  claim work, renew leases, and report results. Nothing connects in to them, so
+  they need no open port and can come and go freely.
+
+## What runs where
+
+| Component | Runs on | Reached through | Its data lives |
+|---|---|---|---|
+| Reverse proxy | Always-on host | The host's private HTTPS name | Routing configuration only |
+| Control plane: launcher, dashboard, Job Desk, API, scheduler | Host | Proxy `/` | SQLite on the host; files and results on the NAS |
+| Habit tracker | Host, own container | Proxy `/habits` | Its own SQLite on the host |
+| Wishlist | Host, own container | Proxy `/wishlist` | Its own SQLite on the host |
+| Transport dashboard | Host, own container | Proxy `/transport` | Its own SQLite on the host |
+| File sorter | Host, own container | Proxy `/sorter`, administrator session only | Its own SQLite on the host; the files themselves on the NAS |
+| Database backups | Host, scheduled | — | Verified copies on the NAS, owner-only |
+| Compute workers | Laptops and the workstation | They poll the host | A bounded local input cache; results are published through the host |
+| Media server | Workstation, own container | The workstation's own private HTTPS name | Settings on the workstation; media read-only from the NAS |
+| File server | NAS | SMB, or the web Files view | Home, Shared, Artifacts, Backups, Media, Personal |
+
+Each application is an independent container with its own port, database,
+backup, and lifecycle. They share the host, the proxy, and one identity system,
+never a database. See [Architecture](docs/architecture.md) for the full
+overview and [Network](docs/network.md) for how requests are routed.
+
+## The compute system
+
+One coordinator owns job state in SQLite, and queued work waits when no worker
+is online.
 
 - **Durable job queue** — SQLite is the single source of truth. Workers mutate
   state only through the API.
@@ -41,8 +124,8 @@ picture and [Network](docs/network.md) for how requests are routed.
   under the same lease that authorises completion, so a revived worker cannot
   overwrite its replacement's results. The coordinator, not the script, decides
   where they land: one directory per submission, named after the job, with array
-  children nested inside it. Files are then downloadable and can be previewed or
-  downloaded from Job Desk, or exposed read-only to a file share.
+  children nested inside it. Files can then be previewed or downloaded from Job
+  Desk, or read from the file share.
 - **Deliberate throttling** — `cpu_limit` is a hard quota, not a priority, and
   accepts fractions. A long search at 0.5 CPU runs slowly and coolly on a laptop
   you are still using. Library thread pools are pinned to the quota, without
@@ -51,26 +134,55 @@ picture and [Network](docs/network.md) for how requests are routed.
 - **Operator control** — workers register scheduling-disabled and are enabled
   deliberately, from a web dashboard or the CLI. Disabling drains gracefully
   rather than cancelling running work.
-- **Single NAS storage boundary** — Synology is the sole household SMB service
-  and the application backend for Home, Shared, and owner-scoped artifacts.
-  Any removable storage attached to the Pi is local-only and is never
-  advertised as a second file share.
-- **Purposeful web navigation** — monitoring, operator controls, job history,
-  and job submission have focused routes instead of one oversized dashboard or
-  job page.
 - **User-scoped Job Desk** — members sign in with individual credentials and
   can access only their own jobs, groups, staged uploads, and artifacts.
 - **Separate operator control plane** — the owner monitors every workload,
   manages bounded file areas plus worker, host, and account controls, and has no
   browser submission path. Members can change their password, while an owner
   reset revokes every existing member session.
-- **Guarded Pi power control** — the authenticated owner dashboard can request
-  reboot or shutdown only after all workers are drained and jobs are idle. A
-  root-owned helper flushes writes and unmounts local removable storage before
-  changing power state.
+- **Guarded host power control** — the owner dashboard can request reboot or
+  shutdown only after all workers are drained and jobs are idle. A root-owned
+  helper flushes writes and unmounts local removable storage before changing
+  power state.
 - **Cooperative cancellation** — queued work stops immediately; a running
   container receives cancellation through its lease heartbeat and is removed
   without conflating the outcome with timeout or memory exhaustion.
+
+Detail: [Compute](docs/compute/README.md).
+
+## Household applications
+
+Small, long-running applications that have nothing to do with jobs. Each has
+its own container, database, and backup, and resolves who is calling through
+the shared identity system.
+
+- **Habit tracker** (`/habits`) — one app with Overview, Water, Budget, and
+  Study pages: classified drinks, daily spending against an allowance with a
+  sinking fund, and focus sessions.
+- **Wishlist** (`/wishlist`) — tracks what things cost over time. It reads
+  other people's shops, which can hang or change without notice, so it is kept
+  apart from everything else.
+- **Transport** (`/transport`) — a personal last-train and bus-arrival view.
+  It calls its upstream provider only when a card is refreshed.
+- **File sorter** (`/sorter`) — works through an unsorted downloads folder one
+  item at a time: preview, choose a destination folder, next. Each choice is
+  a server-side move on the NAS and a logged routing label, building training
+  data for a classifier that may later suggest destinations. Only the
+  administrator's dashboard session may use it.
+
+Detail: [Application services](docs/services.md).
+
+## Media
+
+A Jellyfin media server runs on the Linux workstation rather than on the
+always-on host, because playing and transcoding video needs CPU and bandwidth
+the host should keep for coordination. It reads a dedicated NAS share through a
+read-only mount with its own read-only file-server account, keeps its settings
+on the workstation's disk, and is published on the workstation's own private
+HTTPS name. It has its own logins and does not use the platform's identity
+system.
+
+Detail: [Media](docs/media.md).
 
 ## Interfaces
 
@@ -93,8 +205,9 @@ public repository does not disclose details of the live deployment.
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) — the overview: physical shape, the
-  subsystems, trust boundaries, failure behaviour, known limits.
+- [Architecture](docs/architecture.md) — the overview: physical shape, where
+  each piece and its data live, trust boundaries, failure behaviour, known
+  limits.
 - [Network](docs/network.md) — the private overlay network, reverse
   proxy routing, and why a loopback binding is what makes proxy identity
   headers trustworthy.
@@ -109,6 +222,8 @@ public repository does not disclose details of the live deployment.
   immutable ownership, and linking a network login to a platform account.
 - [Application services](docs/services.md) — independent containers,
   proxy routing, and state ownership for hosted household applications.
+- [Media](docs/media.md) — the media server on the workstation, its read-only
+  view of the NAS, and its separate private entrance.
 - [Configuration](docs/configuration.md) — control-plane, storage, worker, and
   execution settings.
 
