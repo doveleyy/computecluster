@@ -9,6 +9,7 @@ including explicit large checks; resolution rechecks the entire group.
 from __future__ import annotations
 
 import os
+import stat
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -89,6 +90,7 @@ class DuplicateReview:
         self,
         *,
         include_dump: bool = True,
+        include_tree: bool = True,
         problems: list[Problem] | None = None,
     ) -> list[Copy]:
         """Every kept file. Strict by default: any read error raises.
@@ -118,6 +120,9 @@ class DuplicateReview:
                 problems.append(
                     Problem("dump", f"{path}: {error}", not vanished(error))
                 )
+
+        if not include_tree:
+            return copies
 
         def failed(error: OSError) -> None:
             if problems is not None:
@@ -153,10 +158,36 @@ class DuplicateReview:
                 and relative(name) not in self.units
                 and not (base / name).is_symlink()
             )
+            # The walk supplies exact entry names. Validate the category once
+            # per directory, rather than listing every ancestor for every file.
+            # Actions and hashing still use location()/copy() for fresh checks.
+            try:
+                self.library.category_path(
+                    base.relative_to(self.library.sorted_root).as_posix()
+                    if base != self.library.sorted_root
+                    else "",
+                    self.units,
+                )
+            except (OSError, LibraryError) as error:
+                if problems is None:
+                    raise
+                problems.append(Problem("tree", f"{base}: {error}"))
+                dirs[:] = []
+                continue
             for name in sorted(files):
-                if queueable(name) and not (base / name).is_symlink():
+                if queueable(name):
                     try:
-                        copies.append(self.copy("tree", relative(name)))
+                        snapshot = (base / name).lstat()
+                        if not stat.S_ISREG(snapshot.st_mode):
+                            continue
+                        copies.append(
+                            Copy(
+                                "tree",
+                                relative(name),
+                                snapshot.st_size,
+                                str(snapshot.st_mtime_ns),
+                            )
+                        )
                     except (OSError, LibraryError) as error:
                         if problems is None:
                             raise

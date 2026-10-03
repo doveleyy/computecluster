@@ -33,7 +33,9 @@ model.
   refreshes itself on entry, after actions, when an index scan completes and
   when the window regains focus, and loads more as it is scrolled. Manual
   sorts and corrections already count as reviewed, but remain available in
-  the all-files view. `J` goes back and `K` forward without deciding. Enter
+  the all-files view. The list is read from the file index, not by walking
+  the NAS; only a tree no scan has covered yet is walked. `J` goes back and
+  `K` forward without deciding. Enter
   confirms the current placement or saves a correction and advances. Every
   confirmation and correction appends to the log; Undo restores the prior
   label and, for corrections, location. An Undo that returns a file to a
@@ -79,6 +81,10 @@ model.
   then **N** to create a main category at the top level. With a folder
   chosen, **N** creates a subfolder. Esc also closes a menu or leaves a text
   field; an open dialog closes first.
+- **Path search.** The folder filter takes a shell-style path:
+  `/school/eco` lists school's subfolders starting with "eco", Tab completes
+  the name, and Enter chooses the exact path. Plain text matches anywhere.
+  ↑ ↓ move a cursor through the matches; Enter takes the one under it.
 - **One ⋯ menu for the rest.** The header's ⋯ holds the exports, Look for
   new files now, Check every file's contents, the shortcut list and the
   dashboard link.
@@ -141,8 +147,13 @@ extra copies cause recovery to refuse without overwriting them.
 The SQLite database also holds document identities, current file locations,
 full hashes and append-only observation events. IDs are independent from
 decision IDs; existing document IDs survive migration. The indexer checks
-metadata every five minutes and hashes only new or changed files. Shared
-trees are indexed once. It resumes persisted progress after restart.
+metadata five minutes after the previous scan finishes and hashes only new
+or changed files. A shared tree is walked once per scan. Directory names and
+metadata from that walk are reused for unchanged files; changed observations
+and every human action still receive fresh path and content checks. Scan
+progress is persisted at most once per second and finalized on completion,
+while document observations and decisions retain their durable transactions.
+The index resumes from persisted hashes after restart.
 Reading file contents does not hold the sorter's rename lock.
 
 Failures are contained, and "unreadable" is never taken for "deleted":

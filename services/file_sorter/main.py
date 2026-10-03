@@ -54,7 +54,7 @@ from services.file_sorter.library import (
 )
 from services.file_sorter.repository import Project, Seed, SorterRepository
 
-SERVICE_VERSION = "0.9.0"
+SERVICE_VERSION = "0.9.3"
 SERVICE_DIR = Path(__file__).parent
 DEFAULT_DATABASE_PATH = Path("data/file_sorter.db")
 TEMPLATE = (SERVICE_DIR / "templates" / "sorter.html").read_text(encoding="utf-8")
@@ -689,12 +689,38 @@ def create_app(
         try:
             if folder:
                 library.category_path(folder, units)
-            copies = DuplicateReview(project, library, repository, units).candidates(
-                include_dump=False
-            )
+            # The index holds the same inventory as a walk (checked live on
+            # 2 October: identical file sets) without a NAS round-trip per
+            # path segment. Only an uncovered tree is walked.
+            indexed = index.tree_files(project)
+            if indexed is None:
+                copies = DuplicateReview(
+                    project, library, repository, units
+                ).candidates(include_dump=False)
+                states = None
+            else:
+                rows = [
+                    row
+                    for row in indexed
+                    if row["relative_path"].split("/")[0] != "_discarded"
+                    and not any(
+                        row["relative_path"] == unit
+                        or row["relative_path"].startswith(unit + "/")
+                        for unit in units
+                    )
+                ]
+                copies = [
+                    Copy("tree", row["relative_path"], row["size"], row["mtime_ns"])
+                    for row in rows
+                ]
+                states = {
+                    row["relative_path"]: index.indexed_review_state(row)
+                    for row in rows
+                }
         except LibraryError as error:
             raise refuse(error) from error
         entries = []
+        needle = search.casefold()
         for copy in sorted(copies, key=lambda c: c.path.casefold()):
             if folder and not (
                 copy.path.startswith(folder + "/")
@@ -702,9 +728,13 @@ def create_app(
                 else copy.path.rpartition("/")[0] == folder
             ):
                 continue
-            if search.casefold() not in copy.path.casefold():
+            if needle not in copy.path.casefold():
                 continue
-            review_state = index.review_state(project, copy)
+            review_state = (
+                states[copy.path]
+                if states is not None
+                else index.review_state(project, copy)
+            )
             if unreviewed and review_state["reviewed"]:
                 continue
             entries.append(

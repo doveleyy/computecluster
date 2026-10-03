@@ -5,7 +5,7 @@ services:
     build:
       context: ../..
       dockerfile: services/file_sorter/Dockerfile
-    image: home-platform-file-sorter:0.9.0
+    image: home-platform-file-sorter:0.9.3
     container_name: home-platform-file-sorter
     restart: unless-stopped
     user: "${SERVICE_UID:-1000}:${SERVICE_GID:-1000}"

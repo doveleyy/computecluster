@@ -348,7 +348,9 @@
     async function createWorkspaceFolder(){if(!storagePicker.writable)return;const name=prompt("New folder name");if(!name)return;const path=storagePicker.path.replace(/\/$/,"")+"/"+name;try{await api("/jobs-ui/api/workspace/directories",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path})});await loadStorage(storagePicker.path)}catch(error){$("#storage-error").textContent=error.message}}
     async function uploadWorkspaceFile(file){if(!file||!storagePicker.writable)return;const form=new FormData();form.append("directory",storagePicker.path);form.append("file",file);$("#storage-error").className="feedback";$("#storage-error").textContent="UPLOADING "+file.name+"…";try{await api("/jobs-ui/api/workspace/uploads",{method:"POST",body:form});await loadStorage(storagePicker.path)}catch(error){$("#storage-error").className="feedback bad";$("#storage-error").textContent=error.message}finally{$("#workspace-upload-file").value=""}}
     function openStoragePicker(mode){if(!sessionIdentity?.storage_enabled)return;storagePicker={mode,path:"",inputName:""};if(mode==="input"){const name=$("#batch-input-name").value.trim();if(!/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(name)){const feedback=$("#feedback");feedback.className="feedback bad";feedback.textContent="Enter a valid declared input name before choosing a file.";return}if(storageBindings[name]&&!confirm("Replace the existing binding for "+name+"?"))return;storagePicker.inputName=name}$("#storage-title").textContent=mode==="project"?"Choose project folder":"Choose input file";$("#storage-dialog").showModal();loadStorage("")}
+    let refreshInFlight=0;
     async function refresh(){
+      refreshInFlight++;
       try{
         const previousUser=sessionIdentity?.id;sessionIdentity=await api("/jobs-ui/api/session");const member=sessionIdentity.role!=="ADMIN";
         if(operatorView&&member){location.replace(filesView?"/jobs-ui/files":"/jobs-ui");return}
@@ -369,7 +371,7 @@
           updateDatasetFields();
         }
         $("#connection").classList.add("live");$("#updated").textContent="Updated "+new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
-      }catch(error){if(error.message==="AUTH")showLogin();else{$("#connection").classList.remove("live");$("#updated").textContent="OFFLINE"}}
+      }catch(error){if(error.message==="AUTH")showLogin();else{$("#connection").classList.remove("live");$("#updated").textContent="OFFLINE"}}finally{refreshInFlight--}
     }
     function updateBatchProjectFields(){const batch=$("#job-type").value==="batch",storage=$("#batch-project-source").value==="storage";$("#batch-storage-project").classList.toggle("hidden",!storage);$("#batch-upload-project").classList.toggle("hidden",storage);$("#batch-project-path").required=batch&&storage;$("#batch-project-file").required=batch&&!storage;if(!storage){projectPreview=null;renderProjectPreview()}}
     // Every task renders the same sections in the same order; only the controls
@@ -482,7 +484,9 @@
       document.querySelector("#login-form .primary").textContent="OPEN OPERATOR VIEW";
     }
     const activePanel=submitView?"#submit-panel":filesView?"#files-panel":"#queue-panel",activeNav=submitView?"#submit-nav":filesView?"#files-nav":"#jobs-nav",pageTitle=submitView?"Submit":filesView?"Files":"Jobs";
-    $(activePanel).classList.remove("hidden");$("#workspace").classList.toggle("submit-only",submitView);$(activeNav).setAttribute("aria-current","page");document.title=pageTitle+" · Home Platform";updateDatasetFields();renderHeaders();refresh();setInterval(refresh,submitView?30000:filesView?60000:10000);
+    function autoRefresh(){if(!document.hidden&&!refreshInFlight)refresh()}
+    $(activePanel).classList.remove("hidden");$("#workspace").classList.toggle("submit-only",submitView);$(activeNav).setAttribute("aria-current","page");document.title=pageTitle+" · Home Platform";updateDatasetFields();renderHeaders();autoRefresh();setInterval(autoRefresh,submitView?30000:filesView?60000:10000);
+    document.addEventListener("visibilitychange",autoRefresh);
   </script>
 </body>
 </html>

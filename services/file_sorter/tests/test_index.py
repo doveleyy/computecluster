@@ -99,6 +99,125 @@ def test_unchanged_scan_reads_no_bytes_and_edit_hashes_only_changed_file(
     assert client.get(P + "/review", params={"unreviewed": True}).json()["total"] == 2
 
 
+def test_unchanged_scan_has_bounded_writes_and_no_per_file_path_revalidation(
+    indexed: Any, monkeypatch: Any
+) -> None:
+    _, index, root, database = indexed
+    for number in range(200):
+        (root / f"tree/work/nested/{number}.txt").write_text(f"content {number}")
+    index.scan()
+    with sqlite3.connect(database) as connection:
+        before = connection.execute("SELECT * FROM file_index ORDER BY path").fetchall()
+        events = connection.execute("SELECT * FROM document_events").fetchall()
+
+    statements: list[str] = []
+    original_connect = index.repository._connect
+
+    def traced() -> sqlite3.Connection:
+        connection: sqlite3.Connection = original_connect()
+        connection.set_trace_callback(statements.append)
+        return connection
+
+    def no_revalidation(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("unchanged snapshots must not revalidate every file")
+
+    monkeypatch.setattr(index.repository, "_connect", traced)
+    monkeypatch.setattr(DuplicateReview, "copy", no_revalidation)
+    monkeypatch.setattr(index, "progress_seconds", 1_000_000)
+    index.scan()
+    status = index.status()
+    assert status["complete"] and status["checked"] == status["total"] == 200
+    # Start, total and finish: the bound is independent of the file count.
+    assert len([sql for sql in statements if sql.startswith("UPDATE index_state")]) == 3
+    assert not any(
+        sql.startswith("SELECT * FROM file_index WHERE path") for sql in statements
+    )
+    with sqlite3.connect(database) as connection:
+        assert (
+            connection.execute("SELECT * FROM file_index ORDER BY path").fetchall()
+            == before
+        )
+        assert connection.execute("SELECT * FROM document_events").fetchall() == events
+
+
+def test_cached_walk_cannot_overwrite_a_concurrent_manual_move(
+    indexed: Any, monkeypatch: Any
+) -> None:
+    client, index, root, database = indexed
+    old = manual(client, root)
+    original = DuplicateReview.candidates
+
+    def move(self: Any, **kwargs: Any) -> Any:
+        copies = original(self, **kwargs)
+        (root / "tree/work/a.txt").rename(root / "tree/school/a.txt")
+        SorterRepository(database).record_folder_move(
+            "tree", "work/a.txt", "school/a.txt"
+        )
+        return copies
+
+    monkeypatch.setattr(DuplicateReview, "candidates", move)
+    index.scan()
+    assert index.lookup("tree", "work/a.txt") is None
+    current = index.lookup("tree", "school/a.txt")
+    assert current["document_id"] == old["document_id"]
+    assert current["present"] and current["reviewed"]
+    assert index.status()["complete"]
+
+
+def test_periodic_hash_audits_remain_bounded_and_resume(
+    indexed: Any, monkeypatch: Any
+) -> None:
+    _, index, root, database = indexed
+    for number in range(25):
+        (root / f"tree/work/{number}.txt").write_text(f"content {number}")
+    index.scan()
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE file_index SET checked_at='2000-01-01T00:00:00+00:00'"
+        )
+    original = DuplicateReview.digest
+    reads = []
+
+    def count(self: Any, copy: Any, **kwargs: Any) -> str:
+        reads.append(copy.path)
+        return original(self, copy, **kwargs)
+
+    monkeypatch.setattr(DuplicateReview, "digest", count)
+    index.scan()
+    assert len(reads) == 16
+    index.scan()
+    assert len(reads) == len(set(reads)) == 25
+
+
+def test_shared_tree_is_walked_once(indexed: Any, monkeypatch: Any) -> None:
+    client, index, root, _ = indexed
+    (root / "other-dump").mkdir()
+    (root / "tree/work/a.txt").write_text("content")
+    assert (
+        client.post(
+            "/api/projects",
+            json={
+                "name": "Other",
+                "source": "other-dump",
+                "target": "tree",
+                "mode": "files",
+            },
+        ).status_code
+        == 201
+    )
+    original = os.walk
+    trees = []
+
+    def walk(path: Any, *args: Any, **kwargs: Any) -> Any:
+        if Path(path) == root / "tree":
+            trees.append(path)
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "walk", walk)
+    index.scan()
+    assert len(trees) == 1 and index.status()["complete"]
+
+
 def test_manual_sort_is_reviewed_and_optional_directory_review_still_lists_it(
     indexed: Any,
 ) -> None:

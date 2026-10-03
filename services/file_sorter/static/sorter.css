@@ -478,6 +478,8 @@ input[type="text"]:focus, input[type="search"]:focus { border-color: var(--cyan)
 .tree li:hover { background: var(--raised); }
 .tree li[aria-selected="true"] { border-color: rgba(85, 215, 255, .55); background: rgba(85, 215, 255, .08); color: var(--cyan); }
 .tree li.none { color: var(--dim); cursor: default; padding-left: 10px; }
+/* The filter's ↑ ↓ cursor: what Enter will choose. */
+.tree li.search-cursor { border-color: rgba(242, 202, 82, .7); box-shadow: inset 3px 0 0 var(--yellow); }
 .tree li.none:hover { background: none; }
 .caret {
   flex: none;

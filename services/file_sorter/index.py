@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import sqlite3
 import threading
+import time
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -158,6 +159,7 @@ class FileIndex:
     settle_seconds = 1.0
     # Files that were mid-write are retried soon rather than in five minutes.
     retry_seconds = 60.0
+    progress_seconds = 1.0
 
     def __init__(self, repository: SorterRepository, root: LibraryRoot) -> None:
         self.repository = repository
@@ -326,6 +328,36 @@ class FileIndex:
         )
         return self.observe(base, copy, digest, prior)
 
+    def tree_files(self, project: Project) -> list[dict[str, Any]] | None:
+        """Present tree files from the index; None until a scan has covered it.
+
+        Sorted review lists these rather than walking the NAS on every request
+        (the walk costs one metadata round-trip per path segment of every
+        file). The sorter's own sorts, corrections, confirmations, undos and
+        folder moves update these rows in the same transaction; outside
+        changes arrive with the next scan.
+        """
+        with self.repository._connect() as connection:
+            if not connection.execute(
+                "SELECT 1 FROM index_roots WHERE base = ?", (project.target,)
+            ).fetchone():
+                return None
+            rows = connection.execute(
+                "SELECT * FROM file_index WHERE base = ? AND present = 1",
+                (project.target,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    @staticmethod
+    def indexed_review_state(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "document_id": row["document_id"],
+            "decision_id": row["decision_id"],
+            "reviewed": bool(row["reviewed"] and row["present"]),
+            "review_reason": row["reason"],
+            "classification_provenance": row["provenance"],
+        }
+
     def review_state(self, project: Project, copy: Copy) -> dict[str, Any]:
         row = self.lookup(project.target, copy.path)
         if row is None:
@@ -406,8 +438,8 @@ class FileIndex:
         is indexed. A dump or tree is declared complete, and documents in it
         missing, only after a walk that read every folder; and a document is
         marked missing only if its path is absent on disk at that moment.
-        Sorting during a scan no longer restarts it: each file is rechecked
-        under the rename lock before its observation is published.
+        Unchanged walk snapshots publish nothing. New, edited and audited files
+        are rechecked under the rename lock before an observation is published.
         """
         if not self._scan_lock.acquire(blocking=False):
             self.request()
@@ -423,10 +455,18 @@ class FileIndex:
                         "UPDATE index_state SET running=1,error=NULL,"
                         "checked=0,total=0 WHERE id=1"
                     )
+                    snapshots = {
+                        row["path"]: dict(row)
+                        for row in connection.execute(
+                            "SELECT path,present,verified,size,mtime_ns,checked_at "
+                            "FROM file_index WHERE present=1"
+                        )
+                    }
             observations: dict[
                 str, tuple[Project, DuplicateReview, Copy, Decision | None]
             ] = {}
             walked: set[str] = set()
+            trees_walked: set[str] = set()
             incomplete: set[str] = set()
             for project in self.repository.projects():
                 try:
@@ -437,7 +477,10 @@ class FileIndex:
                     units = {d.destination for d in decisions if d.kind == "folder"}
                     review = DuplicateReview(project, library, self.repository, units)
                     found: list[Problem] = []
-                    copies = review.candidates(problems=found)
+                    copies = review.candidates(
+                        include_tree=project.target not in trees_walked,
+                        problems=found,
+                    )
                 except (OSError, LibraryError, ValueError) as error:
                     # One project's missing or unreadable folders must not
                     # stop the others; nothing in it is declared missing.
@@ -445,6 +488,7 @@ class FileIndex:
                     incomplete.update((project.source, project.target))
                     continue
                 walked.update((project.source, project.target))
+                trees_walked.add(project.target)
                 for problem in found:
                     problems.append(f"{project.name}: {problem.detail}")
                     if problem.incomplete:
@@ -472,7 +516,7 @@ class FileIndex:
             needs_settle = False
             for project, _, copy, _ in observations.values():
                 base = project.source if copy.area == "dump" else project.target
-                row = self.lookup(base, copy.path)
+                row = snapshots.get(f"{base}/{copy.path}")
                 if (
                     not row
                     or row["size"] != copy.size
@@ -483,6 +527,7 @@ class FileIndex:
             if needs_settle and self._stop.wait(self.settle_seconds):
                 raise ScanPaused("Index scan interrupted")
             audited = 0
+            progress_at = time.monotonic()
             for number, (project, review, copy, prior) in enumerate(
                 observations.values(), 1
             ):
@@ -491,7 +536,13 @@ class FileIndex:
                 base = project.source if copy.area == "dump" else project.target
                 try:
                     audited += self._observe_one(
-                        review, base, copy, prior, verify_all, audited
+                        review,
+                        base,
+                        copy,
+                        prior,
+                        verify_all,
+                        audited,
+                        snapshots.get(f"{base}/{copy.path}"),
                     )
                 except ScanPaused:
                     raise
@@ -502,10 +553,14 @@ class FileIndex:
                     # Moved or deleted while the scan ran: simply not there now.
                     if not vanished(error):
                         problems.append(f"{base}/{copy.path}: {error}")
-                with self.repository._connect() as connection:
-                    connection.execute(
-                        "UPDATE index_state SET checked=? WHERE id=1", (number,)
-                    )
+                # Progress is display state, not document or decision truth.
+                # Bound its durable updates by elapsed time, not file count.
+                if time.monotonic() - progress_at >= self.progress_seconds:
+                    with self.repository._connect() as connection:
+                        connection.execute(
+                            "UPDATE index_state SET checked=? WHERE id=1", (number,)
+                        )
+                    progress_at = time.monotonic()
             complete = walked - incomplete
             with LOCK, self.repository._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
@@ -538,7 +593,8 @@ class FileIndex:
                     )
                 # "Completed" means every dump and tree was read in full.
                 connection.execute(
-                    "UPDATE index_state SET running=0,error=?,last_completed_at="
+                    "UPDATE index_state SET running=0,checked=total,error=?,"
+                    "last_completed_at="
                     "CASE WHEN ? THEN ? ELSE last_completed_at END WHERE id=1",
                     (summarise(problems), not incomplete, now()),
                 )
@@ -563,11 +619,9 @@ class FileIndex:
         prior: Decision | None,
         verify_all: bool,
         audited: int,
+        row: dict[str, Any] | None,
     ) -> int:
         """Hash one file if needed and publish it; returns 1 if it was audited."""
-        if review.copy(copy.area, copy.path) != copy:
-            raise _Changing
-        row = self.lookup(base, copy.path)
         cached = bool(
             row
             and row["present"]
@@ -582,12 +636,16 @@ class FileIndex:
             < datetime.now(UTC) - timedelta(days=7)
         )
         audit = cached and (verify_all or (overdue and audited < 16))
-        if audit:
-            cached = False
+        if cached and not audit:
+            # The walk just observed these metadata. Nothing is published for
+            # an unchanged file, so a concurrent rename cannot overwrite its
+            # newer binding. Inventory is a snapshot, never authorization for
+            # a move: human actions always recheck the actual file via ensure().
+            return 0
+        if review.copy(copy.area, copy.path) != copy:
+            raise _Changing
         try:
-            digest = (
-                row["sha256"] if cached and row else review.digest(copy, fresh=True)
-            )
+            digest = review.digest(copy, fresh=True)
         except LibraryError as error:
             if "changed" in str(error):
                 raise _Changing from error
@@ -601,8 +659,7 @@ class FileIndex:
             # only an observation that still matches what is on disk.
             if review.copy(copy.area, copy.path) != copy:
                 raise _Changing
-            if not cached:
-                self.observe(base, copy, digest, prior)
+            self.observe(base, copy, digest, prior)
         return int(audit)
 
     def known_copies(self, project: Project, include_dump: bool) -> list[Copy] | None:

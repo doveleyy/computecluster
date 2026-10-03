@@ -25,6 +25,7 @@
     busy: false,
     dialogMode: null,
     folderTarget: null,
+    searchCursor: null,
     groupPicks: new Set(),
     moveSource: null,
     moveTarget: null,
@@ -70,9 +71,10 @@
 
   function pollIndex() {
     clearTimeout(indexPollTimer);
+    if (document.hidden) return;
     const projectId = state.project?.id;
     indexPollTimer = setTimeout(async () => {
-      if (!state.review.active || state.project?.id !== projectId) return;
+      if (document.hidden || !state.review.active || state.project?.id !== projectId) return;
       try {
         const status = await papi("/index");
         if (!state.review.active || state.project?.id !== projectId) return;
@@ -654,20 +656,26 @@
     $("tab-review").title = count ? `Review sorted files: ${count} duplicate group${count === 1 ? "" : "s"} to resolve (R)` : "Review sorted files (R)";
     if (state.review.active) {
       renderIndexStatus(result.index);
-      lastIndexCompleted = result.index?.last_completed_at;
       renderReviewFiles();
     }
   }
 
   // Keeps the Review badge, its banner and the recovery warning current.
   // Never throws: a stale badge must not fail the action that asked for it.
+  // While the index is still filling (first start), it looks again shortly.
+  let duplicatesRetry = null;
   async function refreshDuplicates() {
     if (!state.project) return;
+    clearTimeout(duplicatesRetry);
     const request = ++state.review.scanRequest;
     const projectId = state.project.id;
     try {
       const result = await papi("/duplicates?scope=tree&indexed=true");
-      if (request === state.review.scanRequest && state.project?.id === projectId) setDuplicates(result);
+      if (request !== state.review.scanRequest || state.project?.id !== projectId) return;
+      setDuplicates(result);
+      if (result.complete === false && !document.hidden) duplicatesRetry = setTimeout(() => {
+        if (!document.hidden) refreshDuplicates();
+      }, 10000);
     } catch (error) {
       if (state.review.active) showError(`Duplicate check incomplete: ${error.message}`, "review-error");
     }
@@ -1045,13 +1053,88 @@
     renderDestination();
   }
 
+  // The folder filter. "/school/eco" walks the tree from the top like a
+  // shell: the last segment narrows that folder's subfolders by prefix, and
+  // "/school/" lists them all. Without the leading "/", or when no path
+  // matches, the text matches anywhere in a folder's path.
+  function folderMatches() {
+    const raw = $("search").value.trim();
+    if (!raw) return null;
+    let text = raw.toLowerCase();
+    if (raw.startsWith("/")) {
+      const typed = raw.replace(/^\/+/, "").replace(/\/{2,}/g, "/");
+      const cut = typed.lastIndexOf("/");
+      const base = typed.slice(0, Math.max(cut, 0)).toLowerCase();
+      const leaf = typed.slice(cut + 1);
+      const partial = leaf.toLowerCase();
+      const hits = state.folders.map((folder) => folder.path).filter((path) =>
+        parentOf(path).toLowerCase() === base && leafOf(path).toLowerCase().startsWith(partial));
+      if (hits.length || !typed) return { hits, prefix: true, base, leaf, partial };
+      text = typed.toLowerCase().replace(/\/$/, "");
+    }
+    const hits = state.folders.map((folder) => folder.path).filter((path) => path.toLowerCase().includes(text));
+    return { hits, prefix: false, term: text };
+  }
+
+  // What Enter in the filter chooses: the exact path when typed in full,
+  // the folder itself for "/school/", otherwise the first match.
+  function searchChoice() {
+    const matches = folderMatches();
+    if (!matches) return null;
+    if (matches.prefix) {
+      const exact = matches.hits.find((path) => leafOf(path) === matches.leaf) ||
+        matches.hits.find((path) => leafOf(path).toLowerCase() === matches.partial);
+      if (exact) return exact;
+      if (!matches.partial && matches.base) {
+        return state.folders.find((folder) => folder.path.toLowerCase() === matches.base)?.path ?? null;
+      }
+    }
+    return matches.hits[0] ?? null;
+  }
+
+  // ↑ ↓ in the filter move a cursor through the matches, in tree order, so
+  // similar names ("slides", "Epicall slides") are one keypress apart.
+  // Enter takes the cursor; typing resets it to the best match.
+  function searchCursor() {
+    const matches = folderMatches();
+    if (!matches) return null;
+    return matches.hits.includes(state.searchCursor) ? state.searchCursor : searchChoice();
+  }
+
+  function moveSearchCursor(delta) {
+    const matches = folderMatches();
+    if (!matches || !matches.hits.length) return;
+    const hits = new Set(matches.hits);
+    const order = visibleRows().filter((path) => hits.has(path));
+    const at = order.indexOf(searchCursor());
+    state.searchCursor = order[at < 0 ? 0 : Math.min(order.length - 1, Math.max(0, at + delta))];
+    renderTree();
+    $("tree").querySelector(`li[data-path="${CSS.escape(state.searchCursor)}"]`)?.scrollIntoView({ block: "nearest" });
+  }
+
+  // Tab completes the last path segment as far as the matches agree.
+  function completeSearch() {
+    const matches = folderMatches();
+    if (!matches || !matches.prefix || !matches.hits.length) return false;
+    const leaves = matches.hits.map(leafOf);
+    let common = leaves[0];
+    for (const leaf of leaves) {
+      while (!leaf.toLowerCase().startsWith(common.toLowerCase())) common = common.slice(0, -1);
+    }
+    const parent = parentOf(matches.hits[0]);
+    let value = `/${parent ? parent + "/" : ""}${common}`;
+    if (matches.hits.length === 1 && (state.children.get(matches.hits[0]) || []).length) value += "/";
+    $("search").value = value;
+    state.searchCursor = null;
+    renderTree();
+    return true;
+  }
+
   function visibleRows() {
-    const filter = $("search").value.trim().toLowerCase();
-    if (filter) {
+    const matches = folderMatches();
+    if (matches) {
       const keep = new Set();
-      for (const folder of state.folders) {
-        if (!folder.path.toLowerCase().includes(filter)) continue;
-        let path = folder.path;
+      for (let path of matches.hits) {
         while (path) {
           keep.add(path);
           path = parentOf(path);
@@ -1084,16 +1167,19 @@
   function renderTree() {
     const tree = $("tree");
     tree.replaceChildren();
-    const filter = $("search").value.trim().toLowerCase();
+    const matches = folderMatches();
+    const hits = new Set(matches ? matches.hits : []);
+    const cursor = searchCursor();
     const rows = visibleRows();
     for (const path of rows) {
       const folder = state.byPath.get(path);
       const hasChildren = (state.children.get(path) || []).length > 0;
-      const open = filter ? true : state.expanded.has(path);
+      const open = matches ? true : state.expanded.has(path);
       const row = element("li");
       row.setAttribute("role", "treeitem");
       row.setAttribute("aria-level", String(depthOf(path) + 1));
       row.setAttribute("aria-selected", String(path === state.selected));
+      if (path === cursor) row.classList.add("search-cursor");
       if (hasChildren) row.setAttribute("aria-expanded", String(open));
       row.dataset.path = path;
       row.style.paddingLeft = `${4 + depthOf(path) * 16}px`;
@@ -1111,7 +1197,8 @@
       }
       row.append(caret);
 
-      row.append(highlighted(leafOf(path), filter));
+      const term = !matches ? "" : matches.prefix ? (hits.has(path) ? matches.partial : "") : matches.term;
+      row.append(highlighted(leafOf(path), term));
       if (folder.subfolders > 12) {
         const crowded = element("span", `${folder.subfolders} SUB`, "crowded");
         crowded.title = `${folder.subfolders} subfolders: consider grouping some (⋯ → Group with siblings)`;
@@ -1808,7 +1895,10 @@
     undo(target.decisionId);
   });
   $("filename").addEventListener("input", renderDestination);
-  $("search").addEventListener("input", renderTree);
+  $("search").addEventListener("input", () => {
+    state.searchCursor = null;
+    renderTree();
+  });
   $("new-folder").addEventListener("click", () => openFolderDialog("new"));
   $("folder-name").addEventListener("input", renderFolderPreview);
   $("folder-form").addEventListener("submit", async (event) => {
@@ -1862,6 +1952,15 @@
   // under a running action or an open dialog.
   const FOCUS_REFRESH_MS = 60000;
   let lastFocusRefresh = Date.now();
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      clearTimeout(indexPollTimer);
+      clearTimeout(duplicatesRetry);
+    } else if (state.project) {
+      if (state.review.active) pollIndex();
+      else if (!state.busy) refreshDuplicates();
+    }
+  });
   window.addEventListener("focus", () => {
     if (!state.project || state.busy || document.querySelector("dialog[open]")) return;
     if (Date.now() - lastFocusRefresh < FOCUS_REFRESH_MS) return;
@@ -1909,17 +2008,27 @@
     }
     if (target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement) return;
     if (target instanceof HTMLInputElement) {
+      if (target.id === "search" && event.key === "Tab" && !event.shiftKey && completeSearch()) {
+        event.preventDefault();
+        return;
+      }
+      if (target.id === "search" && (event.key === "ArrowDown" || event.key === "ArrowUp") && folderMatches()) {
+        event.preventDefault();
+        moveSearchCursor(event.key === "ArrowDown" ? 1 : -1);
+        return;
+      }
       if (event.key === "Enter") {
         event.preventDefault();
         if (target.id === "search") {
-          // Ancestors are shown for context; Enter takes the first real match.
-          const filter = target.value.trim().toLowerCase();
-          const first = visibleRows().find((path) => path.toLowerCase().includes(filter));
-          if (first) {
+          // Ancestors are shown for context; Enter takes the cursor's match.
+          // With none, the field keeps focus so the typing can be fixed.
+          const choice = searchCursor();
+          if (choice) {
             target.value = "";
-            select(first);
+            state.searchCursor = null;
+            select(choice);
+            target.blur();
           }
-          target.blur();
         } else if (target.id === "filename") {
           classify();
         }
@@ -1946,9 +2055,18 @@
       ContextMenu: openSelectedMenu,
       r: () => showTab(!state.review.active),
       "?": () => $("help-dialog").showModal(),
+      // An empty filter starts as "/", ready for a path; typing a plain
+      // word after it still finds it anywhere.
       "/": () => {
-        $("search").focus();
-        $("search").select();
+        const search = $("search");
+        search.focus();
+        if (search.value.trim()) {
+          search.select();
+        } else {
+          search.value = "/";
+          state.searchCursor = null;
+          renderTree();
+        }
       },
       ArrowDown: () => step(1),
       ArrowUp: () => step(-1),

@@ -1150,7 +1150,8 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert 'id="file-footer" class="file-footer hidden"' in jobs_page.text
     assert "Storage exposes the complete provider read-only" not in jobs_page.text
     assert (
-        "setInterval(refresh,submitView?30000:filesView?60000:10000)" in jobs_page.text
+        "setInterval(autoRefresh,submitView?30000:filesView?60000:10000)"
+        in jobs_page.text
     )
     assert 'id="login-username"' in jobs_page.text
     assert 'id="login-password"' in jobs_page.text
@@ -1173,7 +1174,7 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert "PI POWER" in page.text
     assert 'api("/dashboard/api/system/power"' in page.text
     assert "Type REBOOT to confirm" not in page.text
-    assert "setInterval(refresh,30000)" in page.text
+    assert "setInterval(autoRefresh,30000)" in page.text
     assert 'method:"PATCH"' in page.text
     assert "<table" not in page.text
     assert unauthenticated.status_code == 401
