@@ -16,14 +16,14 @@ from app.main import RoutineWorkerAccessFilter, create_app
 def test_routine_worker_access_filter_keeps_errors_and_other_routes() -> None:
     access_filter = RoutineWorkerAccessFilter()
 
-    def record(path: str, status_code: int) -> logging.LogRecord:
+    def record(path: str, status_code: int, method: str = "POST") -> logging.LogRecord:
         return logging.LogRecord(
             "uvicorn.access",
             logging.INFO,
             __file__,
             1,
             '%s - "%s %s HTTP/%s" %d',
-            ("client", "POST", path, "1.1", status_code),
+            ("client", method, path, "1.1", status_code),
             None,
         )
 
@@ -31,6 +31,17 @@ def test_routine_worker_access_filter_keeps_errors_and_other_routes() -> None:
     assert access_filter.filter(record("/workers/heartbeat", 200)) is False
     assert access_filter.filter(record("/workers/claim", 500)) is True
     assert access_filter.filter(record("/jobs", 200)) is True
+    resolve = "/internal/service-identities/resolve"
+    assert access_filter.filter(record(resolve, 200)) is False
+    # An unlinked identity and a refused token stay visible.
+    assert access_filter.filter(record(resolve, 404)) is True
+    assert access_filter.filter(record(resolve, 401)) is True
+    for polled in ("/jobs-ui/api/session", "/dashboard/api/services"):
+        assert access_filter.filter(record(polled, 200, "GET")) is False
+        assert access_filter.filter(record(polled + "?x=1", 200, "GET")) is False
+        assert access_filter.filter(record(polled, 401, "GET")) is True
+        assert access_filter.filter(record(polled, 200, "POST")) is True
+    assert access_filter.filter(record("/jobs-ui/api/files", 200, "GET")) is True
 
 
 def create_sleep_job(
@@ -2994,3 +3005,92 @@ def test_operator_jobs_and_files_pages_are_served(tmp_path: Path, monkeypatch) -
         # its operator layout from the /dashboard/ path prefix.
         assert 'id="files-panel"' in page.text
         assert 'operatorView=location.pathname.startsWith("/dashboard/")' in page.text
+
+
+def test_member_job_group_applies_the_single_job_storage_checks(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("HOME_PLATFORM_API_TOKEN", "test-secret")
+    storage = tmp_path / "storage"
+    monkeypatch.setenv("HOME_PLATFORM_STORAGE_DIR", str(storage))
+    monkeypatch.setenv("HOME_PLATFORM_UPLOAD_DIR", str(tmp_path / "uploads"))
+    monkeypatch.setenv("HOME_PLATFORM_ARTIFACT_DIR", str(tmp_path / "artifacts"))
+    password = "member password 1234"
+    token_header = {"X-API-Token": "test-secret"}
+
+    with TestClient(create_app(tmp_path / "jobs.db")) as client:
+        client.post(
+            "/workers/heartbeat",
+            headers=token_header,
+            json={"worker_id": "worker-a", "supported_types": ["python_batch"]},
+        )
+        client.put(
+            "/workers/worker-a/capacity",
+            headers=token_header,
+            json={"max_job_cpu": 4, "max_job_memory_mb": 4096},
+        )
+        client.post("/dashboard/login", json={"token": "test-secret"})
+        alice = client.post(
+            "/dashboard/api/users",
+            json={"username": "alice", "password": password, "role": "MEMBER"},
+        ).json()
+        bob = client.post(
+            "/dashboard/api/users",
+            json={"username": "bob", "password": password, "role": "MEMBER"},
+        ).json()
+        secret = storage / "users" / bob["id"] / "secret.csv"
+        secret.parent.mkdir(parents=True)
+        secret.write_bytes(b"bob,private\n")
+        own = storage / "users" / alice["id"] / "own.csv"
+        own.parent.mkdir(parents=True)
+        own.write_bytes(b"alice,mine\n")
+
+        def reference(path: Path) -> dict:
+            return {
+                "storage_id": "home-storage",
+                "path": path.relative_to(storage).as_posix(),
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "size_bytes": path.stat().st_size,
+            }
+
+        client.post("/dashboard/logout")
+        client.post(
+            "/dashboard/login", json={"username": "alice", "password": password}
+        )
+        script = client.post(
+            "/jobs-ui/api/script-uploads",
+            files={"file": ("s.py", b"print(1)\n", "text/x-python")},
+        ).json()
+
+        def group(dataset: dict) -> dict:
+            job = {
+                "type": "python_batch",
+                "parameters": {"script": script, "dataset": dataset},
+            }
+            return {"name": "group", "tasks": [{"task_id": "t1", "job": job}]}
+
+        unprovisioned = client.post(
+            "/jobs-ui/api/job-groups", json=group(reference(own))
+        )
+
+        client.app.state.settings = replace(
+            client.app.state.settings, member_storage_enabled=True
+        )
+        foreign = client.post("/jobs-ui/api/job-groups", json=group(reference(secret)))
+        stale = reference(own)
+        stale["size_bytes"] += 1
+        changed = client.post("/jobs-ui/api/job-groups", json=group(stale))
+        groups_after_refusals = client.get("/jobs-ui/api/job-groups").json()
+        accepted = client.post("/jobs-ui/api/job-groups", json=group(reference(own)))
+
+    assert unprovisioned.status_code == 503, unprovisioned.text
+    assert (
+        unprovisioned.json()["detail"] == "Personal NAS storage is not provisioned yet"
+    )
+    assert foreign.status_code == 404, foreign.text
+    assert foreign.json()["detail"] == "Storage input not found"
+    assert changed.status_code == 409, changed.text
+    assert groups_after_refusals == []
+    assert accepted.status_code == 201, accepted.text
+    dataset = accepted.json()["tasks"][0]["parameters"]["dataset"]
+    assert dataset["path"] == f"users/{alice['id']}/own.csv"

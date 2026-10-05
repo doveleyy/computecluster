@@ -7,6 +7,8 @@ from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from services.common.sqlite import connect
+
 TRANSACTION_KINDS = {"daily_spend", "fund_redemption", "fund_contribution"}
 SPEND_CATEGORIES = (
     "food",
@@ -243,86 +245,74 @@ class BudgetRepository:
 
     def adopt_identity(
         self,
+        connection: sqlite3.Connection,
         old_identity: str,
         new_identity: str,
-        display_name: str,
         local_day: date,
     ) -> None:
-        if old_identity == new_identity:
-            return
-        now = datetime.now(UTC).isoformat()
-        with self._connect() as connection:
+        old_setting = connection.execute(
+            """
+            SELECT currency, plan_start_date
+            FROM budget_settings WHERE identity = ?
+            """,
+            (old_identity,),
+        ).fetchone()
+        connection.execute(
+            """
+            INSERT INTO budget_settings(identity, currency, plan_start_date)
+            VALUES (?, ?, ?)
+            ON CONFLICT(identity) DO NOTHING
+            """,
+            (
+                new_identity,
+                str(old_setting[0]) if old_setting else "SGD",
+                str(old_setting[1]) if old_setting else local_day.isoformat(),
+            ),
+        )
+        old_changes = connection.execute(
+            """
+            SELECT effective_date, amount_cents, created_at
+            FROM daily_budget_changes WHERE identity = ?
+            """,
+            (old_identity,),
+        ).fetchall()
+        for effective_date, amount_cents, created_at in old_changes:
             connection.execute(
                 """
-                INSERT INTO users(identity, display_name, created_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(identity) DO UPDATE SET display_name = excluded.display_name
+                INSERT INTO daily_budget_changes(
+                    identity, effective_date, amount_cents, created_at
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(identity, effective_date) DO NOTHING
                 """,
-                (new_identity, display_name, now),
+                (new_identity, effective_date, amount_cents, created_at),
             )
-            old_setting = connection.execute(
-                """
-                SELECT currency, plan_start_date
-                FROM budget_settings WHERE identity = ?
-                """,
-                (old_identity,),
-            ).fetchone()
-            connection.execute(
-                """
-                INSERT INTO budget_settings(identity, currency, plan_start_date)
-                VALUES (?, ?, ?)
-                ON CONFLICT(identity) DO NOTHING
-                """,
-                (
-                    new_identity,
-                    str(old_setting[0]) if old_setting else "SGD",
-                    str(old_setting[1]) if old_setting else local_day.isoformat(),
-                ),
-            )
-            old_changes = connection.execute(
-                """
-                SELECT effective_date, amount_cents, created_at
-                FROM daily_budget_changes WHERE identity = ?
-                """,
-                (old_identity,),
-            ).fetchall()
-            for effective_date, amount_cents, created_at in old_changes:
-                connection.execute(
-                    """
-                    INSERT INTO daily_budget_changes(
-                        identity, effective_date, amount_cents, created_at
-                    ) VALUES (?, ?, ?, ?)
-                    ON CONFLICT(identity, effective_date) DO NOTHING
-                    """,
-                    (new_identity, effective_date, amount_cents, created_at),
-                )
-            connection.execute(
-                """
-                UPDATE budget_transactions
-                SET owner_identity = ? WHERE owner_identity = ?
-                """,
-                (new_identity, old_identity),
-            )
-            connection.execute(
-                """
-                UPDATE budget_adjustments
-                SET owner_identity = ? WHERE owner_identity = ?
-                """,
-                (new_identity, old_identity),
-            )
-            connection.execute(
-                "UPDATE savings_goal_changes SET owner_identity = ? "
-                "WHERE owner_identity = ?",
-                (new_identity, old_identity),
-            )
-            connection.execute(
-                "DELETE FROM daily_budget_changes WHERE identity = ?",
-                (old_identity,),
-            )
-            connection.execute(
-                "DELETE FROM budget_settings WHERE identity = ?",
-                (old_identity,),
-            )
+        connection.execute(
+            """
+            UPDATE budget_transactions
+            SET owner_identity = ? WHERE owner_identity = ?
+            """,
+            (new_identity, old_identity),
+        )
+        connection.execute(
+            """
+            UPDATE budget_adjustments
+            SET owner_identity = ? WHERE owner_identity = ?
+            """,
+            (new_identity, old_identity),
+        )
+        connection.execute(
+            "UPDATE savings_goal_changes SET owner_identity = ? "
+            "WHERE owner_identity = ?",
+            (new_identity, old_identity),
+        )
+        connection.execute(
+            "DELETE FROM daily_budget_changes WHERE identity = ?",
+            (old_identity,),
+        )
+        connection.execute(
+            "DELETE FROM budget_settings WHERE identity = ?",
+            (old_identity,),
+        )
 
     def savings_goal(self, identity: str) -> int | None:
         with self._connect() as connection:
@@ -768,7 +758,4 @@ class BudgetRepository:
         return start.astimezone(UTC), end.astimezone(UTC)
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self._database_path, timeout=10)
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 10000")
-        return connection
+        return connect(self._database_path)

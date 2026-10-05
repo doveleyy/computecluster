@@ -4,6 +4,7 @@ import hashlib
 import logging
 import os
 import threading
+import time
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,7 @@ from contracts.models import (
     UploadedDatasetReference,
     UploadedInputReference,
     UploadedProjectReference,
+    portable_relative_path,
 )
 
 
@@ -41,6 +43,12 @@ class WorkerWorkspace:
 
 CACHE_DIRECTORIES = ("cache", "inputs", "projects", "scripts")
 
+# A live download writes a chunk or fails on its 120 s read timeout, so a
+# `.part` file untouched for this long has no writer: its worker was killed.
+STALE_PARTIAL_DOWNLOAD_SECONDS = 600
+
+_UNSAFE_PROJECT_PATH = "project archive contains an unsafe path: {!r}"
+
 
 def prune_cache(
     workspace: WorkerWorkspace,
@@ -53,7 +61,8 @@ def prune_cache(
     Workers execute one job at a time. A materialized input is protected while
     it is being prepared; inputs already linked into a run have a link count
     greater than one and are protected as well. Partial downloads are never
-    treated as reusable cache entries.
+    treated as reusable cache entries: a stale one is deleted, a live one is
+    left for the download that owns it.
     """
     if required_bytes > workspace.max_cache_bytes:
         raise DatasetPolicyError(
@@ -62,22 +71,34 @@ def prune_cache(
         )
     entries: list[tuple[int, Path, int]] = []
     total = 0
+    removed_files = 0
+    removed_bytes = 0
+    stale_before_ns = time.time_ns() - STALE_PARTIAL_DOWNLOAD_SECONDS * 1_000_000_000
     resolved_protected = {item.resolve() for item in protected}
     for directory_name in CACHE_DIRECTORIES:
         directory = workspace.root / directory_name
         if not directory.is_dir():
             continue
         for item in directory.iterdir():
-            if not item.is_file() or item.name.endswith(".part"):
+            if not item.is_file():
                 continue
             stat = item.stat()
+            if item.name.endswith(".part"):
+                if stat.st_mtime_ns < stale_before_ns:
+                    item.unlink(missing_ok=True)
+                    removed_files += 1
+                    removed_bytes += stat.st_size
+                    logging.info(
+                        "cache=removed_stale_partial path=%s bytes=%s",
+                        item,
+                        stat.st_size,
+                    )
+                continue
             total += stat.st_size
             if item.resolve() in resolved_protected or stat.st_nlink > 1:
                 continue
             entries.append((stat.st_mtime_ns, item, stat.st_size))
 
-    removed_files = 0
-    removed_bytes = 0
     for _, item, size in sorted(entries):
         if total + required_bytes <= workspace.max_cache_bytes:
             break
@@ -213,6 +234,7 @@ def materialize_project(
         record_cache_use(archive_path)
 
     destination.mkdir(parents=True, exist_ok=True)
+    root = destination.resolve()
     expanded = 0
     try:
         with zipfile.ZipFile(archive_path) as archive:
@@ -222,19 +244,24 @@ def materialize_project(
             for entry in entries:
                 if cancellation_event is not None and cancellation_event.is_set():
                     raise RuntimeError("job cancelled while preparing its project")
-                if "\\" in entry.filename:
-                    raise DatasetPolicyError("project paths must use forward slashes")
-                relative = Path(entry.filename)
-                if (
-                    relative.is_absolute()
-                    or ".." in relative.parts
-                    or (entry.external_attr >> 16) & 0o170000 == 0o120000
-                ):
-                    raise DatasetPolicyError("project archive contains an unsafe path")
+                try:
+                    relative = portable_relative_path(entry.filename)
+                except ValueError as error:
+                    raise DatasetPolicyError(
+                        _UNSAFE_PROJECT_PATH.format(entry.filename)
+                    ) from error
+                if (entry.external_attr >> 16) & 0o170000 == 0o120000:
+                    raise DatasetPolicyError(
+                        _UNSAFE_PROJECT_PATH.format(entry.filename)
+                    )
                 expanded += entry.file_size
                 if expanded > 100 * 1024**2:
                     raise DatasetPolicyError("expanded project exceeds 100 MiB")
-                target = destination / relative
+                target = root / relative
+                if not target.resolve().is_relative_to(root):
+                    raise DatasetPolicyError(
+                        _UNSAFE_PROJECT_PATH.format(entry.filename)
+                    )
                 if entry.is_dir():
                     target.mkdir(parents=True, exist_ok=True)
                     continue

@@ -449,7 +449,7 @@ def test_only_the_administrator_session_may_sort(
 ) -> None:
     sessions = {
         "admin.sig": main.Identity(ADMIN_ID, "admin", "ADMIN"),
-        "member.sig": main.Identity("15002e91", "shawn", "MEMBER"),
+        "member.sig": main.Identity("member-id", "member", "MEMBER"),
         "other-admin.sig": main.Identity("another-admin", "root2", "ADMIN"),
     }
     seen: list[str] = []
@@ -1299,6 +1299,15 @@ def decision_log(client: TestClient, base: str = P) -> list[dict[str, Any]]:
 def assert_rollback_log(
     before: list[dict[str, Any]], after: list[dict[str, Any]]
 ) -> None:
+    """The log is unchanged except for the cancelled journal of the attempt."""
+    journal = [
+        r
+        for r in after
+        if r["record_type"] == "duplicate_resolution" and r not in before
+    ]
+    assert len(journal) == 1
+    assert journal[0]["cancelled_at"] and not journal[0]["completed_at"]
+    after = [r for r in after if r not in journal]
     assert len(after) == len(before)
     for original, current in zip(before, after, strict=True):
         original, current = original.copy(), current.copy()
@@ -1595,8 +1604,9 @@ def test_correction_rolls_back_move_when_label_write_fails(
         raise sqlite3.IntegrityError("fixture label failure")
 
     monkeypatch.setattr(SorterRepository, "record", fail)
-    with pytest.raises(sqlite3.IntegrityError):
-        reclassify(client, entry, "school")
+    response = reclassify(client, entry, "school")
+    assert response.status_code == 500
+    assert "moved back" in response.json()["detail"]
     assert (library[1] / "work/b-notes.txt").exists()
     assert not (library[1] / "school/b-notes.txt").exists()
     assert_rollback_log(before, decision_log(client))
@@ -1615,8 +1625,9 @@ def test_undo_correction_rolls_back_when_log_write_fails(
         raise sqlite3.IntegrityError("fixture undo failure")
 
     monkeypatch.setattr(SorterRepository, "mark_undone", fail)
-    with pytest.raises(sqlite3.IntegrityError):
-        client.post(P + "/undo")
+    response = client.post(P + "/undo")
+    assert response.status_code == 500
+    assert "moved back" in response.json()["detail"]
     assert (library[1] / "school/b-notes.txt").exists()
     assert not (library[1] / "work/b-notes.txt").exists()
     assert_rollback_log(before, decision_log(client))

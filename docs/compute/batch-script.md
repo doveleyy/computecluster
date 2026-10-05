@@ -43,8 +43,8 @@ advanced override can replace it for one submission.
 
 ## What is uploaded
 
-A live batch submission consists of one immutable project object plus zero or
-more named immutable file objects:
+A batch submission consists of one immutable project object plus zero or more
+named immutable file objects:
 
 ```text
 project ZIP
@@ -80,10 +80,10 @@ Files already on the NAS may instead be bound with
 `--input-storage NAME=LOGICAL_PATH`, using the same `Home/...` and `Shared/...`
 vocabulary as Job Desk and `#HP` defaults. The coordinator resolves and
 hashes the selected regular file without copying it into upload staging. The
-coordinator serves those bytes from its authenticated Synology mount over the
+coordinator serves those bytes from its authenticated NAS mount over the
 worker's control-plane connection; the worker verifies the recorded size and
 digest and uses the same content-addressed cache. This removes the browser
-upload limit, but it is not yet the final direct-storage data plane.
+upload limit, but the bytes still pass through the coordinator.
 
 ## Writing the header
 
@@ -118,7 +118,7 @@ platform never executes or sources your file to discover what it declares.
 | `--input NAME` | 0 or more | Declare a logical input that must be bound when submitted |
 | `--input NAME=REFERENCE` | 0 or more | Safe default Job Desk reference rooted at `Home/...` or `Shared/...` |
 | `--env KEY=VALUE` | 0 or more | Set a non-secret environment value |
-| `--array START-END` | exactly 1 in the live subset | Create one child task for every integer in the inclusive range |
+| `--array START-END` | exactly 1 | Create one child task for every integer in the inclusive range |
 | `--after-success ID` | 0 or more | Start only after the named job or group succeeds |
 | `--worker ID` | 0 or 1 | Request a particular registered worker |
 
@@ -147,7 +147,7 @@ Names used by `--input` and keys used by `--env` must match
 cannot be set through `--env`. Never put a secret in a script header.
 Repeating an input name or environment key in the base header is invalid.
 
-The live parser accepts named `--input`, default logical paths, `--env`,
+The parser accepts named `--input`, default logical paths, `--env`,
 `--array`, and `--worker`. Every declared input must resolve to exactly one
 binding and undeclared bindings are rejected. A default must be a normalized
 `Home/...` or `Shared/...` logical path; absolute paths, traversal, and physical
@@ -216,7 +216,7 @@ pixi run client --url CONTROL_PLANE_URL \
   --input-size-bytes observations=123456789
 ```
 
-Local, URL, and HomeStorage bindings cannot reuse the same name. Every declared
+Local, URL, and NAS storage bindings cannot reuse the same name. Every declared
 `#HP --input` must have exactly one effective binding, and every supplied
 binding must be declared. Job Desk may derive that effective binding from a
 safe header default. Obtain the size and SHA-256 for URL inputs from a trusted
@@ -227,7 +227,7 @@ array** and select a project ZIP or a project folder already in storage. For a
 storage folder it previews the job name, runtime, resources, array, and inputs.
 Safe `Home/...` and `Shared/...` defaults resolve automatically; **Input
 overrides** is needed only for a declaration without a default or a deliberate
-per-run replacement. HomeStorage project folders are snapshotted into the same
+per-run replacement. Project folders on the NAS are snapshotted into the same
 bounded immutable ZIP used by CLI submissions.
 
 ## Filesystem contract
@@ -254,7 +254,7 @@ For `#HP --input observations`, the stable path is
 path, user home, NAS mount, or drive letter.
 
 The worker invokes the entrypoint with Bash inside the selected container. It
-never runs submitted Bash in the macOS or Windows host shell. The container is
+never runs submitted Bash in the worker's own host shell. The container is
 unprivileged, has a read-only root filesystem, no network, no platform
 credentials, no Docker socket, and only the declared mounts.
 

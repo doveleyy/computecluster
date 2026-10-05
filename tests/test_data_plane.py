@@ -1,4 +1,8 @@
 import hashlib
+import io
+import os
+import time
+import zipfile
 from pathlib import Path
 from uuid import uuid4
 
@@ -9,14 +13,40 @@ from contracts.models import (
     DatasetReference,
     StorageInputReference,
     UploadedDatasetReference,
+    UploadedProjectReference,
 )
 from worker.data_plane import (
     DatasetPolicyError,
     WorkerWorkspace,
     materialize_batch_input,
     materialize_dataset,
+    materialize_project,
     prune_cache,
 )
+
+# Names that look relative under POSIX rules but escape, collide, or hit a
+# device under Windows rules. The server and the worker must agree on them.
+UNSAFE_PROJECT_ENTRY_NAMES = [
+    "D:evil.dll",
+    "C:x",
+    "sub/D:x",
+    "file.txt:stream",
+    "back\\slash.txt",
+    "\\\\?\\x",
+    "/absolute",
+    "//server/share/x",
+    "../up",
+    "a/../b",
+    "a/.. /x",
+    "trailing.",
+    "trailing /x",
+    "CON",
+    "con.txt",
+    "COM1",
+    "lpt9.log",
+]
+
+SAFE_PROJECT_ENTRY_NAMES = ["submit.hp", "lib/", "lib/util.py", "data.v2.csv", "nul_ok"]
 
 
 class ResponseStream:
@@ -281,3 +311,85 @@ def test_python_dataset_can_use_the_same_storage_reference(
     materialized = materialize_dataset(reference, worker_workspace)
 
     assert materialized.read_bytes() == content
+
+
+def cached_project(
+    tmp_path: Path, names: list[str]
+) -> tuple[WorkerWorkspace, UploadedProjectReference]:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        for name in names:
+            archive.writestr(name, b"" if name.endswith("/") else b"payload")
+    content = output.getvalue()
+    worker_workspace = WorkerWorkspace(
+        root=tmp_path / "worker-data",
+        allowed_dataset_hosts=frozenset(),
+        max_dataset_bytes=1024 * 1024,
+        control_plane_url="https://control.example",
+        api_token="worker-secret",
+    )
+    digest = hashlib.sha256(content).hexdigest()
+    projects = worker_workspace.root / "projects"
+    projects.mkdir(parents=True)
+    (projects / f"{digest}.zip").write_bytes(content)
+    reference = UploadedProjectReference(
+        upload_id=uuid4(), sha256=digest, size_bytes=len(content)
+    )
+    return worker_workspace, reference
+
+
+@pytest.mark.parametrize("name", UNSAFE_PROJECT_ENTRY_NAMES)
+def test_project_extraction_rejects_entries_unsafe_on_posix_or_windows(
+    tmp_path: Path, name: str
+) -> None:
+    worker_workspace, reference = cached_project(tmp_path, [name, "submit.hp"])
+    destination = worker_workspace.root / "runs" / "job" / "project"
+
+    with pytest.raises(DatasetPolicyError, match="unsafe path"):
+        materialize_project(reference, worker_workspace, destination)
+
+    assert [item for item in tmp_path.rglob("*") if item.is_file()] == [
+        worker_workspace.root / "projects" / f"{reference.sha256}.zip"
+    ]
+
+
+def test_project_extraction_writes_safe_entries_under_destination(
+    tmp_path: Path,
+) -> None:
+    worker_workspace, reference = cached_project(tmp_path, SAFE_PROJECT_ENTRY_NAMES)
+    destination = worker_workspace.root / "runs" / "job" / "project"
+
+    materialize_project(reference, worker_workspace, destination)
+
+    written = sorted(
+        item.relative_to(destination).as_posix()
+        for item in destination.rglob("*")
+        if item.is_file()
+    )
+    assert written == ["data.v2.csv", "lib/util.py", "nul_ok", "submit.hp"]
+    assert (destination / "lib").is_dir()
+
+
+def test_prune_removes_stale_partial_downloads_and_keeps_live_ones(
+    tmp_path: Path,
+) -> None:
+    worker_workspace = WorkerWorkspace(
+        root=tmp_path / "worker-data",
+        allowed_dataset_hosts=frozenset(),
+        max_dataset_bytes=1024,
+        max_cache_bytes=100,
+    )
+    cache = worker_workspace.root / "cache"
+    cache.mkdir(parents=True)
+    stale = cache / ".abandoned.1.part"
+    live = cache / ".downloading.2.part"
+    stale.write_bytes(b"123456")
+    live.write_bytes(b"123456")
+    hour_ago = int((time.time() - 3600) * 1_000_000_000)
+    os.utime(stale, ns=(hour_ago, hour_ago))
+
+    removed = prune_cache(worker_workspace)
+
+    assert removed == (1, 6)
+    assert not stale.exists()
+    assert live.exists()

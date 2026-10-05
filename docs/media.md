@@ -26,7 +26,7 @@ platform rather than inside it.
                          | SMB, dedicated read-only account
                          v
     +--------------------------------------------------+
-    | NAS: `Media` share, separate from every other    |
+    | NAS: the media share, separate from every other  |
     | share and from every platform account            |
     +--------------------------------------------------+
 ```
@@ -72,7 +72,7 @@ rather than a platform service with access to platform data.
 The media server can read the library and cannot change it. That is enforced
 by three independent layers, so no single mistake grants write access:
 
-1. **A dedicated file-server account** with read-only access to the `Media`
+1. **A dedicated file-server account** with read-only access to the media
    share and no access to any other share or service on the NAS.
 2. **A read-only mount** on the workstation, made with that account.
 3. **A read-only bind** of that mount into the container.
@@ -87,7 +87,7 @@ of letting it start against an empty directory and forget the library.
 
 ## Adding media
 
-Copy files into the `Media` share from any file app over SMB. The media server
+Copy files into the media share from any file app over SMB. The media server
 sees them immediately on disk, but it does **not** watch the share for changes:
 change notifications are not reliable over a network mount. New files appear in
 the library after the next library scan, either on its schedule or started by
@@ -95,7 +95,7 @@ hand from the media server's dashboard.
 
 File-server recycle bins deserve one warning. When a share's recycle bin is on,
 a deleted file is moved into a hidden folder inside that same share, where a
-library scan can find it again. Either disable the recycle bin on the `Media`
+library scan can find it again. Either disable the recycle bin on the media
 share or restrict it to administrators, so the media server's account cannot
 see deleted files.
 

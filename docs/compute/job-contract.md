@@ -58,23 +58,21 @@ instead of requeueing it.
 |---|---|---|---|
 | `sleep` | `seconds`, 1–300 | Worker sleeps | `slept_seconds` |
 | `python_batch` | Uploaded `.py` + verified dataset, timeout ≤ 7 days, 0.1–8 CPUs, 256–16384 MiB | Fixed container image, no network, read-only inputs | Exit code, truncated stdout/stderr, output filenames, artifact reference |
-| `batch` | ZIP/HomeStorage project, uploaded files up to 20 MiB, verified HTTPS files, or HomeStorage regular files, `submit.hp`, numeric array, timeout ≤ 7 days, 0.1–8 CPUs, 256–16384 MiB | Approved container runtime executes Bash once per array index with read-only logical inputs | Per-child logs, flat output files, artifact reference |
+| `batch` | ZIP or NAS-folder project, uploaded files up to 20 MiB, verified HTTPS files, or NAS regular files, `submit.hp`, numeric array, timeout ≤ 7 days, 0.1–8 CPUs, 256–16384 MiB | Approved container runtime executes Bash once per array index with read-only logical inputs | Per-child logs, flat output files, artifact reference |
 
-The former `dataset_script/csv_summary` handler is retired. New submissions are
-rejected and workers no longer advertise or execute it. Its schema remains
-readable only so completed historical records do not corrupt job history.
+Older records may carry the type `dataset_script`. The API still reads them,
+but rejects new submissions of that type, and no worker advertises or runs it.
 
-`python_batch` remains the lightweight convenience path. The implemented first
-general-batch slice provides a shell entrypoint, project bundle, uploaded,
-verified-HTTPS, or HomeStorage named file inputs, a resource request, and a
-numeric task array. Directory inputs and reusable runtime selection remain
-planned. Machine learning is one possible workload, not the scheduler's
-organizing abstraction.
+`python_batch` is the lightweight convenience path. `batch` provides a shell
+entrypoint, a project bundle, named file inputs (uploaded, verified HTTPS, or
+on the NAS), a resource request, and a numeric task array. It does not accept
+directory inputs, and it offers one registered runtime. Machine learning is
+one possible workload, not the scheduler's organizing abstraction.
 
 Contributor-facing instructions are separated by job type in the
 [authoring index](README.md). The [Python script guide](python-script.md)
 describes the lightweight contract; the [batch script standard](batch-script.md)
-defines the live numeric-array subset and marks later features explicitly.
+defines the supported numeric-array subset and marks unsupported features.
 
 ## Resource limits
 
@@ -122,7 +120,7 @@ n_jobs = max(1, int(cpu_limit))     # NOT n_jobs=-1
 `n_jobs=-1` inside a container sees the host's cores, not the quota, and
 recreates exactly the oversubscription above.
 
-Measured on one Mac grid search, with identical results both times:
+Measured on one worker's grid search, with identical results both times:
 
 | Quota | Threads | Elapsed |
 |---|---|---|
@@ -176,13 +174,13 @@ repeated dataset is fetched once. General `batch` named inputs use the same two
 reference shapes and verification rules; they are exposed by logical name
 instead of being restricted to a CSV dataset variable.
 
-**HomeStorage** — a logical storage ID, normalized share-relative path, exact
-size, and SHA-256. The coordinator resolves only regular files below its
-configured storage root, rejects traversal and symbolic links, and never puts
-host paths into the job. The coordinator serves the file from its authenticated
-Synology mount to an authenticated worker, which verifies and caches it.
-Directory references and direct worker-to-file-server resolution are not yet
-available.
+**NAS storage** — a logical storage ID (`home-storage`), normalized
+share-relative path, exact size, and SHA-256. The coordinator resolves only
+regular files below its configured storage root, rejects traversal and
+symbolic links, and never puts host paths into the job. The coordinator serves
+the file from its authenticated NAS mount to an authenticated worker, which
+verifies and caches it. Directory references are not supported, and workers
+never read the file server directly.
 
 ## Worker protocol
 
@@ -235,10 +233,10 @@ scheduling, cancellation, and result semantics.
 | `POST /uploads/scripts` | Stage a Python script, returns a verified reference |
 | `POST /uploads/projects` | Stage and validate a ZIP project, returns a verified reference |
 | `POST /uploads/inputs` | Stage an arbitrary named-input file up to 20 MiB |
-| `GET /storage` | Browse safe, non-hidden HomeStorage entries by relative directory |
-| `POST /storage/references` | Hash one existing HomeStorage file into an immutable job reference |
-| `POST /storage/project-uploads` | Package one HomeStorage project folder as a bounded project ZIP |
-| `GET /storage/files/{path}` | Authenticated worker transfer for one referenced HomeStorage regular file |
+| `GET /storage` | Browse safe, non-hidden NAS storage entries by relative directory |
+| `POST /storage/references` | Hash one existing NAS storage file into an immutable job reference |
+| `POST /storage/project-uploads` | Package one NAS storage project folder as a bounded project ZIP |
+| `GET /storage/files/{path}` | Authenticated worker transfer for one referenced NAS storage regular file |
 | `POST /batch-submissions` | Parse `submit.hp` and atomically create its numeric task group |
 
 ## Job groups

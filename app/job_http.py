@@ -1,20 +1,14 @@
-"""Shared HTTP-layer helpers for job transitions and staged input cleanup."""
+"""Shared HTTP-layer helpers for job submission, transitions and staged inputs."""
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Annotated, cast
 from uuid import UUID
 
-from fastapi import HTTPException, Request, status
+from fastapi import Depends, Header, HTTPException, Request, status
 
-from app.batch_script import BatchScriptError, compile_batch_submission
-from app.service import (
-    IdempotencyConflictError,
-    JobNotFoundError,
-    JobService,
-    JobTransitionError,
-    SchedulingCapacityError,
-    WorkerNotFoundError,
-)
+from app.batch_script import compile_batch_submission
+from app.service import JobNotFoundError, JobService
 from contracts.models import (
     BatchSubmissionCreate,
     JobCreate,
@@ -26,6 +20,22 @@ from contracts.models import (
     UploadedProjectReference,
     UploadedScriptReference,
 )
+
+
+def get_job_service(request: Request) -> JobService:
+    return cast(JobService, request.app.state.job_service)
+
+
+JobServiceDependency = Annotated[JobService, Depends(get_job_service)]
+IdempotencyKey = Annotated[
+    str | None,
+    Header(
+        alias="Idempotency-Key",
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9._:-]+$",
+    ),
+]
 
 
 def create_batch_submission(
@@ -40,28 +50,10 @@ def create_batch_submission(
         / "projects"
         / f"{submission.project.upload_id}.zip"
     )
-    try:
-        group_create = compile_batch_submission(submission, archive)
-        if owner_user_id is None:
-            return job_service.create_group(group_create, idempotency_key)
-        return job_service.create_group(group_create, idempotency_key, owner_user_id)
-    except BatchScriptError as error:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(error),
-        ) from error
-    except WorkerNotFoundError as error:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(error)
-        ) from error
-    except SchedulingCapacityError as error:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(error)
-        ) from error
-    except IdempotencyConflictError as error:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(error)
-        ) from error
+    group_create = compile_batch_submission(submission, archive)
+    if owner_user_id is None:
+        return job_service.create_group(group_create, idempotency_key)
+    return job_service.create_group(group_create, idempotency_key, owner_user_id)
 
 
 def create_job(
@@ -71,23 +63,9 @@ def create_job(
     owner_user_id: str | None = None,
 ) -> JobRead:
     """Run the one canonical submission path for every human client adapter."""
-    try:
-        if owner_user_id is None:
-            return job_service.create(job_create, idempotency_key)
-        return job_service.create(job_create, idempotency_key, owner_user_id)
-    except WorkerNotFoundError as error:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail=str(error)
-        ) from error
-    except SchedulingCapacityError as error:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=str(error),
-        ) from error
-    except IdempotencyConflictError as error:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(error)
-        ) from error
+    if owner_user_id is None:
+        return job_service.create(job_create, idempotency_key)
+    return job_service.create(job_create, idempotency_key, owner_user_id)
 
 
 def referenced_uploads(job: JobRead | JobCreate) -> set[UUID]:
@@ -130,7 +108,7 @@ def release_uploads(request: Request, job_service: JobService, job: JobRead) -> 
 
 
 def finish_job(action: Callable[[], JobRead], job_id: UUID) -> JobRead:
-    """Map service-layer transition errors to the public HTTP contract."""
+    """Map a missing job to the public 404; transition conflicts map app-wide."""
     try:
         return action()
     except JobNotFoundError:
@@ -138,8 +116,3 @@ def finish_job(action: Callable[[], JobRead], job_id: UUID) -> JobRead:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Job with ID {job_id} not found",
         ) from None
-    except JobTransitionError as error:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(error),
-        ) from error

@@ -6,7 +6,8 @@ from zoneinfo import ZoneInfo
 import pytest
 from fastapi.testclient import TestClient
 
-from services.habit_tracker.main import Identity, create_app
+from services.common.identity import Identity
+from services.habit_tracker.main import create_app
 
 
 def client(tmp_path: Path) -> TestClient:

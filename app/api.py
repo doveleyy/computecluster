@@ -1,12 +1,11 @@
 import sqlite3
 from secrets import compare_digest
-from typing import Annotated, cast
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import (
     APIRouter,
     Depends,
-    Header,
     HTTPException,
     Path,
     Request,
@@ -15,16 +14,14 @@ from fastapi import (
 )
 from fastapi.security import APIKeyHeader
 
-from app.job_http import create_job as create_job_from_client
-from app.job_http import finish_job, release_uploads
-from app.service import (
-    IdempotencyConflictError,
-    JobGroupNotFoundError,
-    JobService,
-    JobTransitionError,
-    SchedulingCapacityError,
-    WorkerNotFoundError,
+from app.job_http import (
+    IdempotencyKey,
+    JobServiceDependency,
+    finish_job,
+    release_uploads,
 )
+from app.job_http import create_job as create_job_from_client
+from app.service import JobGroupNotFoundError, WorkerNotFoundError
 from app.version import VERSION
 from contracts.models import (
     JobCompletion,
@@ -47,9 +44,6 @@ def create_router() -> APIRouter:
     router = APIRouter()
     api_token_header = APIKeyHeader(name="X-API-Token", auto_error=False)
 
-    def get_job_service(request: Request) -> JobService:
-        return cast(JobService, request.app.state.job_service)
-
     def require_api_token(
         request: Request,
         supplied_token: Annotated[str | None, Security(api_token_header)],
@@ -63,7 +57,6 @@ def create_router() -> APIRouter:
                 detail="Missing or invalid API token",
             )
 
-    JobServiceDependency = Annotated[JobService, Depends(get_job_service)]
     Authorized = Annotated[None, Depends(require_api_token)]
 
     @router.get("/health")
@@ -94,15 +87,7 @@ def create_router() -> APIRouter:
         job_create: JobCreate,
         job_service: JobServiceDependency,
         _: Authorized,
-        idempotency_key: Annotated[
-            str | None,
-            Header(
-                alias="Idempotency-Key",
-                min_length=1,
-                max_length=128,
-                pattern=r"^[A-Za-z0-9._:-]+$",
-            ),
-        ] = None,
+        idempotency_key: IdempotencyKey = None,
     ) -> JobRead:
         return create_job_from_client(job_service, job_create, idempotency_key)
 
@@ -115,31 +100,9 @@ def create_router() -> APIRouter:
         group_create: JobGroupCreate,
         job_service: JobServiceDependency,
         _: Authorized,
-        idempotency_key: Annotated[
-            str | None,
-            Header(
-                alias="Idempotency-Key",
-                min_length=1,
-                max_length=128,
-                pattern=r"^[A-Za-z0-9._:-]+$",
-            ),
-        ] = None,
+        idempotency_key: IdempotencyKey = None,
     ) -> JobGroupRead:
-        try:
-            return job_service.create_group(group_create, idempotency_key)
-        except WorkerNotFoundError as error:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail=str(error)
-            ) from error
-        except SchedulingCapacityError as error:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                detail=str(error),
-            ) from error
-        except IdempotencyConflictError as error:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=str(error)
-            ) from error
+        return job_service.create_group(group_create, idempotency_key)
 
     @router.get("/job-groups", response_model=list[JobGroupRead])
     def list_job_groups(
@@ -209,12 +172,7 @@ def create_router() -> APIRouter:
         job_service: JobServiceDependency,
         _: Authorized,
     ) -> WorkerHeartbeatResponse:
-        try:
-            return job_service.heartbeat(heartbeat)
-        except JobTransitionError as error:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT, detail=str(error)
-            ) from error
+        return job_service.heartbeat(heartbeat)
 
     @router.get("/workers", response_model=list[WorkerRead])
     def list_workers(

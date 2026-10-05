@@ -55,6 +55,15 @@ Only the holder of the **current** lease token may complete or fail a job. A
 stale token is rejected, so a worker returning from the dead cannot overwrite a
 result produced by its replacement.
 
+A worker that learns its lease is gone, by a rejected renewal or by failing to
+renew for the length of the lease, stops the job's container rather than
+finishing work nobody can accept. A renewal that merely fails to reach the
+coordinator is retried; one blip does not abandon a lease. For the same reason
+a worker reports completion or failure with retries, while still renewing, so
+a blip after the results are published does not turn a finished job into a
+rerun. A restarting worker removes any job container a previous process left
+running, since the wall-clock limit lived in that process.
+
 ### Cancellation
 
 Queued cancellation is immediate. Running cancellation is cooperative across
@@ -171,7 +180,9 @@ rules apply, and the asymmetry is deliberate:
 - **Inputs are released when a job reaches a terminal state** — unless another
   unfinished job shares the same upload.
 - **The worker's copy is deleted once publishing succeeds.** A *failed* publish
-  leaves it alone, because it is then the only remaining copy.
+  leaves it alone, because it is then the only remaining copy; only the newest
+  few such copies are kept, as a backstop. The worker's staged inputs are
+  released however a job ends, since they are copies of its cache.
 - **Published results never expire by age.** They are what the job was for. A
   total-size ceiling exists only as a backstop against a runaway.
 

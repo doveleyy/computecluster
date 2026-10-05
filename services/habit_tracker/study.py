@@ -8,6 +8,8 @@ from typing import TypedDict
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from services.common.sqlite import connect
+
 
 @dataclass(frozen=True)
 class StudySession:
@@ -88,6 +90,14 @@ class StudyRepository:
                 )
         except sqlite3.Error:
             return False
+
+    def adopt_identity(
+        self, connection: sqlite3.Connection, old_owner: str, new_owner: str
+    ) -> None:
+        connection.execute(
+            "UPDATE study_sessions SET owner_identity = ? WHERE owner_identity = ?",
+            (new_owner, old_owner),
+        )
 
     def start(
         self,
@@ -185,7 +195,6 @@ class StudyRepository:
     def summary(self, owner: str, now: datetime | None = None) -> StudySummary:
         now = now or datetime.now(UTC)
         with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
             self._complete_expired(connection, owner, now)
             active_row = connection.execute(
                 "SELECT * FROM study_sessions WHERE owner_identity = ? "
@@ -232,7 +241,6 @@ class StudyRepository:
         range_start, _ = self._utc_bounds(first_day)
         _, range_end = self._utc_bounds(end_day)
         with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
             self._complete_expired(connection, owner, now)
             rows = connection.execute(
                 """
@@ -262,6 +270,18 @@ class StudyRepository:
     def _complete_expired(
         connection: sqlite3.Connection, owner: str, now: datetime
     ) -> None:
+        # Reads used to take the write lock and commit every time; only an
+        # expired session needs a write. The UPDATE re-checks its condition
+        # under the lock, so a concurrent close is harmless.
+        expired = connection.execute(
+            "SELECT 1 FROM study_sessions WHERE owner_identity = ? "
+            "AND status = 'active' AND planned_end_at <= ? LIMIT 1",
+            (owner, now.isoformat()),
+        ).fetchone()
+        if expired is None:
+            return
+        if not connection.in_transaction:  # start/finish already hold the lock
+            connection.execute("BEGIN IMMEDIATE")
         connection.execute(
             """
             UPDATE study_sessions
@@ -290,8 +310,4 @@ class StudyRepository:
         )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self._database_path, timeout=10)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 10000")
-        return connection
+        return connect(self._database_path, row_factory=sqlite3.Row)

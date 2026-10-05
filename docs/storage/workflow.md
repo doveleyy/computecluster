@@ -1,14 +1,15 @@
-# Files In and Out of a Job
+# Files in and out of a job
 
 How a member's files are organised, how the platform resolves them, and how they
 reach a job and come back as published output.
 
-Files reach a job through the Synology `HomeStorage` share rather than a browser
-upload form, which keeps projects and datasets out of SQLite while preserving
-the same PBS-style job contract. Synology is also the owner-scoped artifact
-provider and the only SMB server; optional Pi-attached storage is local-only.
+Files reach a job from a storage share on the NAS rather than through a browser
+upload form. That keeps projects and datasets out of SQLite while the job keeps
+the same PBS-style contract. The NAS also holds the owner-scoped artifacts, and
+it is the only SMB server.
 
-Directory names below are real; account identifiers are placeholders.
+Directory names below show the layout the application expects; account
+identifiers are placeholders.
 
 ## File areas
 
@@ -45,8 +46,8 @@ and file names survive. It is refused while one of your jobs is running.
 `Home` and `Shared` are path rewrites: one logical path, one stored path.
 
 ```text
-Home/notes.csv     ──►  HomeStorage/users/<stable-user-id>/notes.csv
-Shared/ref.fa      ──►  HomeStorage/shared/ref.fa
+Home/notes.csv     ──►  <storage root>/users/<stable-user-id>/notes.csv
+Shared/ref.fa      ──►  <storage root>/shared/ref.fa
 ```
 
 `Artifacts` is owner-scoped on disk as well as in the database. The readable
@@ -61,7 +62,7 @@ directly, as `Storage/` and `Artifacts/`, because administrative scope spans
 every account:
 
 ```text
-HomePlatform/
+<storage root>/
 ├── users/                        one directory per member, keyed by account ID
 │   ├── <stable-user-id>/         a member's private Home
 │   │   └── Workspace/            the only browser-writable subtree
@@ -69,8 +70,6 @@ HomePlatform/
 │   │       └── Projects/
 │   └── <stable-user-id>/         another member; mutually unreadable
 ├── shared/                       common to every member
-├── projects/                     transitional: operator-managed project folders
-├── inputs/                       transitional: operator-managed job inputs
 └── artifacts/                    published job output
     ├── <stable-user-id>/         one ACL-isolated owner root
     │   └── <job-name>-<short-id>/
@@ -82,8 +81,9 @@ HomePlatform/
 Note that `users/<a>/` and `users/<b>/` are siblings: the path shape prevents
 nothing. The `Home` mapping confines a member to their own tree, and filesystem
 permissions enforce the same boundary independently for anyone on SMB.
-`artifacts/` repeats the owner boundary in DSM ACLs. Application authorization
-still checks the immutable job owner on every browse, download, and delete.
+`artifacts/` repeats the owner boundary in file-server ACLs. Application
+authorization still checks the immutable job owner on every browse, download,
+and delete.
 
 Two ways in: connect over SMB with Finder, Explorer, or the iOS Files app for
 large trees, or use **Files** in Job Desk for browsing, downloads, and bounded
@@ -102,7 +102,7 @@ large trees, or use **Files** in Job Desk for browsing, downloads, and bounded
 6. Review the contract detected from `submit.hp`. A declaration such as:
 
 ```bash
-#HP --input cohort=Home/Inputs/cohort.csv
+#HP --input cohort=Home/Workspace/Inputs/cohort.csv
 #HP --input reference=Shared/References/reference.fa
 ```
 
@@ -119,11 +119,11 @@ verify those fields before making the file visible at
 
 ## Submit from the CLI
 
-The project may still be local while its data is already in HomeStorage:
+The project may still be local while its data is already on the NAS:
 
 ```bash
 pixi run client submit-batch ./cohort-analysis \
-  --input-storage cohort=Home/USER_ID/Inputs/cohort.csv \
+  --input-storage cohort=Home/USER_ID/Workspace/Inputs/cohort.csv \
   --input-storage reference=Shared/References/reference.fa
 ```
 
@@ -142,25 +142,24 @@ pixi run client submit-python-batch train.py \
   --name "cohort model"
 ```
 
-## Current boundaries
+## Limits
 
-- HomeStorage inputs are regular files. Directory inputs are the next storage
-  contract extension.
+- Storage inputs are regular files. Directory inputs are not supported.
 - Application member accounts are owner-scoped. Provisioned members see virtual
   `Home/...` and `Shared/...` paths; the server maps `Home` to the signed-in
   account's stable UUID and rejects paths outside those roots. Other accounts
   fail closed until explicitly provisioned.
 - Job Desk folder creation and file upload are limited to
-  `Home/Workspace/...` and require a separate workspace service mount. Those
-  mutations require a separate workspace mount and are enabled per account.
+  `Home/Workspace/...`. They use a separate workspace service mount and are
+  enabled per account.
 - Operator Files can inspect the complete provider and use that same constrained
   mount to manage a named member's Workspace. It cannot write Shared or other
   Home paths, and move/copy operations cannot cross member accounts.
 - Do not rename or edit an input after submission. If its bytes no longer match
   the recorded digest, the worker fails safely instead of running changed data.
-- The coordinator currently streams selected Synology file bytes to workers.
-  They are not placed in SQLite or copied to microSD staging. Direct
-  worker-to-NAS resolution is a later data-plane optimisation.
+- The coordinator streams the selected file bytes from its NAS mount to the
+  worker. They are never placed in SQLite or copied into upload staging on the
+  host. Workers do not yet read the NAS directly.
 - Project archives remain limited to 20 MiB compressed, 100 MiB expanded, and
   1,000 entries. Put large data in named inputs, not inside the project.
 

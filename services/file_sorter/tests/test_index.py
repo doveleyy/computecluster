@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import queue
 import sqlite3
 import threading
 from collections.abc import Iterator
@@ -613,6 +614,36 @@ def test_index_worker_does_not_block_reads_while_hashing(
     finally:
         release.set()
         index.stop()
+
+
+def test_personal_scan_schedule_keeps_manual_audits_retry_and_shutdown_responsive(
+    indexed: Any, monkeypatch: Any
+) -> None:
+    _, index, _, _ = indexed
+    waits: queue.Queue[float] = queue.Queue()
+    audits: list[bool] = []
+    original_wait = index._wake.wait
+
+    def wait(timeout: float) -> bool:
+        waits.put(timeout)
+        return bool(original_wait(timeout))
+
+    def scan(verify_all: bool = False) -> None:
+        audits.append(verify_all)
+        index._retry_soon = verify_all
+
+    monkeypatch.setattr(index._wake, "wait", wait)
+    monkeypatch.setattr(index, "scan", scan)
+    START_INDEX(index)
+    try:
+        assert waits.get(timeout=3) == 10800  # startup, then three-hour wait
+        assert audits == [False]
+        index.request(verify_all=True)  # wakes the worker without waiting hours
+        assert waits.get(timeout=3) == 60  # a changing file keeps its quick retry
+        assert audits == [False, True]
+    finally:
+        index.stop()
+    assert index._thread is not None and not index._thread.is_alive()
 
 
 def test_index_routes_require_administrator(tmp_path: Path) -> None:

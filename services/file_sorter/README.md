@@ -19,7 +19,8 @@ model.
   entry. In `files` mode every file at any depth is queued by its path, and
   subfolders emptied by sorting are tidied away. The queue is cached briefly
   and updated by the sorter's own moves. Returning to the window with the
-  queue empty looks again; the ⋯ menu's **Look for new files now** forces it.
+  queue empty looks again, at most once a minute; the ⋯ menu's **Look for new
+  files now** forces it.
   Hidden files and partial downloads are never queued. Skip sends an entry
   to the back; Discard moves it to `_discarded/` in the tree; Undo reverses
   the project's most recent sort or discard. Nothing is ever deleted.
@@ -30,8 +31,9 @@ model.
   exist. Search names and paths across all folders, choose a directory or
   show only files needing review. A directory includes direct files by
   default; the **Subfolders** chip unfolds its entire subtree. The list
-  refreshes itself on entry, after actions, when an index scan completes and
-  when the window regains focus, and loads more as it is scrolled. Manual
+  refreshes itself on entry, after actions and when an index scan completes,
+  and loads more as it is scrolled. Returning to the window rechecks the
+  index status, at most once a minute, without starting a scan. Manual
   sorts and corrections already count as reviewed, but remain available in
   the all-files view. The list is read from the file index, not by walking
   the NAS; only a tree no scan has covered yet is walked. `J` goes back and
@@ -46,10 +48,20 @@ model.
   each move is a single no-replace rename: no bytes are copied, a move is
   never half done, and an existing destination is never overwritten.
   Entries that changed since they were previewed are refused.
-- **Disk and log never part.** Every rename is followed by its log write.
-  If that write fails, the rename is reversed: classify, discard and folder
-  moves move the entry back. If even the reversal fails, the error says
-  where the entry now is.
+- **Disk and log never part.** Every sort, discard, correction, folder
+  move and Undo journals its intent in `duplicate_resolutions` before it
+  renames anything. The log write then marks that journal row complete in
+  the same transaction. A refused rename cancels the row. If the log write
+  fails, the rename is reversed and the row cancelled; if even the reversal
+  fails, the error says where the entry now is and the row stays open.
+- **An interrupted rename is settled from the disk.** At start-up and
+  before each write, the sorter checks every open journal row against the
+  disk and never renames anything while it does. An entry found only at its
+  destination, with the journaled size and modification time, is logged
+  exactly as its request would have logged it. An entry found only at its
+  source drops the row. Any other state keeps the row open and blocks
+  writes until the owner puts the entry, unchanged, at exactly one of the
+  two paths.
 - **Nothing the views would hide can be created.** New folder names cannot
   start with `.`, `#` or `@`, use a reserved name anywhere, or look like
   temporary files. New filenames must be visible queue names. Destinations
@@ -98,8 +110,11 @@ model.
   unreviewed until a decision is made about them.
 - **Access.** The page requires the private proxy's identity header **and**
   the platform administrator's dashboard session cookie. The cookie is
-  forwarded to the control plane for validation on every request, so the
-  service holds no session secret. Members are refused.
+  forwarded to the control plane for validation, so the service holds no
+  session secret. A valid answer is trusted for 60 seconds, keyed by a hash
+  of the cookie; a refused or failed one is never kept. Disabling the
+  account therefore reaches the sorter within 60 seconds. Members are
+  refused.
 
 ## Duplicate review
 
@@ -144,17 +159,33 @@ extra copies cause recovery to refuse without overwriting them.
 
 ## File index and reconciliation
 
+Routine container liveness calls `/health` every five minutes, and every two
+seconds while the container starts, without accessing the NAS. `/ready` retains
+a bounded live directory probe for explicit readiness checks, including
+deployment verification. Polling `/ready` frequently can keep the NAS disks
+awake even when no index scan is running.
+
 The SQLite database also holds document identities, current file locations,
 full hashes and append-only observation events. IDs are independent from
 decision IDs; existing document IDs survive migration. The indexer checks
-metadata five minutes after the previous scan finishes and hashes only new
-or changed files. A shared tree is walked once per scan. Directory names and
+metadata three hours after the previous scan finishes (about eight scans a
+day) and hashes only new or changed files. A shared tree is walked once per
+scan. Directory names and
 metadata from that walk are reused for unchanged files; changed observations
 and every human action still receive fresh path and content checks. Scan
 progress is persisted at most once per second and finalized on completion,
 while document observations and decisions retain their durable transactions.
 The index resumes from persisted hashes after restart.
 Reading file contents does not hold the sorter's rename lock.
+
+Startup, project creation and an explicit **Look for new files now** request
+can start a scan sooner. A duplicate lookup that encounters unindexed or
+changed content also requests reconciliation. Returning to Review refreshes
+status without starting a scan. Outside changes can therefore take up to
+three hours, plus scan time, to appear in the index; human sorting actions
+update it immediately. The bounded audit still checks up to 16 files whose
+last hash check is over seven days old per scan, so slower scanning spreads
+that background content verification over more days.
 
 Failures are contained, and "unreadable" is never taken for "deleted":
 
@@ -193,12 +224,12 @@ files stay in the sorting queue; new tree files need classification review.
 Machine-classified provenance is reserved for later integration; this
 service still contains no model.
 
-Review queues an incremental refresh whenever the window regains focus,
-and ⋯ → **Look for new files now** queues one on demand. ⋯ → **Check every
-file's contents** queues a full content audit without blocking review. Normal scans also
-recheck up to sixteen indexed files whose last content check is over seven
-days old. Metadata reuse cannot detect every timestamp-preserving edit;
-full verification remains necessary before duplicate resolution or training.
+⋯ → **Look for new files now** queues an incremental scan on demand. ⋯ → **Check
+every file's contents** queues a full content audit without blocking review.
+Normal scans also recheck up to sixteen indexed files whose last content check
+is over seven days old. Metadata reuse cannot detect every timestamp-preserving
+edit; full verification remains necessary before duplicate resolution or
+training.
 
 Authenticated index endpoints are `GET /api/projects/{id}/index` and
 `POST /api/projects/{id}/index/refresh` (`verify_all=true` for a full audit).

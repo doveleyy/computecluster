@@ -1947,9 +1947,9 @@
   });
   $("project-cancel").addEventListener("click", () => $("project-dialog").close());
   $("new-tree-use").addEventListener("click", useNewTree);
-  // Coming back to the window is when outside changes are likely, so pick
-  // them up then instead of offering a refresh button. Throttled, and never
-  // under a running action or an open dialog.
+  // Refresh display state on return without starting a full library scan.
+  // Outside tree changes use the background schedule or the explicit rescan.
+  // Throttled, and never under a running action or an open dialog.
   const FOCUS_REFRESH_MS = 60000;
   let lastFocusRefresh = Date.now();
   document.addEventListener("visibilitychange", () => {
@@ -1966,8 +1966,7 @@
     if (Date.now() - lastFocusRefresh < FOCUS_REFRESH_MS) return;
     lastFocusRefresh = Date.now();
     if (state.review.active) {
-      // The poll reloads the list once the scan this starts completes.
-      papi("/index/refresh", { method: "POST" }).then(pollIndex, () => {});
+      pollIndex();
     } else if (!state.entry) {
       act(async () => {
         await papi("/rescan", { method: "POST" });

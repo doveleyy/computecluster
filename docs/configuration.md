@@ -15,10 +15,10 @@ unless absolute.
 | `HOME_PLATFORM_API_TOKEN_FILE` | unset | Path to a file containing the token. Preferred: a value in the environment is visible in the process list |
 | `HOME_PLATFORM_SERVICE_IDENTITY_TOKEN_FILE` | unset | Separate token file allowing local application services to resolve linked external identities; never reuse the elevated API token |
 | `HOME_PLATFORM_LEASE_SECONDS` | `15` | How long a claimed job's lease lasts before it must be renewed |
-| `HOME_PLATFORM_WORKER_STALE_SECONDS` | `20` | Silence after which a worker is reported `STALE` |
+| `HOME_PLATFORM_WORKER_STALE_SECONDS` | `90` | Silence after which a worker is reported `STALE`. Keep it well above the worker's 30-second maximum idle poll interval |
 | `HOME_PLATFORM_RECOVERY_INTERVAL_SECONDS` | `2` | How often expired leases are swept and requeued |
 | `HOME_PLATFORM_MAX_ATTEMPTS` | `3` | Requeues before a job is failed permanently |
-| `HOME_PLATFORM_POWER_REQUEST_DIR` | unset | Runtime marker directory watched by the optional root-owned Pi power units |
+| `HOME_PLATFORM_POWER_REQUEST_DIR` | unset | Runtime marker directory watched by the optional root-owned host power units |
 
 If no token is configured the API is unauthenticated. That is only appropriate
 for local development.
@@ -31,10 +31,10 @@ as well as CLI and worker credentials, so it must be treated as a coordinated
 credential rotation.
 
 Power control remains disabled when `HOME_PLATFORM_POWER_REQUEST_DIR` is unset.
-On the Pi it points to a volatile systemd runtime directory; it must never point
-to user-controlled persistent storage. Power requests are also refused unless
-authentication is configured, every worker is scheduling-disabled, and no job
-is running.
+Point it at a volatile runtime directory, such as one that systemd creates,
+and never at user-controlled persistent storage. Power requests are also
+refused unless authentication is configured, every worker is
+scheduling-disabled, and no job is running.
 
 `LEASE_SECONDS` is the interesting one: too short and a briefly-paused worker
 loses its job; too long and a dead worker's job sits idle before recovery. It
@@ -42,8 +42,11 @@ must comfortably exceed the worker's heartbeat interval.
 
 Database backup is an operator service rather than an API background task.
 `python -m ops.backup_sqlite <database> <private-destination> --retain 14`
-uses SQLite's online backup API, verifies the copy locally, publishes immutable
-bytes plus a SHA-256 sidecar, and removes older sets. The production systemd
+uses SQLite's online backup API, verifies locally that the copy is intact and
+carries the source's tables and row counts from one snapshot, publishes
+immutable bytes plus a SHA-256 sidecar, and only then removes older sets. A
+source with no user tables fails the run without touching existing sets, and
+`--verify` checks the sidecar digest when present. The production systemd
 unit supplies its destination through `HOME_PLATFORM_BACKUP_DIR`; keep that
 path in live-only configuration because it may contain an owner storage key.
 NAS snapshots and a second off-device copy are separate layers.
@@ -57,7 +60,7 @@ prefix. Its private pages are served under `/habits` by default. See
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `HABIT_TRACKER_DB_PATH` | `data/habit-tracker.db` | Shared Water and Budget SQLite file |
+| `HABIT_TRACKER_DB_PATH` | `data/habit-tracker.db` | The one SQLite file that every Habit Tracker page shares |
 | `HABIT_TRACKER_BASE_PATH` | `/habits` | External proxy prefix; `/` for direct local development |
 | `HABIT_TRACKER_TIMEZONE` | `Asia/Singapore` | Local date boundaries |
 | `HABIT_TRACKER_ALLOW_DEV_IDENTITY` | `false` | Accept `X-Habit-Tracker-Dev-User` only in explicit local development |
@@ -69,7 +72,49 @@ For Compose, the host supplies `HABIT_TRACKER_IDENTITY_TOKEN_FILE` as a private
 host path; Compose mounts it read-only and gives the container its internal
 `/run/secrets/service-identity-token` path. Never put a token value into the
 Compose file. The state and token host paths belong in private deployment
-configuration. The old `WATER_TRACKER_` names and `water-dev` task are retired.
+configuration.
+
+Every application's Compose file runs its container as
+`SERVICE_UID:SERVICE_GID`, `1000:1000` by default. Set both to the host
+account that owns the state directory.
+
+## Wishlist
+
+The Wishlist uses the `services.wishlist` package and only the `WISHLIST_`
+prefix. Its private page is served under `/wishlist` by default.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `WISHLIST_DB_PATH` | `data/wishlist.db` | SQLite file for tracked items and their price observations |
+| `WISHLIST_BASE_PATH` | `/wishlist` | External proxy prefix; `/` for direct local development |
+| `WISHLIST_TIMEZONE` | `Asia/Singapore` | Local time for dates and timestamps; an unknown name stops start-up |
+| `WISHLIST_DISPLAY_CURRENCY` | `SGD` | Currency for displayed prices when an item sets none |
+| `WISHLIST_ALLOW_DEV_IDENTITY` | `false` | Accept `X-Wishlist-Dev-User` only in explicit local development |
+| `WISHLIST_IDENTITY_RESOLVER_URL` | unset | Narrow control-plane identity endpoint |
+| `WISHLIST_IDENTITY_TOKEN_FILE` | unset | Resolver token file; required with resolver URL |
+| `WISHLIST_STATE_DIR` | required by Compose | Private host directory mounted at `/data` |
+
+## Transport
+
+The Transport dashboard uses the `services.transport` package and the
+`TRANSPORT_` prefix. Its private page is served under `/transport` by default.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `TRANSPORT_DB_PATH` | `data/transport.db` | SQLite file for the cached timetable and saved bus services |
+| `TRANSPORT_BASE_PATH` | `/transport` | External proxy prefix; `/` for direct local development |
+| `TRANSPORT_TIMEZONE` | `Asia/Singapore` | Local time that decides "today" for the last-train lookup |
+| `TRANSPORT_DATAMALL_KEY_FILE` | unset | File holding the transit-data API key; preferred over the two fallbacks below |
+| `LTA_DATAMALL_KEY` | unset | Key value, read only when no key file is set. Also read from `LTA_DATAMALL_KEY=` in a `.env` file in the working directory, for local development |
+| `TRANSPORT_ALLOW_DEV_IDENTITY` | `false` | Accept `X-Transport-Dev-User` only in explicit local development |
+| `TRANSPORT_IDENTITY_RESOLVER_URL` | unset | Narrow control-plane identity endpoint |
+| `TRANSPORT_IDENTITY_TOKEN_FILE` | unset | Resolver token file; required with resolver URL |
+| `TRANSPORT_STATE_DIR` | required by Compose | Private host directory mounted at `/data` |
+
+Without a key, the page still opens, and each refresh answers `503` until a
+key is configured. As with the Habit Tracker, Compose mounts the key and token
+files read-only from private host paths; never put either value in the
+Compose file.
 
 ## File Sorter
 
@@ -81,7 +126,7 @@ private proxy.
 | Variable | Default | Purpose |
 |---|---|---|
 | `SORTER_DB_PATH` | `data/file_sorter.db` | Projects, skips, hashes, folder notes, and the decision and folder-move logs |
-| `SORTER_LIBRARY_DIR` | `data/sorter` | Library root; every project's dump and tree are folders inside it, on one filesystem. Compose mounts the host library here as `/library` |
+| `SORTER_LIBRARY_DIR` | `data/sorter` | Library root; every project's dump and tree are folders inside it, on one filesystem. Compose reads the same name as the host library path, mounts it at `/library`, and sets this variable to `/library` inside the container |
 | `SORTER_SEED_SOURCE` | unset | Dump of the project created on first start, relative to the library root; also adopts rows from a pre-project database |
 | `SORTER_SEED_TARGET` | unset | Tree of that seed project; both seed values are required together |
 | `SORTER_SEED_NAME` | the source folder's name | Name of the seed project |
@@ -90,7 +135,6 @@ private proxy.
 | `SORTER_SESSION_URL` | unset | Control-plane route that validates the forwarded dashboard session cookie; unset admits nobody through the proxy |
 | `SORTER_ALLOW_DEV_IDENTITY` | `false` | Accept requests without a proxy identity, only in local development |
 | `SORTER_STATE_DIR` | required by Compose | Private host directory mounted at `/data` |
-| `SORTER_LIBRARY_DIR` (Compose) | required | Host library path, mounted at `/library`; inside the container the same name points at `/library` |
 
 ## Uploads (staged job inputs)
 
@@ -105,7 +149,7 @@ private proxy.
 | `HOME_PLATFORM_MEMBER_STORAGE_USER_IDS` | empty | Comma-separated stable user UUIDs allowed while the global flag stays false |
 | `HOME_PLATFORM_WORKSPACE_DIR` | unset | Separate CIFS mount used by the constrained Job Desk workspace writer |
 | `HOME_PLATFORM_MEMBER_WORKSPACE_ENABLED` | false | Globally enable member create/upload operations inside `Home/Workspace` only |
-| `HOME_PLATFORM_MEMBER_WORKSPACE_USER_IDS` | empty | Stable UUID pilot allowlist for workspace writes while the global flag stays false |
+| `HOME_PLATFORM_MEMBER_WORKSPACE_USER_IDS` | empty | Comma-separated stable user UUIDs allowed to write while the global flag stays false |
 | `HOME_PLATFORM_MAX_WORKSPACE_UPLOAD_BYTES` | `268435456` (256 MiB) | Maximum size of one browser-to-workspace upload |
 
 The project ceiling also bounds each arbitrary named input upload in the current
@@ -120,23 +164,22 @@ coordinator, so this is the one data path where it sits in the byte stream;
 anything large should use a linked URL instead, which goes directly to the
 worker.
 
-HomeStorage project imports and input references do not copy the original file
-into ordinary upload staging. A project folder is packaged into the bounded
-project ZIP; an input file remains on the share and is identified by relative
-path, size, and SHA-256. The coordinator streams that input from its
-authenticated Synology mount through an authenticated API response to the
-worker. A future provider can resolve the same logical contract through a
-direct worker-to-NAS storage path.
+Project imports and input references from NAS storage do not copy the
+original file into ordinary upload staging. A project folder is packaged into
+the bounded project ZIP. An input file stays on the share and is identified by
+relative path, size, and SHA-256. The coordinator streams that input from its
+authenticated NAS mount to the worker through an authenticated API response.
 
 For members, storage is fail-closed by default. When member storage is enabled,
 the browser exposes only two virtual roots: `Home` maps to that account's
 stable UUID directory and `Shared` maps to the household collaboration
 directory. Administrators continue to see provider-relative paths.
 
-The flag is a rollout control, not a substitute for file-server permissions:
-those still enforce the disk boundary. Enable it only after proving that one
-member cannot read another member's directory over SMB, and use the UUID
-allowlist to admit accounts one at a time while the global flag stays false.
+The flag decides whether the application offers member storage. It does not
+replace file-server permissions, which still enforce the disk boundary. Enable
+it only after you prove that one member cannot read another member's directory
+over SMB. While the global flag stays false, the UUID allowlist admits
+individual accounts.
 
 Workspace mutation is a separate privilege from storage browsing. The API uses
 `HOME_PLATFORM_WORKSPACE_DIR`, a second mount authenticated as a dedicated
@@ -158,27 +201,25 @@ promotes a completed upload.
 | `HOME_PLATFORM_MAX_JOB_ARTIFACT_BYTES` | `536870912` (512 MiB) | Per-job total ceiling |
 | `HOME_PLATFORM_MAX_ARTIFACT_STORE_BYTES` | `53687091200` (50 GiB) | Whole-store ceiling — a backstop, not a policy |
 | `HOME_PLATFORM_ARTIFACT_REQUIRE_MOUNT` | unset (false) | Refuse to write unless the artifact directory is on a different device from `/` |
-| `HOME_PLATFORM_ARTIFACT_OWNER_SCOPED` | unset (false) | Place runs under a provisioned `<owner-id>/` directory; enable only with the NAS cutover |
+| `HOME_PLATFORM_ARTIFACT_OWNER_SCOPED` | unset (false) | Place runs under a provisioned `<owner-id>/` directory |
 
 Results never expire by age. The store ceiling only evicts
 least-recently-touched runs if a runaway threatens the disk, and logs each
 eviction at `WARNING`. The evicted unit is one submission, so an array's
 children go together. In owner-scoped mode, the server derives the owner
 directory from the immutable job record; workers cannot select it. An owner
-directory must be provisioned before publication, preventing a newly created
-account from inheriting an overly broad NAS ACL. The flag exists so the new
-code can be deployed safely before the legacy artifact tree is migrated and the
-storage path is cut over.
+directory must be provisioned before publication, so a newly created account
+cannot inherit an overly broad NAS ACL. With the flag unset, runs are
+published directly under the artifact root.
 
 The run directory beneath the owner is derived from the job's name so results
 are recognisable over SMB rather than a wall of UUIDs. Names are neither unique
 nor path-safe, so the server reduces the name to one safe segment and appends
 the first eight characters of the job's — or, for an array child, its group's —
-UUID. Nothing about this is worker-supplied. Results published before this
-layout are still served from their original `<job-id>/` directory, so the change
-strands no completed work; migrate them with the artifact migration helper.
+UUID. Nothing about this is worker-supplied. Results stored in the older
+`<job-id>/` layout are still served from that directory.
 
-These limits also define the practical download system today. Each artifact is
+These limits also bound downloads. Each artifact is
 served as a streamed file response with byte-range support and a SHA-256 value
 in its listing. `pixi run client pull` resumes retained `.part` files and
 verifies the final size and digest before atomically exposing the completed
@@ -201,15 +242,14 @@ storage boundary.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `HOME_PLATFORM_SYNOLOGY_HOST` | unset | Private DNS name or address whose SMB and DSM reachability are reported |
+| `HOME_PLATFORM_SYNOLOGY_HOST` | unset | Private DNS name or address of the NAS whose SMB and management-page reachability are reported |
 
-When `HOME_PLATFORM_SYNOLOGY_HOST` is configured, the authenticated Dashboard
-shows the dedicated NAS in the Synology NAS card.
-SMB reachability determines its endpoint state; DSM HTTPS reachability is shown
-as an additional management signal. No NAS credential is sent, and the check
-does not claim that a share is mounted, writable, or authorized. Leave the
-variable unset when no dedicated NAS is present. The retired Pi Samba unit and
-local SSD are intentionally not part of this service-health response.
+When `HOME_PLATFORM_SYNOLOGY_HOST` is set, the authenticated Dashboard shows
+the NAS in its storage card. SMB reachability (TCP 445) decides the NAS state.
+Reachability of the NAS management page over HTTPS (TCP 5001) is shown as a
+second signal. No NAS credential is sent, and the check does not claim that a
+share is mounted, writable, or authorized. Leave the variable unset when no
+NAS is present.
 
 ## Worker
 
@@ -219,7 +259,7 @@ local SSD are intentionally not part of this service-health response.
 | `HOME_PLATFORM_WORKER_ID` | `worker-<hostname>` | Identity in the registry. Stable across restarts |
 | `HOME_PLATFORM_API_TOKEN_FILE` | `~/.config/home-platform/api-token` | Token used for every call |
 | `HOME_PLATFORM_WORKER_DATA_DIR` | `~/.local/share/home-platform-worker` | Cache, staged inputs, and outputs |
-| `HOME_PLATFORM_POLL_SECONDS` | `5` | How often an idle worker asks for work and refreshes liveness |
+| `HOME_PLATFORM_POLL_SECONDS` | `5` | First wait between polls once the worker is idle. Each empty poll doubles the wait, up to 30 seconds; finishing a job resets it |
 | `HOME_PLATFORM_HEARTBEAT_SECONDS` | `5` | Lease renewal interval. Must be well under `LEASE_SECONDS` |
 | `HOME_PLATFORM_DATASET_ALLOWED_HOSTS` | unset | Comma-separated hosts from which this worker may fetch digest-and-size-verified `python_batch` datasets or general `batch` named inputs. Empty disables linked inputs but not coordinator-staged work. |
 | `HOME_PLATFORM_MAX_DATASET_BYTES` | `10737418240` (10 GiB) | Largest linked dataset or named input this worker accepts |
@@ -229,10 +269,17 @@ local SSD are intentionally not part of this service-health response.
 A worker registers with scheduling **disabled**; it claims nothing until enabled
 through the API, CLI, or dashboard.
 
-The native Linux deployment uses a systemd user unit and a locked `linux-64`
-worker environment. It starts with the owner's login; running it before login
-requires an explicit administrator decision to enable user lingering. Installing
-the agent does not start Docker, build an image, or enable scheduling.
+An idle worker polls less often the longer nothing is queued, which keeps a
+scheduling-disabled fleet quiet. The 30-second cap bounds how long the first
+job after a quiet period waits. It is also why
+`HOME_PLATFORM_WORKER_STALE_SECONDS` defaults to 90, which is three missed
+polls.
+
+A Linux worker can run as a systemd user service from the locked `linux-64`
+worker environment. It then starts at that user's login. Starting it before
+login needs user lingering, which an administrator must enable on purpose.
+Installing the agent does not start Docker, build an image, or enable
+scheduling.
 
 ## Inside a job container
 

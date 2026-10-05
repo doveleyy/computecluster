@@ -75,11 +75,12 @@ summary = {
 print(f"processed {len(frame)} rows")
 ```
 
-Only files placed directly inside `HOME_PLATFORM_OUTPUT_DIR` are published.
-A script cannot choose where results are stored; the platform decides that, so
-one run can never overwrite another's output. Use portable names beginning with
-a letter or number and containing only letters, numbers, dots, underscores, or
-hyphens, for example:
+Only regular files placed directly inside `HOME_PLATFORM_OUTPUT_DIR` are
+published; symbolic links and directories are skipped. A script cannot choose
+where results are stored; the platform decides that, so one run can never
+overwrite another's output. Use portable names beginning with a letter or
+number and containing only letters, numbers, dots, underscores, or hyphens, for
+example:
 
 ```text
 metrics.json

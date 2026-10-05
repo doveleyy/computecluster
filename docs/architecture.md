@@ -18,8 +18,9 @@ This page is the overview. Each subsystem has its own section with the detail:
 | Media | The media server and its separate entrance | [media.md](media.md) |
 | Configuration | Every environment variable | [configuration.md](configuration.md) |
 
-This document contains no hostnames, addresses, accounts, or filesystem paths.
-Those belong to a deployment, not to a design.
+This document contains no hostnames, network addresses, accounts, or
+deployment paths. Those belong to a deployment, not to a design. The loopback
+ports shown are each application's default.
 
 ## The constraint that shapes everything
 
@@ -91,8 +92,8 @@ Four kinds of machine, with sharply different roles:
 | Members' files | `Home` and `Shared` on the NAS | One file server, reachable over SMB and the web |
 | Job results | `Artifacts` on the NAS, written only by the coordinator | One writer for published output |
 | Small upload staging and worker input caches | Local disk of the host or worker | Short-lived, bounded, rebuildable |
-| Media library | A separate `Media` share on the NAS | Kept apart from platform accounts and files |
-| The owner's personal library | A separate `Personal` share on the NAS, moved only by the owner and the file sorter | Outside members' platform storage; the sorter's account reaches no other share |
+| Media library | A separate media share on the NAS | Kept apart from platform accounts and files |
+| The owner's personal library | A separate personal share on the NAS, moved only by the owner and the file sorter | Outside members' platform storage; the sorter's account reaches no other share |
 | Media server settings and cache | The workstation's local disk | Rebuildable, and not a network-share workload |
 
 No database lives on a network share. SQLite relies on file locking that is not
@@ -206,7 +207,7 @@ Detail: [Application services](services.md).
 ## Media
 
 A Jellyfin media server runs in a container on the workstation. It sees a
-dedicated `Media` share through a read-only mount made with its own read-only
+dedicated media share through a read-only mount made with its own read-only
 file-server account, which can reach nothing else on the NAS. Its settings and
 cache stay on the workstation's disk. It has its own user accounts and does not
 use platform identity, so it is a neighbour on the network rather than a

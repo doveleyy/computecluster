@@ -1,26 +1,40 @@
 import json
 import os
 import sqlite3
-import urllib.error
-import urllib.request
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from html import escape
 from pathlib import Path
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from services.common.identity import (
+    CachedResolver,
+    Identity,
+    http_identity_resolver,
+    identity_dependency,
+    read_secret_file,
+    tailscale_key,
+)
+from services.common.web import cache_versioned_assets
 from services.transport import datamall
-from services.transport.repository import TimetableError, TransportRepository
+from services.transport.repository import (
+    LastTrain,
+    TimetableError,
+    TransportRepository,
+)
 
-SERVICE_VERSION = "0.1.3"
+SERVICE_VERSION = "0.1.4"
+SERVICE_DAY_SECONDS = 86_400
 SERVICE_DIR = Path(__file__).parent
 DEFAULT_DATABASE_PATH = Path("data/transport.db")
 TEMPLATE = (SERVICE_DIR / "templates" / "transport.html").read_text(encoding="utf-8")
@@ -37,16 +51,6 @@ class Settings:
     identity_resolver_token: str | None
 
 
-@dataclass(frozen=True)
-class Identity:
-    key: str
-    display_name: str
-
-
-class IdentityServiceUnavailableError(Exception):
-    pass
-
-
 class SavedBusCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     stop_code: str = Field(min_length=5, max_length=5, pattern=r"^[0-9]{5}$")
@@ -57,15 +61,6 @@ class SavedBusCreate(BaseModel):
     @classmethod
     def strip_value(cls, value: str) -> str:
         return value.strip()
-
-
-def _secret_file(path_value: str) -> str | None:
-    if not path_value:
-        return None
-    value = Path(path_value).read_text(encoding="utf-8").strip()
-    if not value:
-        raise RuntimeError(f"secret file is empty: {path_value}")
-    return value
 
 
 def _local_dotenv_key() -> str | None:
@@ -83,7 +78,9 @@ def load_settings() -> Settings:
     base_path = os.environ.get("TRANSPORT_BASE_PATH", "/transport").rstrip("/")
     if base_path and not base_path.startswith("/"):
         raise RuntimeError("TRANSPORT_BASE_PATH must be an absolute URL path")
-    account_key = _secret_file(os.environ.get("TRANSPORT_DATAMALL_KEY_FILE", ""))
+    account_key = read_secret_file(
+        os.environ.get("TRANSPORT_DATAMALL_KEY_FILE", ""), what="secret file"
+    )
     account_key = (
         account_key or os.environ.get("LTA_DATAMALL_KEY") or _local_dotenv_key()
     )
@@ -102,46 +99,36 @@ def load_settings() -> Settings:
             "TRANSPORT_IDENTITY_RESOLVER_URL", ""
         ).strip()
         or None,
-        identity_resolver_token=_secret_file(
-            os.environ.get("TRANSPORT_IDENTITY_TOKEN_FILE", "")
+        identity_resolver_token=read_secret_file(
+            os.environ.get("TRANSPORT_IDENTITY_TOKEN_FILE", ""), what="secret file"
         ),
     )
 
 
-def _identity_resolver(settings: Settings) -> Callable[[str], Identity | None]:
-    assert settings.identity_resolver_url and settings.identity_resolver_token
-    resolver_url = settings.identity_resolver_url
-    resolver_token = settings.identity_resolver_token
-
-    def resolve(subject: str) -> Identity | None:
-        request = urllib.request.Request(
-            resolver_url,
-            data=json.dumps({"provider": "tailscale", "subject": subject}).encode(),
-            headers={
-                "Content-Type": "application/json",
-                "X-Service-Identity-Token": resolver_token,
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=3) as response:
-                payload = json.load(response)
-        except urllib.error.HTTPError as error:
-            if error.code == 404:
-                return None
-            raise IdentityServiceUnavailableError from error
-        except (OSError, ValueError) as error:
-            raise IdentityServiceUnavailableError from error
-        return Identity(f"home-platform:{payload['id']}", str(payload["username"]))
-
-    return resolve
-
-
 def _clock_time(seconds: int) -> dict[str, object]:
-    day_offset, within_day = divmod(seconds, 86_400)
+    day_offset, within_day = divmod(seconds, SERVICE_DAY_SECONDS)
     hours, remainder = divmod(within_day, 3_600)
     minutes = remainder // 60
     return {"time": f"{hours:02d}:{minutes:02d}", "day_offset": day_offset}
+
+
+def catchable_last_train(
+    now: datetime, last_train: Callable[[date], LastTrain | None]
+) -> tuple[date, LastTrain] | None:
+    """The service day whose last train the rider can still catch, and that train.
+
+    GTFS files a train that leaves after midnight under the previous service
+    day with a time past 24:00. Until that train has gone, it is the one still
+    ahead of the rider, so its day answers; afterwards today's schedule does.
+    ``now`` is wall-clock time in the service's timezone.
+    """
+    since_midnight = now.hour * 3_600 + now.minute * 60 + now.second
+    previous_day = now.date() - timedelta(days=1)
+    pending = last_train(previous_day)
+    if pending and pending.arrival_seconds - SERVICE_DAY_SECONDS >= since_midnight:
+        return previous_day, pending
+    today = last_train(now.date())
+    return None if today is None else (now.date(), today)
 
 
 def create_app(
@@ -153,6 +140,8 @@ def create_app(
     ] = datamall.fetch_train_schedule,
     bus_fetcher: Callable[[str, str], dict[str, Any]] = datamall.fetch_bus_arrivals,
     now: Callable[[], datetime] | None = None,
+    identity_resolver: Callable[[str], Identity | None] | None = None,
+    identity_clock: Callable[[], float] = time.monotonic,
 ) -> FastAPI:
     settings = load_settings()
     settings = Settings(
@@ -166,14 +155,26 @@ def create_app(
         identity_resolver_url=settings.identity_resolver_url,
         identity_resolver_token=settings.identity_resolver_token,
     )
-    resolver = None
-    if settings.identity_resolver_url:
+    if identity_resolver is None and settings.identity_resolver_url:
         if not settings.identity_resolver_token:
             raise RuntimeError(
                 "TRANSPORT_IDENTITY_TOKEN_FILE is required with the resolver"
             )
-        resolver = _identity_resolver(settings)
+        identity_resolver = http_identity_resolver(
+            settings.identity_resolver_url, settings.identity_resolver_token
+        )
     repository = TransportRepository(settings.database_path)
+
+    def adopt_legacy_rows(subject: str, identity: Identity) -> None:
+        repository.adopt_identity(
+            tailscale_key(subject), identity.key, identity.display_name
+        )
+
+    resolver = (
+        CachedResolver(identity_resolver, adopt_legacy_rows, clock=identity_clock)
+        if identity_resolver
+        else None
+    )
     now = now or (lambda: datetime.now(settings.timezone))
 
     @asynccontextmanager
@@ -191,51 +192,17 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
     app.mount("/static", StaticFiles(directory=SERVICE_DIR / "static"))
-
-    def current_identity(
-        request: Request,
-        tailscale_login: Annotated[
-            str | None, Header(alias="Tailscale-User-Login")
-        ] = None,
-        tailscale_name: Annotated[
-            str | None, Header(alias="Tailscale-User-Name")
-        ] = None,
-        dev_user: Annotated[str | None, Header(alias="X-Transport-Dev-User")] = None,
-    ) -> Identity:
-        store: TransportRepository = request.app.state.repository
-        if tailscale_login:
-            normalized = tailscale_login.strip().lower()
-            if resolver:
-                try:
-                    identity = resolver(normalized)
-                except IdentityServiceUnavailableError as error:
-                    raise HTTPException(
-                        503, "Home Platform identity service is unavailable"
-                    ) from error
-                if identity is None:
-                    raise HTTPException(
-                        403,
-                        "Link this Tailscale identity from your Job Desk account first",
-                    )
-                store.adopt_identity(
-                    f"tailscale:{normalized}", identity.key, identity.display_name
-                )
-            else:
-                identity = Identity(
-                    f"tailscale:{normalized}",
-                    (tailscale_name or tailscale_login).strip(),
-                )
-        elif request.app.state.settings.allow_dev_identity and dev_user:
-            clean = dev_user.strip().lower()
-            identity = Identity(f"development:{clean}", clean)
-        else:
-            raise HTTPException(
-                401, "Open this service through the private Tailscale URL"
-            )
-        store.ensure_user(identity.key, identity.display_name)
-        return identity
-
+    cache_versioned_assets(app, SERVICE_VERSION)
+    current_identity = identity_dependency(
+        dev_header="X-Transport-Dev-User",
+        allow_dev_identity=settings.allow_dev_identity,
+        resolver=resolver,
+        ensure_user=lambda identity: repository.ensure_user(
+            identity.key, identity.display_name
+        ),
+    )
     CurrentUser = Annotated[Identity, Depends(current_identity)]
 
     @app.get("/health")
@@ -319,19 +286,23 @@ def create_app(
         headsign: str,
         stop_code: str,
     ) -> dict[str, object]:
-        today = now().date()
-        result = request.app.state.repository.last_train(
-            today, line, direction_id, headsign, stop_code
+        store: TransportRepository = request.app.state.repository
+        found = catchable_last_train(
+            now(),
+            lambda service_date: store.last_train(
+                service_date, line, direction_id, headsign, stop_code
+            ),
         )
-        if result is None:
+        if found is None:
             raise HTTPException(404, "No scheduled train was found for today")
+        service_date, train = found
         return {
-            "date": today.isoformat(),
+            "date": service_date.isoformat(),
             "line": line,
             "headsign": headsign,
             "stop_code": stop_code,
-            **result,
-            **_clock_time(int(result["arrival_seconds"])),
+            **train.__dict__,
+            **_clock_time(train.arrival_seconds),
         }
 
     @app.get("/api/buses")

@@ -1,5 +1,5 @@
 from app import app_health
-from app.dashboard import collect_service_health
+from app.system_health import collect_service_health
 
 
 class AvailableService:
@@ -9,7 +9,7 @@ class AvailableService:
 
 def test_service_health_reports_unconfigured_synology(monkeypatch) -> None:
     monkeypatch.delenv("HOME_PLATFORM_SYNOLOGY_HOST", raising=False)
-    monkeypatch.setattr("app.dashboard.tcp_reachable", lambda _host, _port: True)
+    monkeypatch.setattr("app.system_health.tcp_reachable", lambda _host, _port: True)
 
     services = collect_service_health(AvailableService())  # type: ignore[arg-type]
 
@@ -28,7 +28,7 @@ def test_service_health_reports_unconfigured_synology(monkeypatch) -> None:
 def test_service_health_reports_synology_smb_independently(monkeypatch) -> None:
     monkeypatch.setenv("HOME_PLATFORM_SYNOLOGY_HOST", "storage.example.internal")
     monkeypatch.setattr(
-        "app.dashboard.tcp_reachable",
+        "app.system_health.tcp_reachable",
         lambda host, port: host == "storage.example.internal" and port in {445, 5001},
     )
 

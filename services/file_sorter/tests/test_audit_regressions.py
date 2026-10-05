@@ -6,6 +6,7 @@ behaviour. Scenarios use throwaway libraries only.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import sqlite3
@@ -547,6 +548,9 @@ def test_ready_reports_a_stalled_library(
         assert client.get("/ready").status_code == 503
         # While the first probe is still stuck, no second thread is started.
         assert client.get("/ready").status_code == 503
+        # Routine container liveness must stay independent of NAS access.
+        assert client.get("/health").status_code == 200
+        assert client.get("/health").json()["status"] == "healthy"
     finally:
         release.set()
 
@@ -588,3 +592,57 @@ def test_overlong_paths_are_a_clear_400(env: Env) -> None:
     client, _, _, _ = env
     response = client.get(P + "/raw", params={"path": "a" * 2000, "area": "tree"})
     assert response.status_code == 400
+
+
+# ---------- 5 October audit: tidying an emptied dump folder is best effort ----------
+
+
+def test_a_dump_folder_that_cannot_be_tidied_still_logs_the_move(
+    env: Env, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, _, root, database = env
+    (root / "phone/DCIM").mkdir(parents=True)
+    (root / "phone/Camera").mkdir()
+    (root / "phone/DCIM/a.jpg").write_bytes(b"jpeg a")
+    (root / "phone/Camera/b.jpg").write_bytes(b"jpeg b")
+    (root / "album/photos").mkdir(parents=True)
+    created = client.post(
+        "/api/projects",
+        json={"name": "Phone", "source": "phone", "target": "album", "mode": "files"},
+    )
+    assert created.status_code == 201, created.text
+    phone = f"/api/projects/{created.json()['id']}"
+
+    def busy(path: Path) -> None:
+        raise OSError(errno.ENOTEMPTY, "Directory not empty", str(path))
+
+    monkeypatch.setattr(Path, "rmdir", busy)
+
+    def guard(path: str) -> dict[str, Any]:
+        response = client.get(phone + "/current", params={"path": path})
+        assert response.status_code == 200, response.text
+        found = response.json()["entry"]
+        return {key: found[key] for key in ("path", "size", "mtime_ns")}
+
+    sorted_ = client.post(
+        phone + "/classify",
+        json={**guard("DCIM/a.jpg"), "folder": "photos", "filename": "a.jpg"},
+    )
+    assert sorted_.status_code == 200, sorted_.text
+    assert (root / "album/photos/a.jpg").read_bytes() == b"jpeg a"
+    discarded = client.post(phone + "/discard", json=guard("Camera/b.jpg"))
+    assert discarded.status_code == 200, discarded.text
+    assert (root / "album/_discarded/b.jpg").read_bytes() == b"jpeg b"
+    assert not (root / "phone/DCIM/a.jpg").exists()
+    assert not (root / "phone/Camera/b.jpg").exists()
+    assert (root / "phone/DCIM").is_dir()
+    assert (root / "phone/Camera").is_dir()
+    rows = (
+        sqlite3.connect(database)
+        .execute("SELECT action, original_name, destination FROM decisions ORDER BY id")
+        .fetchall()
+    )
+    assert rows == [
+        ("sort", "DCIM/a.jpg", "photos/a.jpg"),
+        ("discard", "Camera/b.jpg", "_discarded/b.jpg"),
+    ]

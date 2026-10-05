@@ -12,6 +12,7 @@ warning.
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -49,11 +50,20 @@ class PriceObservation:
     variants: tuple[VariantPrice, ...]
     method: str
 
-    def variant(self, label: str) -> VariantPrice | None:
+    def variant(self, label: str) -> VariantPrice:
+        """The tracked variant's own price and stock.
+
+        A label the shop does not offer (a typo, a renamed size) is a source
+        error naming what it does offer, never a silent fall-back to the
+        headline price.
+        """
         for candidate in self.variants:
             if candidate.label == label:
                 return candidate
-        return None
+        offered = ", ".join(candidate.label for candidate in self.variants) or "none"
+        raise PriceSourceError(
+            f"the shop offers no variant {label!r} (offered: {offered})"
+        )
 
 
 def _get_json(url: str) -> object:
@@ -89,7 +99,19 @@ def shop_currency(meta_url: str) -> str:
     payload = _get_json(meta_url)
     if not isinstance(payload, dict) or not payload.get("currency"):
         raise PriceSourceError(f"{meta_url} did not report a shop currency")
-    return str(payload["currency"]).upper()
+    currency = str(payload["currency"]).upper()
+    if not re.fullmatch(r"[A-Z]{3}", currency):
+        raise PriceSourceError(f"{meta_url} reported a malformed currency")
+    return currency
+
+
+def _minor_units(value: object, where: str) -> int:
+    """Shopify's `.js` prices are integer minor units; anything else is a lie."""
+    if isinstance(value, str) and value.isdigit():
+        value = int(value)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise PriceSourceError(f"{where} price is not integer minor units: {value!r}")
+    return value
 
 
 def fetch_shopify(product_url: str, *, currency: str | None = None) -> PriceObservation:
@@ -109,10 +131,11 @@ def fetch_shopify(product_url: str, *, currency: str | None = None) -> PriceObse
     for raw in payload.get("variants") or []:
         if not isinstance(raw, dict) or raw.get("price") is None:
             continue
+        label = str(raw.get("title") or "").strip() or "default"
         variants.append(
             VariantPrice(
-                label=str(raw.get("title") or "").strip() or "default",
-                price_cents=int(raw["price"]),
+                label=label,
+                price_cents=_minor_units(raw["price"], f"variant {label!r}"),
                 available=bool(raw.get("available")),
             )
         )
@@ -120,7 +143,7 @@ def fetch_shopify(product_url: str, *, currency: str | None = None) -> PriceObse
     return PriceObservation(
         title=str(payload.get("title") or "").strip(),
         currency=currency or shop_currency(meta_endpoint),
-        price_cents=int(payload["price"]),
+        price_cents=_minor_units(payload["price"], product_endpoint),
         in_stock=bool(payload.get("available")),
         variants=tuple(variants),
         method="shopify_js",

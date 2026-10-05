@@ -1,9 +1,13 @@
 import logging
-from datetime import UTC, datetime
+import os
+import time
+from datetime import UTC, datetime, timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import BinaryIO
 from uuid import uuid4
 
+import httpx
 import pytest
 
 from contracts.models import (
@@ -16,20 +20,23 @@ from contracts.models import (
     SleepResult,
 )
 from worker.container_runner import BatchExecutionFailure
-from worker.data_plane import WorkerWorkspace
+from worker.data_plane import WorkerWorkspace, prune_cache
 from worker.main import (
     MAX_IDLE_POLL_SECONDS,
+    MAX_UNPUBLISHED_OUTPUTS,
+    LeaseKeeper,
     _libre_hardware_temperatures,
     configure_logging,
     execute,
     load_settings,
     next_idle_interval,
     publish_artifacts,
+    reconcile_workspace,
     run_once,
 )
 
 
-def running_job(seconds: int = 1) -> JobRead:
+def running_job(seconds: int = 1, lease_seconds: float = 15) -> JobRead:
     now = datetime.now(UTC)
     return JobRead(
         id=uuid4(),
@@ -41,7 +48,16 @@ def running_job(seconds: int = 1) -> JobRead:
         worker_id="mac-one",
         started_at=now,
         lease_token=uuid4(),
-        lease_expires_at=now,
+        lease_expires_at=now + timedelta(seconds=lease_seconds),
+    )
+
+
+def http_status_error(status_code: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", "http://pi.local:8000/jobs")
+    return httpx.HTTPStatusError(
+        f"status {status_code}",
+        request=request,
+        response=httpx.Response(status_code, request=request),
     )
 
 
@@ -55,6 +71,7 @@ class FakeWorkerAPI:
         self.failure_kind: FailureKind | None = None
         self.heartbeats: list[JobRead | None] = []
         self.uploaded: list[str] = []
+        self.uploaded_bytes: dict[str, bytes] = {}
         self.cancel_on_heartbeat = False
 
     def claim(self) -> JobRead | None:
@@ -84,8 +101,9 @@ class FakeWorkerAPI:
         self.heartbeats.append(job)
         return self.cancel_on_heartbeat
 
-    def upload_artifact(self, job: JobRead, path: Path) -> None:
-        self.uploaded.append(path.name)
+    def upload_artifact(self, job: JobRead, name: str, handle: BinaryIO) -> None:
+        self.uploaded.append(name)
+        self.uploaded_bytes[name] = handle.read()
 
 
 def test_sleep_executor_uses_validated_duration(monkeypatch) -> None:
@@ -320,32 +338,46 @@ def test_artifact_upload_retries_then_fails_the_job(
             self.failures = failures
             self.attempts = 0
 
-        def upload_artifact(self, job: JobRead, path: Path) -> None:
+        def upload_artifact(self, job: JobRead, name: str, handle: BinaryIO) -> None:
             self.attempts += 1
             if self.attempts <= self.failures:
                 raise RuntimeError("network hiccup")
-            super().upload_artifact(job, path)
+            super().upload_artifact(job, name, handle)
 
     recovers = FlakyThenFatal(job, failures=2)
     assert publish_artifacts(recovers, job, workspace) == 1
     assert recovers.attempts == 3
 
     # A publish that never succeeds must raise, so run_once fails the job rather
-    # than reporting COMPLETED for results that went nowhere. This needs its own
-    # workspace: a successful publish deletes the worker's copy, so reusing the
-    # first one would leave nothing to upload and nothing to fail on.
-    second = tmp_path / "second-run"
-    other_workspace = artifact_workspace(second, job, ["model.joblib"])
+    # than reporting COMPLETED for results that went nowhere.
     persistent = FlakyThenFatal(job, failures=99)
     with pytest.raises(RuntimeError, match="network hiccup"):
-        publish_artifacts(persistent, job, other_workspace)
+        publish_artifacts(persistent, job, workspace)
     assert persistent.attempts == 3
-    # A failed publish must leave the worker's copy alone — it is the only
-    # remaining copy of the results.
-    assert (second / "artifacts" / str(job.id) / "model.joblib").exists()
 
 
-def test_publishing_removes_the_worker_copy(tmp_path: Path) -> None:
+def staged_workspace(root: Path, job: JobRead, outputs: list[str]) -> WorkerWorkspace:
+    """A job mid-run: cached input hard-linked into runs/<job>, outputs written."""
+    workspace = artifact_workspace(root, job, outputs)
+    cached = root / "cache" / ("a" * 64)
+    cached.parent.mkdir()
+    cached.write_bytes(b"x" * 10)
+    run_inputs = root / "runs" / str(job.id) / "input"
+    run_inputs.mkdir(parents=True)
+    os.link(cached, run_inputs / "dataset.csv")
+    return workspace
+
+
+def assert_scratch_released(root: Path, job: JobRead) -> None:
+    assert not (root / "runs" / str(job.id)).exists()
+    assert not (root / "artifacts" / str(job.id)).exists()
+    # The cache entry is unpinned, so the next job can evict it when full.
+    assert (root / "cache" / ("a" * 64)).stat().st_nlink == 1
+    # The content-addressed caches are shared between jobs and must survive.
+    assert (root / "artifacts").exists()
+
+
+def test_completed_job_releases_its_scratch(tmp_path: Path, monkeypatch) -> None:
     """Once the control plane holds the results the local copy is duplication.
 
     Keeping it means every laptop slowly accumulates everything it has ever
@@ -353,17 +385,285 @@ def test_publishing_removes_the_worker_copy(tmp_path: Path) -> None:
     """
     job = running_job()
     client = FakeWorkerAPI(job)
-    workspace = artifact_workspace(tmp_path, job, ["model.joblib", "metrics.json"])
-    run_inputs = tmp_path / "runs" / str(job.id) / "input"
-    run_inputs.mkdir(parents=True)
-    (run_inputs / "dataset.csv").write_bytes(b"a,b\n1,2\n")
+    workspace = staged_workspace(tmp_path, job, ["model.joblib", "metrics.json"])
+    monkeypatch.setattr(
+        "worker.main.execute", lambda *_args, **_kwargs: SleepResult(slept_seconds=1)
+    )
 
-    assert publish_artifacts(client, job, workspace) == 2
+    assert run_once(client, workspace=workspace) is True
 
-    assert not (tmp_path / "artifacts" / str(job.id)).exists()
+    assert client.uploaded == ["metrics.json", "model.joblib"]
+    assert client.completed_result is not None
+    assert_scratch_released(tmp_path, job)
+
+
+def test_job_without_outputs_releases_its_scratch(tmp_path: Path, monkeypatch) -> None:
+    job = running_job()
+    client = FakeWorkerAPI(job)
+    workspace = staged_workspace(tmp_path, job, [])
+    monkeypatch.setattr(
+        "worker.main.execute", lambda *_args, **_kwargs: SleepResult(slept_seconds=1)
+    )
+
+    assert run_once(client, workspace=workspace) is True
+
+    assert client.completed_result is not None
+    assert_scratch_released(tmp_path, job)
+    tight = WorkerWorkspace(
+        root=tmp_path,
+        allowed_dataset_hosts=frozenset(),
+        max_dataset_bytes=100,
+        max_cache_bytes=15,
+    )
+    assert prune_cache(tight, required_bytes=10) == (1, 10)
+
+
+def test_failed_job_releases_its_scratch(tmp_path: Path, monkeypatch) -> None:
+    job = running_job()
+    client = FakeWorkerAPI(job)
+    workspace = staged_workspace(tmp_path, job, ["partial.txt"])
+
+    def fail_execution(*_args: object, **_kwargs: object) -> SleepResult:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("worker.main.execute", fail_execution)
+
+    assert run_once(client, workspace=workspace) is True
+
+    assert client.failure_kind is FailureKind.EXECUTION_ERROR
+    assert_scratch_released(tmp_path, job)
+
+
+def test_failed_publish_keeps_only_the_outputs(tmp_path: Path, monkeypatch) -> None:
+    """A failed publish leaves the worker's copy alone: it is the only one.
+
+    The staged inputs are still released, since they are copies of the cache.
+    """
+    monkeypatch.setattr("worker.main.time.sleep", lambda _seconds: None)
+    job = running_job()
+    client = FakeWorkerAPI(job)
+    workspace = staged_workspace(tmp_path, job, ["model.joblib"])
+    monkeypatch.setattr(
+        "worker.main.execute", lambda *_args, **_kwargs: SleepResult(slept_seconds=1)
+    )
+
+    def refuse_upload(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("network hiccup")
+
+    monkeypatch.setattr(client, "upload_artifact", refuse_upload)
+
+    assert run_once(client, workspace=workspace) is True
+
+    assert client.completed_result is None
+    assert client.failure_kind is FailureKind.EXECUTION_ERROR
+    assert (tmp_path / "artifacts" / str(job.id) / "model.joblib").exists()
     assert not (tmp_path / "runs" / str(job.id)).exists()
-    # The content-addressed caches are shared between jobs and must survive.
-    assert (tmp_path / "artifacts").exists()
+    assert (tmp_path / "cache" / ("a" * 64)).stat().st_nlink == 1
+
+
+class UnreachableAPI(FakeWorkerAPI):
+    def heartbeat(self, job: JobRead | None = None) -> bool:
+        self.heartbeats.append(job)
+        raise httpx.ConnectError("blip")
+
+
+def test_lost_lease_stops_the_job_and_releases_its_scratch(tmp_path: Path) -> None:
+    """A lease the control plane no longer honours is a job that must stop.
+
+    The job is already requeued elsewhere, so running on only burns the
+    machine and produces a result nobody can accept.
+    """
+    job = running_job(seconds=5, lease_seconds=0.05)
+    client = UnreachableAPI(job)
+    workspace = staged_workspace(tmp_path, job, ["partial.txt"])
+
+    started = time.monotonic()
+    assert run_once(client, heartbeat_seconds=0.01, workspace=workspace) is True
+    assert time.monotonic() - started < 2
+
+    assert client.completed_result is None
+    assert client.failure is None
+    assert_scratch_released(tmp_path, job)
+
+
+def keep_lease(client: FakeWorkerAPI, job: JobRead, seconds: float) -> LeaseKeeper:
+    keeper = LeaseKeeper(client, job, interval=0.01, lease_seconds=seconds)
+    with keeper:
+        time.sleep(0.2)
+    return keeper
+
+
+def test_transient_heartbeat_failure_keeps_renewing() -> None:
+    job = running_job()
+
+    class FlakyAPI(FakeWorkerAPI):
+        def heartbeat(self, job: JobRead | None = None) -> bool:
+            self.heartbeats.append(job)
+            if len(self.heartbeats) == 1:
+                raise httpx.ConnectError("blip")
+            return False
+
+    client = FlakyAPI(job)
+    keeper = keep_lease(client, job, seconds=10)
+
+    assert len(client.heartbeats) > 3
+    assert keeper.lost is False
+    assert not keeper.cancellation_event.is_set()
+
+
+def test_lease_is_lost_when_the_control_plane_says_so() -> None:
+    job = running_job()
+
+    class StaleAPI(FakeWorkerAPI):
+        def heartbeat(self, job: JobRead | None = None) -> bool:
+            self.heartbeats.append(job)
+            raise http_status_error(409)
+
+    client = StaleAPI(job)
+    keeper = keep_lease(client, job, seconds=10)
+
+    assert len(client.heartbeats) == 1
+    assert keeper.lost is True
+    assert keeper.cancellation_event.is_set()
+
+
+def test_lease_is_lost_once_renewal_has_failed_for_the_lease_length() -> None:
+    job = running_job()
+    client = UnreachableAPI(job)
+    keeper = keep_lease(client, job, seconds=0.05)
+
+    assert 3 < len(client.heartbeats) < 10
+    assert keeper.lost is True
+    assert keeper.cancellation_event.is_set()
+
+
+class FlakyReportingAPI(FakeWorkerAPI):
+    def __init__(self, job: JobRead, errors: list[Exception]) -> None:
+        super().__init__(job)
+        self.errors = errors
+        self.attempts = 0
+
+    def complete(self, job: JobRead, result: JobResult) -> JobRead:
+        self.attempts += 1
+        if self.errors:
+            raise self.errors.pop(0)
+        return super().complete(job, result)
+
+    def fail(
+        self,
+        job: JobRead,
+        error: str,
+        failure_kind: FailureKind = FailureKind.EXECUTION_ERROR,
+    ) -> JobRead:
+        self.attempts += 1
+        if self.errors:
+            raise self.errors.pop(0)
+        return super().fail(job, error, failure_kind)
+
+
+def test_completion_is_retried_across_transport_errors(monkeypatch) -> None:
+    """A blip after publishing must not turn a finished job into a rerun."""
+    monkeypatch.setattr("worker.main.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        "worker.main.execute", lambda *_args, **_kwargs: SleepResult(slept_seconds=2)
+    )
+    job = running_job()
+    client = FlakyReportingAPI(
+        job, [httpx.ConnectError("blip"), http_status_error(503)]
+    )
+
+    assert run_once(client) is True
+
+    assert client.attempts == 3
+    assert client.completed_result == SleepResult(slept_seconds=2)
+
+
+def test_failure_report_is_retried_across_transport_errors(monkeypatch) -> None:
+    monkeypatch.setattr("worker.main.time.sleep", lambda _seconds: None)
+
+    def fail_execution(*_args: object, **_kwargs: object) -> SleepResult:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("worker.main.execute", fail_execution)
+    job = running_job()
+    client = FlakyReportingAPI(job, [httpx.ReadTimeout("slow")])
+
+    assert run_once(client) is True
+
+    assert client.attempts == 2
+    assert client.failure == "RuntimeError: boom"
+
+
+def test_completion_is_not_retried_once_the_lease_is_stale(monkeypatch) -> None:
+    monkeypatch.setattr("worker.main.time.sleep", lambda _seconds: None)
+    monkeypatch.setattr(
+        "worker.main.execute", lambda *_args, **_kwargs: SleepResult(slept_seconds=2)
+    )
+    job = running_job()
+    client = FlakyReportingAPI(job, [http_status_error(409)])
+
+    assert run_once(client) is True
+
+    assert client.attempts == 1
+    assert client.completed_result is None
+
+
+def test_startup_reconciles_scratch_left_by_a_previous_worker(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A crash mid-job leaves hard links that pin the cache until swept."""
+    removed: list[str | None] = []
+    monkeypatch.setattr("worker.main.remove_orphaned_containers", removed.append)
+    cached = tmp_path / "cache" / ("a" * 64)
+    cached.parent.mkdir()
+    cached.write_bytes(b"x" * 10)
+    for job_id in (uuid4(), uuid4()):
+        run_inputs = tmp_path / "runs" / str(job_id) / "input"
+        run_inputs.mkdir(parents=True)
+        os.link(cached, run_inputs / "dataset.csv")
+    kept = []
+    for index in range(MAX_UNPUBLISHED_OUTPUTS + 2):
+        directory = tmp_path / "artifacts" / str(uuid4())
+        directory.mkdir(parents=True)
+        (directory / "model.joblib").write_bytes(b"payload")
+        stamp = 1_700_000_000 + index
+        os.utime(directory, (stamp, stamp))
+        kept.append(directory)
+    workspace = WorkerWorkspace(
+        root=tmp_path,
+        allowed_dataset_hosts=frozenset(),
+        max_dataset_bytes=1024,
+        docker_executable="/usr/bin/docker",
+    )
+
+    reconcile_workspace(workspace)
+
+    assert list((tmp_path / "runs").iterdir()) == []
+    assert cached.stat().st_nlink == 1
+    assert [path.exists() for path in kept] == [False, False] + [True] * (
+        MAX_UNPUBLISHED_OUTPUTS
+    )
+    assert removed == ["/usr/bin/docker"]
+
+
+def test_publishing_refuses_links_out_of_the_output_directory(
+    tmp_path: Path,
+) -> None:
+    """The job's container writes the output directory, so a symlink there is
+    the job asking the worker to read a file the container itself cannot."""
+    job = running_job()
+    client = FakeWorkerAPI(job)
+    workspace = artifact_workspace(tmp_path, job, ["metrics.json"])
+    (tmp_path / "api-token").write_bytes(b"SECRET-WORKER-TOKEN")
+    directory = tmp_path / "artifacts" / str(job.id)
+    (directory / "model.joblib").symlink_to(Path("..") / ".." / "api-token")
+    (directory / "report.txt").symlink_to(tmp_path)
+    (directory / "nested").mkdir()
+
+    assert publish_artifacts(client, job, workspace) == 1
+
+    assert client.uploaded == ["metrics.json"]
+    assert b"SECRET-WORKER-TOKEN" not in client.uploaded_bytes.values()
 
 
 def test_idle_backoff_grows_to_a_cap_and_resets_after_work() -> None:

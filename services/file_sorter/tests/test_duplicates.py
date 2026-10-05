@@ -296,8 +296,9 @@ def test_group_rolls_back_files_and_log_if_a_step_fails(
             return original(self, **kwargs)
 
         monkeypatch.setattr(SorterRepository, "record", fail)
-        with pytest.raises(sqlite3.IntegrityError):
-            resolve(client, found)
+        response = resolve(client, found)
+        assert response.status_code == 500
+        assert "moved back" in response.json()["detail"]
     else:
         original_move = rename_no_replace
         calls = 0
@@ -471,8 +472,9 @@ def test_undo_log_failure_restores_resolved_group(setup: Any, monkeypatch: Any) 
         raise sqlite3.IntegrityError("fixture undo failure")
 
     monkeypatch.setattr(SorterRepository, "undo_duplicate_group", fail)
-    with pytest.raises(sqlite3.IntegrityError):
-        client.post(P + "/undo")
+    response = client.post(P + "/undo")
+    assert response.status_code == 500
+    assert "moved back" in response.json()["detail"]
     assert (library / "tree/work/chosen.txt").read_bytes() == CONTENT
     assert not (library / "dump/incoming.txt").exists()
     assert len(list((library / "tree/_discarded").iterdir())) == 2

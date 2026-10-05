@@ -10,6 +10,7 @@ RUN pip install --no-cache-dir --requirement /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
 COPY services/__init__.py services/__init__.py
+COPY services/common services/common
 COPY services/file_sorter services/file_sorter
 
 USER 10001:10001

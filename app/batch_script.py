@@ -14,6 +14,7 @@ from contracts.models import (
     JobGroupCreate,
     JobGroupTaskCreate,
     SubmittableJobType,
+    portable_relative_path,
 )
 
 MAX_PROJECT_FILES = 1000
@@ -57,7 +58,7 @@ def validate_project_archive(path: Path) -> None:
                 )
             expanded = 0
             for entry in entries:
-                _validate_archive_name(entry.filename)
+                _project_entry_path(entry.filename)
                 if entry.flag_bits & 0x1:
                     raise BatchScriptError("encrypted project entries are not allowed")
                 # Unix file-type bits identify symlinks without extracting them.
@@ -78,7 +79,7 @@ def compile_batch_submission(
 ) -> JobGroupCreate:
     _verify_reference(archive_path, submission)
     validate_project_archive(archive_path)
-    entrypoint = _normalized_project_path(submission.entrypoint)
+    entrypoint = _project_entry_path(submission.entrypoint).as_posix()
     parsed = parse_batch_project(archive_path, entrypoint)
     if parsed.runtime != SUPPORTED_RUNTIME:
         raise BatchScriptError(
@@ -267,7 +268,7 @@ def parse_batch_script(script: str) -> ParsedBatchScript:
 
 def parse_batch_project(archive_path: Path, entrypoint: str) -> ParsedBatchScript:
     """Read and validate one batch entrypoint without executing project code."""
-    normalized_entrypoint = _normalized_project_path(entrypoint)
+    normalized_entrypoint = _project_entry_path(entrypoint).as_posix()
     try:
         with zipfile.ZipFile(archive_path) as archive:
             try:
@@ -317,13 +318,18 @@ def _parse_time_limit(value: str) -> int:
     return total
 
 
-def _normalized_project_path(value: str) -> str:
-    if "\\" in value:
-        raise BatchScriptError("project paths must use POSIX forward slashes")
-    path = PurePosixPath(value)
-    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
-        raise BatchScriptError("entrypoint must be a normalized project-relative path")
-    return path.as_posix()
+def _project_entry_path(value: str) -> PurePosixPath:
+    try:
+        return portable_relative_path(value)
+    except ValueError as error:
+        raise BatchScriptError(_UNSAFE_PROJECT_PATH.format(value)) from error
+
+
+_UNSAFE_PROJECT_PATH = (
+    "project path {!r} must be a normalized relative path without drive "
+    "letters, colons, backslashes, trailing dots or spaces, or Windows "
+    "reserved names"
+)
 
 
 def _normalized_logical_storage_path(value: str) -> str:
@@ -342,13 +348,6 @@ def _normalized_logical_storage_path(value: str) -> str:
             "default #HP input path must be a normalized Home/... or Shared/... path"
         )
     return path.as_posix()
-
-
-def _validate_archive_name(value: str) -> None:
-    normalized = value.rstrip("/")
-    if not normalized:
-        return
-    _normalized_project_path(normalized)
 
 
 def _verify_reference(path: Path, submission: BatchSubmissionCreate) -> None:

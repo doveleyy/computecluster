@@ -1,5 +1,7 @@
 import errno
+import hashlib
 import json
+import logging
 import os
 import re
 import sqlite3
@@ -10,7 +12,7 @@ import urllib.request
 import zipfile
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from functools import wraps
 from html import escape
@@ -27,6 +29,7 @@ from fastapi import (
     Query,
     Request,
 )
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -37,7 +40,9 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
+from starlette.types import ASGIApp, Receive, Scope, Send
 
+from services.common.web import cache_versioned_assets
 from services.file_sorter import labels, preview
 from services.file_sorter.duplicates import AUTOMATIC_BYTES, Copy, DuplicateReview
 from services.file_sorter.index import FileIndex
@@ -50,11 +55,19 @@ from services.file_sorter.library import (
     check_file_name,
     entry_parts,
     file_sha256,
+    folder_parts,
     rename_no_replace,
+    tree_path,
 )
 from services.file_sorter.repository import Project, Seed, SorterRepository
 
-SERVICE_VERSION = "0.9.3"
+logger = logging.getLogger(__name__)
+
+SERVICE_VERSION = "0.9.6"
+# How long a validated administrator session is trusted before asking the
+# control plane again. Signing out deletes the browser's cookie at once; a
+# server-side revocation applies within this time.
+SESSION_CACHE_SECONDS = 60.0
 SERVICE_DIR = Path(__file__).parent
 DEFAULT_DATABASE_PATH = Path("data/file_sorter.db")
 TEMPLATE = (SERVICE_DIR / "templates" / "sorter.html").read_text(encoding="utf-8")
@@ -71,6 +84,52 @@ EntryArea = Literal["dump", "tree"]
 DuplicateScope = Literal["library", "tree"]
 # Files above this size are not hashed just because they are on screen.
 DUPLICATE_CHECK_BYTES = AUTOMATIC_BYTES
+# Journaled operations that rename one entry and are settled from the disk
+# alone; duplicate plans ("resolve", "undo") keep their own recovery.
+MOVE_ACTIONS = {"classify", "discard", "reclassify", "folder_move", "undo_decision"}
+
+
+@dataclass(frozen=True)
+class Move:
+    """One journaled rename in library-relative terms.
+
+    `size` and `mtime_ns` identify a file after the rename (a rename keeps
+    both); a folder has neither.
+    """
+
+    from_area: str
+    from_path: str
+    to_area: str
+    to_path: str
+    kind: str
+    size: int | None
+    mtime_ns: int | None
+
+    def arrived(self, path: Path) -> bool:
+        if path.is_symlink():
+            return False
+        if self.kind == "folder":
+            return path.is_dir()
+        if not path.is_file():
+            return False
+        status = path.stat()
+        return (self.size is None or status.st_size == self.size) and (
+            self.mtime_ns is None or status.st_mtime_ns == self.mtime_ns
+        )
+
+
+def journaled_path(library: Library, area: str, relative: str) -> Path:
+    """Where a journaled move's entry would be, refusing symlinked parents."""
+    path = library.dump if area == "dump" else library.sorted_root
+    for part in folder_parts(relative):
+        path = path / part
+        if path.is_symlink():
+            raise LibraryError("Recovery refuses symlinks", 409)
+    return path
+
+
+def move_plan(action: str, project: Project, move: Move, **log: Any) -> dict[str, Any]:
+    return {"action": action, "source": project.source, "move": asdict(move), **log}
 
 
 @dataclass(frozen=True)
@@ -224,6 +283,65 @@ def _session_validator(session_url: str) -> Callable[[str], Identity | None]:
     return validate
 
 
+class CachedSessionValidator:
+    """Remembers valid sessions briefly, keyed by a hash of the cookie.
+
+    Every sorter request, including each preview's file fetch, used to ask
+    the control plane. Refused and unavailable answers are never cached.
+    """
+
+    MAX_ENTRIES = 32
+
+    def __init__(
+        self,
+        validate: Callable[[str], Identity | None],
+        ttl: float = SESSION_CACHE_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._validate = validate
+        self._ttl = ttl
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._entries: dict[str, tuple[float, Identity]] = {}
+
+    def __call__(self, session: str) -> Identity | None:
+        key = hashlib.sha256(session.encode()).hexdigest()
+        now = self._clock()
+        with self._lock:
+            cached = self._entries.get(key)
+        if cached and now - cached[0] < self._ttl:
+            return cached[1]
+        identity = self._validate(session)
+        with self._lock:
+            if identity is None:
+                self._entries.pop(key, None)
+            else:
+                if len(self._entries) >= self.MAX_ENTRIES:
+                    self._entries.clear()
+                self._entries[key] = (now, identity)
+        return identity
+
+
+class TextGZip:
+    """Compress pages, scripts and JSON; never file bytes.
+
+    Previews of PDFs, images and media are already compressed, would cost
+    the half-CPU container for nothing, and video seeking needs byte ranges.
+    """
+
+    BINARY_SUFFIXES = ("/raw", "/embedded")
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._plain = app
+        self._gzip = GZipMiddleware(app, minimum_size=1000)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        binary = scope["type"] == "http" and scope["path"].endswith(
+            self.BINARY_SUFFIXES
+        )
+        await (self._plain if binary else self._gzip)(scope, receive, send)
+
+
 def _modified(mtime_ns: int) -> str:
     return datetime.fromtimestamp(mtime_ns / 1e9, UTC).isoformat(timespec="seconds")
 
@@ -237,6 +355,7 @@ def create_app(
     admin_account_id: str | None = None,
     session_validator: Callable[[str], Identity | None] | None = None,
     background_index: bool = True,
+    session_clock: Callable[[], float] = time.monotonic,
 ) -> FastAPI:
     settings = load_settings()
     settings = replace(
@@ -251,6 +370,10 @@ def create_app(
     )
     if session_validator is None and settings.session_url:
         session_validator = _session_validator(settings.session_url)
+    if session_validator is not None:
+        session_validator = CachedSessionValidator(
+            session_validator, clock=session_clock
+        )
     repository = SorterRepository(settings.database_path)
     root = LibraryRoot(settings.library_root)
     index = FileIndex(repository, root)
@@ -267,18 +390,95 @@ def create_app(
             with LOCK:
                 if (
                     operation.__name__ not in {"export_labels", "recover_duplicates"}
-                    and repository.pending_duplicates()
+                    and unsettled()
                 ):
-                    raise HTTPException(
-                        409, "An interrupted duplicate operation needs recovery"
-                    )
+                    raise HTTPException(409, "An interrupted operation needs recovery")
                 return operation(*args, **kwargs)
 
         return run
 
+    def settle_moves(project: Project) -> tuple[int, list[str]]:
+        """Settle journaled renames from what the disk shows; never rename.
+
+        An entry that arrived is logged exactly as its request would have
+        logged it, and an intent whose entry never left is dropped. Anything
+        else stays journaled, so writes stay blocked until the owner puts
+        the entry at exactly one of the two places. Safe to run repeatedly.
+        """
+        intents = [
+            (operation, plan)
+            for operation in repository.incomplete_duplicates(project.id)
+            for plan in [json.loads(operation["plan_json"])]
+            if plan.get("action") in MOVE_ACTIONS
+        ]
+        if not intents:
+            return 0, []
+        try:
+            library = root.project(project.source, project.target, project.mode)
+        except LibraryError as error:
+            return 0, [f"{project.name}: {error}"]
+        settled = 0
+        problems = []
+        for operation, plan in intents:
+            move = Move(**plan["move"])
+            try:
+                source = journaled_path(library, move.from_area, move.from_path)
+                target = journaled_path(library, move.to_area, move.to_path)
+            except LibraryError as error:
+                problems.append(f"{move.to_path}: {error}")
+                continue
+            at_source = source.exists() or source.is_symlink()
+            at_target = target.exists() or target.is_symlink()
+            if at_target and not at_source and move.arrived(target):
+                log_settled(project, plan, operation["id"])
+                queue_cache.pop(project.id, None)
+                settled += 1
+            elif at_source and not at_target:
+                repository.cancel_duplicates(operation["id"])
+                settled += 1
+            else:
+                problems.append(
+                    f"The interrupted {plan['action']} of {move.from_path} cannot "
+                    f"be settled: put it at exactly one of {move.from_path} and "
+                    f"{move.to_path}, unchanged, then recover"
+                )
+        return settled, problems
+
+    def log_settled(project: Project, plan: dict[str, Any], operation: int) -> None:
+        if plan["action"] == "folder_move":
+            repository.record_folder_move(
+                project.target,
+                plan["folder_move"]["old_path"],
+                plan["folder_move"]["new_path"],
+                operation_id=operation,
+            )
+        elif plan["action"] == "undo_decision":
+            repository.mark_undone(plan["decision_id"], operation_id=operation)
+        else:
+            repository.record(**plan["record"], operation_id=operation)
+
+    def unsettled() -> bool:
+        """True while an interrupted operation still blocks writes.
+
+        The lock is taken only once a journal row exists, so the common
+        path stays one cheap query that never waits behind a NAS operation.
+        """
+        if not repository.pending_duplicates():
+            return False
+        with LOCK:
+            for project in repository.projects(include_archived=True):
+                try:
+                    _, problems = settle_moves(project)
+                except (sqlite3.Error, OSError) as error:
+                    problems = [f"{project.name}: {error}"]
+                for problem in problems:
+                    logger.warning("Unsettled journaled move: %s", problem)
+            return repository.pending_duplicates()
+
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         repository.initialize(settings.seed)
+        unsettled()
         if background_index:
             index.start()
         try:
@@ -309,7 +509,10 @@ def create_app(
         )
 
     app.state.index = index
+    app.add_middleware(TextGZip)
     app.mount("/static", StaticFiles(directory=SERVICE_DIR / "static"))
+
+    cache_versioned_assets(app, SERVICE_VERSION)
 
     @app.middleware("http")
     async def guard_incomplete_operation(
@@ -319,11 +522,11 @@ def create_app(
         if (
             request.method not in {"GET", "HEAD", "OPTIONS"}
             and not request.url.path.endswith("/duplicates/recover")
-            and await run_in_threadpool(repository.pending_duplicates)
+            and await run_in_threadpool(unsettled)
         ):
             return JSONResponse(
                 {
-                    "detail": "An interrupted duplicate operation needs recovery. "
+                    "detail": "An interrupted operation needs recovery. "
                     "Export the decision log and follow the recovery runbook."
                 },
                 status_code=409,
@@ -346,7 +549,7 @@ def create_app(
             )
         # A tailnet identity only proves the request came through the private
         # route. Access is the administrator's dashboard session, checked by
-        # the control plane on every request so logout and disabling apply.
+        # the control plane at most SESSION_CACHE_SECONDS before each request.
         if session_validator is None or settings.admin_account_id is None:
             raise HTTPException(503, "Administrator sign-in is not configured")
         if session is None or not SESSION_VALUE.fullmatch(session):
@@ -504,7 +707,7 @@ def create_app(
             repository.ready()
             and root.ready()
             and library_responsive()
-            and not repository.pending_duplicates()
+            and not unsettled()
         )
         return JSONResponse(
             {"status": "ready" if ok else "not_ready"}, status_code=200 if ok else 503
@@ -1059,6 +1262,9 @@ def create_app(
     def recover_duplicates(project: CurrentProject) -> dict[str, int]:
         library = library_for(project)
         units = folder_units(project.target)
+        settled, problems = settle_moves(project)
+        if problems:
+            raise HTTPException(409, "; ".join(problems))
         pending = repository.incomplete_duplicates(project.id)
         try:
             for operation in pending:
@@ -1131,7 +1337,64 @@ def create_app(
                 queue_cache.pop(project.id, None)
         except LibraryError as error:
             raise refuse(error) from error
-        return {"recovered": len(pending)}
+        return {"recovered": settled + len(pending)}
+
+    def journaled_move[Logged](
+        project: Project,
+        digest: str,
+        plan: dict[str, Any],
+        move: Callable[[], object],
+        reverse: Callable[[], object],
+        commit: Callable[[int], Logged],
+    ) -> Logged:
+        """Rename and log as one operation, with the intent journaled first.
+
+        A refused rename cancels the journal. A failed log write (any
+        exception) reverses the rename and cancels; if even the reversal
+        fails the journal stays, the reply names both errors and where the
+        entry is, and `settle_moves` logs it once the disk confirms it
+        arrived. A crash leaves the journal for the next start to settle.
+        `move` must leave the disk unchanged when it raises.
+        """
+        operation = repository.prepare_duplicates(
+            project.id, project.target, digest, json.dumps(plan)
+        )
+        try:
+            move()
+        except Exception:
+            repository.cancel_duplicates(operation)
+            raise
+        try:
+            return commit(operation)
+        except Exception as error:
+            moved = plan.get("move")
+            if plan["action"] == "folder_move" and moved:
+                what = f"The move of {moved['from_path']}"
+            elif plan["action"] == "undo_decision":
+                what = "The undo"
+            else:
+                what = "The decision"
+            try:
+                reverse()
+            except Exception as undo_error:
+                where = f"; it is now at {moved['to_path']}" if moved else ""
+                raise HTTPException(
+                    500,
+                    f"{what} could not be logged ({error}) and moving it back "
+                    f"failed ({undo_error}){where}. It will be logged once the "
+                    "disk is checked again",
+                ) from error
+            try:
+                repository.cancel_duplicates(operation)
+            except sqlite3.Error as cancel_error:
+                # The entry is back where it was; the stale intent is dropped
+                # by the next settle, so the owner hears the original failure.
+                logger.warning(
+                    "Could not cancel journal %s: %s", operation, cancel_error
+                )
+            raise HTTPException(
+                500, f"{what} could not be logged ({error}), so it was moved back"
+            ) from error
 
     def apply_duplicate_moves(
         project: Project,
@@ -1140,25 +1403,25 @@ def create_app(
         moves: list[tuple[Path, Path]],
         commit: Callable[[int], Any],
     ) -> Any:
-        # Persist the full intent before the first rename. An interruption
-        # leaves a recoverable journal and refuses further mutations, rather
-        # than silently losing the relation between bytes and decisions.
-        operation = repository.prepare_duplicates(
-            project.id, project.target, digest, json.dumps(plan)
-        )
         moved: list[tuple[Path, Path]] = []
-        try:
-            for source, target in moves:
-                if source == target:
-                    continue
-                rename_no_replace(source, target)
-                moved.append((source, target))
-            return commit(operation)
-        except Exception:
-            for source, target in reversed(moved):
+
+        def rename_all() -> None:
+            try:
+                for source, target in moves:
+                    if source == target:
+                        continue
+                    rename_no_replace(source, target)
+                    moved.append((source, target))
+            except Exception:
+                reverse_all()
+                raise
+
+        def reverse_all() -> None:
+            while moved:
+                source, target = moved.pop()
                 rename_no_replace(target, source)
-            repository.cancel_duplicates(operation)
-            raise
+
+        return journaled_move(project, digest, plan, rename_all, reverse_all, commit)
 
     @app.post("/api/projects/{project_id}/duplicates/resolve")
     @serialized
@@ -1318,23 +1581,6 @@ def create_app(
         repository.add_folder(project.target, path, payload.description.strip())
         return {"path": path}
 
-    def reverse_unlogged_move(
-        library: Library, destination: str, original: str, error: Exception
-    ) -> None:
-        """Return an entry to the dump after its log write failed.
-
-        If even that fails, report where the file really is instead of
-        letting the second failure hide the first.
-        """
-        try:
-            library.move_back(destination, original)
-        except (LibraryError, OSError) as undo_error:
-            raise HTTPException(
-                500,
-                f"The decision could not be logged ({error}) and moving the entry "
-                f"back failed ({undo_error}); it is at {destination} in the tree",
-            ) from error
-
     def logged_folder_move(
         project: Project,
         library: Library,
@@ -1343,30 +1589,26 @@ def create_app(
         name: str,
         units: set[str],
     ) -> str:
-        """Rename a folder and log it, or leave the disk as it was.
-
-        The rename happens first (it is what can be refused); if logging it
-        then fails, the folder is moved back so labels and disk never part.
-        """
-        new_path = library.move_folder(path, parent, name, units)
+        """Rename a folder and log it as one journaled move."""
+        new_path = tree_path(parent, name)
         if new_path == path:
-            return path
-        try:
-            repository.record_folder_move(project.target, path, new_path)
-        except Exception as error:
-            old_parent, _, old_name = path.rpartition("/")
-            try:
-                library.move_folder(new_path, old_parent, old_name, units)
-            except LibraryError as undo_error:
-                raise HTTPException(
-                    500,
-                    f"The move of {path} could not be logged and moving it back "
-                    f"failed ({undo_error}); it is now at {new_path}. Move it back "
-                    "before sorting into it",
-                ) from error
-            raise HTTPException(
-                500, f"The move of {path} could not be logged, so it was moved back"
-            ) from error
+            return library.move_folder(path, parent, name, units)
+        old_parent, _, old_name = path.rpartition("/")
+        journaled_move(
+            project,
+            "",
+            move_plan(
+                "folder_move",
+                project,
+                Move("tree", path, "tree", new_path, "folder", None, None),
+                folder_move={"old_path": path, "new_path": new_path},
+            ),
+            move=lambda: library.move_folder(path, parent, name, units),
+            reverse=lambda: library.move_folder(new_path, old_parent, old_name, units),
+            commit=lambda operation: repository.record_folder_move(
+                project.target, path, new_path, operation_id=operation
+            ),
+        )
         return new_path
 
     @app.post("/api/projects/{project_id}/folders/move")
@@ -1470,45 +1712,65 @@ def create_app(
                     None,
                 )
                 digest = observed["sha256"]
-                destination = library.reclassify(
-                    payload.path,
-                    payload.folder,
-                    payload.filename,
-                    payload.size,
-                    int(payload.mtime_ns),
-                    units,
-                )
-            except LibraryError as error:
-                raise refuse(error) from error
-            try:
-                decision = repository.record(
-                    project_id=project.id,
-                    target=project.target,
-                    action="sort",
-                    kind="file",
-                    original_name=prior.original_name if prior else source.name,
-                    final_name=payload.filename,
-                    label=payload.folder,
-                    destination=destination,
-                    sha256=digest,
-                    size=entry.size,
-                    review_type="corrected" if payload.review else "manual",
-                    file_mtime_ns=str(entry.mtime_ns),
-                    replaces_id=prior.id if prior else None,
-                    previous_destination=payload.path,
-                    document_id=observed["document_id"],
-                    origin_project_id=(
+                destination = tree_path(payload.folder, payload.filename)
+                record: dict[str, Any] = {
+                    "project_id": project.id,
+                    "target": project.target,
+                    "action": "sort",
+                    "kind": "file",
+                    "original_name": prior.original_name if prior else source.name,
+                    "final_name": payload.filename,
+                    "label": payload.folder,
+                    "destination": destination,
+                    "sha256": digest,
+                    "size": entry.size,
+                    "review_type": "corrected" if payload.review else "manual",
+                    "file_mtime_ns": str(entry.mtime_ns),
+                    "replaces_id": prior.id if prior else None,
+                    "previous_destination": payload.path,
+                    "document_id": observed["document_id"],
+                    "origin_project_id": (
                         prior.origin_project_id
                         if prior.previous_destination is not None
                         else prior.project_id
                     )
                     if prior
                     else None,
+                }
+                decision = journaled_move(
+                    project,
+                    digest or "",
+                    move_plan(
+                        "reclassify",
+                        project,
+                        Move(
+                            "tree",
+                            payload.path,
+                            "tree",
+                            destination,
+                            "file",
+                            entry.size,
+                            entry.mtime_ns,
+                        ),
+                        record=record,
+                    ),
+                    move=lambda: library.reclassify(
+                        payload.path,
+                        payload.folder,
+                        payload.filename,
+                        payload.size,
+                        int(payload.mtime_ns),
+                        units,
+                    ),
+                    reverse=lambda: library.restore_sorted(
+                        destination, payload.path, units
+                    ),
+                    commit=lambda operation: repository.record(
+                        **record, operation_id=operation
+                    ),
                 )
-            except sqlite3.Error:
-                # A failed label write must not silently leave a corrected file.
-                rename_no_replace(library.sorted_root / destination, source)
-                raise
+            except LibraryError as error:
+                raise refuse(error) from error
         return {
             "destination": destination,
             "decision_id": decision.id,
@@ -1549,30 +1811,49 @@ def create_app(
             library.check_unchanged(
                 library.entry(payload.path), payload.size, int(payload.mtime_ns)
             )
-            destination = library.move_in(
-                payload.path, payload.folder, payload.filename
+            destination = tree_path(payload.folder, payload.filename)
+            record: dict[str, Any] = {
+                "project_id": project.id,
+                "target": project.target,
+                "action": "sort",
+                "kind": entry.kind,
+                "original_name": payload.path,
+                "final_name": payload.filename,
+                "label": payload.folder,
+                "destination": destination,
+                "sha256": digest,
+                "size": entry.size,
+                "document_id": observed["document_id"] if observed else None,
+                "review_type": "manual",
+                "file_mtime_ns": str(entry.mtime_ns),
+            }
+            decision = journaled_move(
+                project,
+                digest or "",
+                move_plan(
+                    "classify",
+                    project,
+                    Move(
+                        "dump",
+                        payload.path,
+                        "tree",
+                        destination,
+                        entry.kind,
+                        entry.size,
+                        entry.mtime_ns,
+                    ),
+                    record=record,
+                ),
+                move=lambda: library.move_in(
+                    payload.path, payload.folder, payload.filename
+                ),
+                reverse=lambda: library.move_back(destination, payload.path),
+                commit=lambda operation: repository.record(
+                    **record, operation_id=operation
+                ),
             )
         except LibraryError as error:
             raise refuse(error) from error
-        try:
-            decision = repository.record(
-                project_id=project.id,
-                target=project.target,
-                action="sort",
-                kind=entry.kind,
-                original_name=payload.path,
-                final_name=payload.filename,
-                label=payload.folder,
-                destination=destination,
-                sha256=digest,
-                size=entry.size,
-                document_id=observed["document_id"] if observed else None,
-                review_type="manual",
-                file_mtime_ns=str(entry.mtime_ns),
-            )
-        except sqlite3.Error as error:
-            reverse_unlogged_move(library, destination, payload.path, error)
-            raise
         forget(project, payload.path)
         return {
             "destination": destination,
@@ -1600,29 +1881,47 @@ def create_app(
             library.check_unchanged(
                 library.entry(payload.path), payload.size, int(payload.mtime_ns)
             )
-            destination = library.discard(payload.path)
+            destination = library.discard_destination(payload.path)
+            record: dict[str, Any] = {
+                "project_id": project.id,
+                "target": project.target,
+                "action": "discard",
+                "kind": entry.kind,
+                "original_name": payload.path,
+                "final_name": destination.rsplit("/", 1)[-1],
+                "label": DISCARD_FOLDER,
+                "destination": destination,
+                "sha256": digest,
+                "size": entry.size,
+                "document_id": observed["document_id"] if observed else None,
+                "review_type": "manual",
+                "file_mtime_ns": str(entry.mtime_ns),
+            }
+            decision = journaled_move(
+                project,
+                digest or "",
+                move_plan(
+                    "discard",
+                    project,
+                    Move(
+                        "dump",
+                        payload.path,
+                        "tree",
+                        destination,
+                        entry.kind,
+                        entry.size,
+                        entry.mtime_ns,
+                    ),
+                    record=record,
+                ),
+                move=lambda: library.discard(payload.path, destination),
+                reverse=lambda: library.move_back(destination, payload.path),
+                commit=lambda operation: repository.record(
+                    **record, operation_id=operation
+                ),
+            )
         except LibraryError as error:
             raise refuse(error) from error
-        try:
-            decision = repository.record(
-                project_id=project.id,
-                target=project.target,
-                action="discard",
-                kind=entry.kind,
-                original_name=payload.path,
-                final_name=destination.rsplit("/", 1)[-1],
-                label=DISCARD_FOLDER,
-                destination=destination,
-                sha256=digest,
-                size=entry.size,
-                document_id=observed["document_id"] if observed else None,
-                review_type="manual",
-                file_mtime_ns=str(entry.mtime_ns),
-            )
-        except sqlite3.Error as error:
-            # An unlogged discard could never be undone: put the file back.
-            reverse_unlogged_move(library, destination, payload.path, error)
-            raise
         forget(project, payload.path)
         return {"destination": destination, "decision_id": decision.id}
 
@@ -1674,32 +1973,76 @@ def create_app(
                             "review it before Undo",
                             409,
                         )
-                if decision.previous_destination == decision.destination:
-                    library.sorted_entry_path(
-                        decision.destination, folder_units(project.target)
-                    )
-                elif decision.previous_destination is not None:
-                    library.restore_sorted(
-                        decision.destination,
-                        decision.previous_destination,
-                        folder_units(project.target),
-                    )
+                units = folder_units(project.target)
+                previous = decision.previous_destination
+                if previous == decision.destination:
+                    # A review confirmation moved nothing; there is no rename
+                    # to journal.
+                    library.sorted_entry_path(decision.destination, units)
+                    repository.mark_undone(decision.id)
                 else:
-                    library.move_back(decision.destination, decision.original_name)
+                    size = mtime_ns = None
+                    if decision.kind == "file":
+                        current = library.sorted_entry(decision.destination, units)
+                        size, mtime_ns = current.size, current.mtime_ns
+                    move: Callable[[], object]
+                    reverse: Callable[[], object]
+                    if previous is not None:
+                        back = Move(
+                            "tree",
+                            decision.destination,
+                            "tree",
+                            previous,
+                            decision.kind,
+                            size,
+                            mtime_ns,
+                        )
+
+                        def move() -> None:
+                            library.restore_sorted(
+                                decision.destination, previous, units
+                            )
+
+                        def reverse() -> None:
+                            library.restore_sorted(
+                                previous, decision.destination, units
+                            )
+                    else:
+                        back = Move(
+                            "tree",
+                            decision.destination,
+                            "dump",
+                            decision.original_name,
+                            decision.kind,
+                            size,
+                            mtime_ns,
+                        )
+
+                        def move() -> None:
+                            library.move_back(
+                                decision.destination, decision.original_name
+                            )
+
+                        def reverse() -> None:
+                            rename_no_replace(
+                                library.dump / decision.original_name,
+                                library.sorted_root / decision.destination,
+                            )
+
+                    journaled_move(
+                        project,
+                        decision.sha256 or "",
+                        move_plan(
+                            "undo_decision", project, back, decision_id=decision.id
+                        ),
+                        move,
+                        reverse,
+                        lambda operation: repository.mark_undone(
+                            decision.id, operation_id=operation
+                        ),
+                    )
             except LibraryError as error:
                 raise refuse(error) from error
-            try:
-                repository.mark_undone(decision.id)
-            except sqlite3.Error:
-                if decision.previous_destination == decision.destination:
-                    raise
-                restored = (
-                    library.sorted_root / decision.previous_destination
-                    if decision.previous_destination is not None
-                    else library.dump / decision.original_name
-                )
-                rename_no_replace(restored, library.sorted_root / decision.destination)
-                raise
         if decision.previous_destination is not None:
             return {
                 "path": decision.previous_destination,

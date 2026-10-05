@@ -141,6 +141,6 @@ A file server's recycle bin keeps deleted files inside the same share, in a
 hidden folder at its root. That is useful for people's own files, but it
 quietly changes what "delete" means for anything the platform manages: while
 the bin is on, a result deleted through the application is only moved, and
-still occupies space. Shares the platform writes to should have the recycle bin disabled or
-restricted to administrators, so the application's service accounts neither
-fill nor see it.
+still occupies space. Shares the platform writes to should have the recycle
+bin disabled or restricted to administrators, so the application's service
+accounts neither fill nor see it.

@@ -1,8 +1,8 @@
 # Accounts and access control
 
 Home Platform has two human roles and one separate machine credential. The
-roles control application records; Synology DSM ACLs and SMB authentication are
-a second boundary.
+roles control application records; file-server ACLs and SMB authentication
+are a second boundary.
 
 ## Roles
 
@@ -15,7 +15,7 @@ a second boundary.
 | See worker identity and job ceilings | Yes | Yes |
 | See worker telemetry and current job IDs | No | Yes |
 | Open the operations Dashboard | No | Yes |
-| Enable workers, change capacity, or control Pi power | No | Yes |
+| Enable workers, change capacity, or control host power | No | Yes |
 | Create or disable member accounts | No | Yes |
 | Select job inputs from the NAS Home/Shared tree | Provisioned members | No job submission path |
 | Browse or download NAS files | Own Home and Shared only | All provider paths |
@@ -37,10 +37,12 @@ password of at least 12 characters. The server stores an independently salted
 scrypt hash, never the plaintext password. The same panel can disable or
 re-enable a member.
 
-Disabling is immediate: every request resolves the signed session back to the
-current user record, so an already-issued cookie stops working as soon as the
-account is disabled. The administrator account is bootstrapped by migration and
-cannot be disabled through the member endpoint.
+Disabling is immediate in the control plane. Every request resolves the signed
+session back to the current user record, so an already-issued cookie stops
+working there as soon as the account is disabled. Application services
+remember a resolved identity for a short, fixed time, described below. The
+administrator account is bootstrapped by migration and cannot be disabled
+through the member endpoint.
 
 Members can change their own application password from Job Desk. The owner can
 reset a member password from Operations. Either operation increments a
@@ -73,11 +75,18 @@ user does not resolve. Services store the returned UUID in their own database,
 preserving database-per-service without allowing them to open the control-plane
 SQLite file directly.
 
+Each service remembers a successful resolution for 120 seconds, so it does not
+call the control plane on every request. Disabling an account or removing its
+link therefore reaches a service within 120 seconds, not at once. A lookup
+that finds no linked account, or that fails, is never remembered, so a new
+link works on the next request and an outage is not hidden. The file sorter
+admits only the administrator's dashboard session instead, and trusts a
+validated session for 60 seconds on the same terms.
+
 ## Ownership model
 
-Jobs and job groups have an immutable `owner_user_id`. Existing records were
-backfilled to the administrator. Database triggers reject a missing owner and
-reject attempts to change an owner after insertion.
+Jobs and job groups have an immutable `owner_user_id`. Database triggers
+reject a missing owner and reject attempts to change an owner after insertion.
 
 Uploaded datasets, scripts, projects, and named inputs are registered to the
 authenticated uploader. A member submission may reference only uploads owned

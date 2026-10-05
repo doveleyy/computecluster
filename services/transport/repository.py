@@ -27,6 +27,13 @@ class TimetableError(Exception):
 
 
 @dataclass(frozen=True)
+class LastTrain:
+    # GTFS seconds after the service day's midnight; 24:15 is 87,300.
+    arrival_seconds: int
+    stop_name: str
+
+
+@dataclass(frozen=True)
 class SavedBus:
     id: str
     owner_identity: str
@@ -74,6 +81,8 @@ class TransportRepository:
         connection = sqlite3.connect(self._database_path, timeout=30)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
+        # Safe with WAL: a power cut can lose the last commits, never corrupt.
+        connection.execute("PRAGMA synchronous = NORMAL")
         return connection
 
     def initialize(self) -> None:
@@ -121,6 +130,10 @@ class TransportRepository:
                     PRIMARY KEY (trip_id, stop_sequence)
                 );
                 CREATE INDEX IF NOT EXISTS stop_times_stop ON stop_times(stop_id);
+                CREATE INDEX IF NOT EXISTS routes_short_name ON routes(short_name);
+                CREATE INDEX IF NOT EXISTS trips_route_direction
+                    ON trips(route_id, direction_id, headsign);
+                CREATE INDEX IF NOT EXISTS stops_code ON stops(stop_code);
                 CREATE TABLE IF NOT EXISTS service_calendar (
                     service_id TEXT PRIMARY KEY,
                     monday INTEGER NOT NULL, tuesday INTEGER NOT NULL,
@@ -146,6 +159,14 @@ class TransportRepository:
                 );
                 """
             )
+            # Without statistics the planner scanned every stop time to list
+            # one line's stations (0.85 s live); with them it starts from the
+            # line. Gathered once here, then after each timetable import.
+            has_statistics = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE name = 'sqlite_stat1'"
+            ).fetchone()
+            if not has_statistics:
+                connection.execute("ANALYZE")
 
     def ready(self) -> bool:
         try:
@@ -165,6 +186,7 @@ class TransportRepository:
                 """
                 INSERT INTO users(identity, display_name, created_at) VALUES (?, ?, ?)
                 ON CONFLICT(identity) DO UPDATE SET display_name = excluded.display_name
+                WHERE users.display_name IS NOT excluded.display_name
                 """,
                 (identity, display_name, datetime.now(UTC).isoformat()),
             )
@@ -178,6 +200,7 @@ class TransportRepository:
                 """
                 INSERT INTO users(identity, display_name, created_at) VALUES (?, ?, ?)
                 ON CONFLICT(identity) DO UPDATE SET display_name = excluded.display_name
+                WHERE users.display_name IS NOT excluded.display_name
                 """,
                 (new, display_name, datetime.now(UTC).isoformat()),
             )
@@ -218,6 +241,8 @@ class TransportRepository:
                     """,
                     (published_at, datetime.now(UTC).isoformat()),
                 )
+            with self._connect() as connection:
+                connection.execute("ANALYZE")
 
     def _insert_gtfs(
         self, connection: sqlite3.Connection, archive: zipfile.ZipFile
@@ -395,7 +420,9 @@ class TransportRepository:
         direction_id: int,
         headsign: str,
         stop_code: str,
-    ) -> dict[str, object] | None:
+    ) -> LastTrain | None:
+        """The latest stop time on ``service_date``'s services, which GTFS
+        extends past 24:00 for trains leaving after midnight."""
         compact = service_date.strftime("%Y%m%d")
         weekday = service_date.strftime("%A").lower()
         if weekday not in {
@@ -447,10 +474,7 @@ class TransportRepository:
             ).fetchone()
         if row is None or row["arrival_seconds"] is None:
             return None
-        return {
-            "arrival_seconds": int(row["arrival_seconds"]),
-            "stop_name": str(row["stop_name"]),
-        }
+        return LastTrain(int(row["arrival_seconds"]), str(row["stop_name"]))
 
     def add_bus(
         self, identity: str, stop_code: str, stop_name: str, service_no: str

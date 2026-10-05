@@ -157,7 +157,9 @@ class ScanPaused(Exception):
 
 class FileIndex:
     settle_seconds = 1.0
-    # Files that were mid-write are retried soon rather than in five minutes.
+    # Reconcile outside changes about eight times a day for a personal library.
+    scan_seconds = 3 * 60 * 60
+    # Files that were mid-write are retried soon rather than in three hours.
     retry_seconds = 60.0
     progress_seconds = 1.0
 
@@ -198,7 +200,9 @@ class FileIndex:
             except Exception as error:  # the worker must survive anything
                 # Nothing may end this thread: record it and try again later.
                 self._finish_with_error(f"Unexpected index error: {error!r}")
-            self._wake.wait(self.retry_seconds if self._retry_soon else 300)
+            self._wake.wait(
+                self.retry_seconds if self._retry_soon else self.scan_seconds
+            )
 
     def _finish_with_error(self, message: str) -> None:
         try:

@@ -1,7 +1,5 @@
 import json
 import os
-import urllib.error
-import urllib.request
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -9,14 +7,25 @@ from datetime import date, datetime, time, timedelta
 from enum import StrEnum
 from html import escape
 from pathlib import Path
+from time import monotonic
 from typing import Annotated
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from services.common.identity import (
+    CachedResolver,
+    Identity,
+    http_identity_resolver,
+    identity_dependency,
+    read_secret_file,
+    tailscale_key,
+)
+from services.common.web import cache_versioned_assets
 from services.habit_tracker.budget import BudgetRepository, BudgetTransaction
 from services.habit_tracker.study import (
     ActiveStudySessionError,
@@ -26,7 +35,7 @@ from services.habit_tracker.study import (
 )
 from services.habit_tracker.water import Drink, WaterRepository
 
-SERVICE_VERSION = "0.10.0"
+SERVICE_VERSION = "0.10.1"
 DEFAULT_DATABASE_PATH = Path("data/habit-tracker.db")
 SERVICE_DIR = Path(__file__).parent
 TEMPLATES = {
@@ -70,16 +79,6 @@ class Settings:
     allow_dev_identity: bool
     identity_resolver_url: str | None
     identity_resolver_token: str | None
-
-
-@dataclass(frozen=True)
-class Identity:
-    key: str
-    display_name: str
-
-
-class IdentityServiceUnavailableError(Exception):
-    pass
 
 
 class DrinkType(StrEnum):
@@ -301,7 +300,7 @@ def load_settings() -> Settings:
             ).strip()
             or None
         ),
-        identity_resolver_token=_load_optional_secret(
+        identity_resolver_token=read_secret_file(
             os.environ.get(
                 "HABIT_TRACKER_IDENTITY_TOKEN_FILE",
                 "",
@@ -315,6 +314,7 @@ def create_app(
     *,
     allow_dev_identity: bool | None = None,
     identity_resolver: Callable[[str], Identity | None] | None = None,
+    identity_clock: Callable[[], float] = monotonic,
 ) -> FastAPI:
     settings = load_settings()
     if database_path is not None or allow_dev_identity is not None:
@@ -335,10 +335,40 @@ def create_app(
             raise RuntimeError(
                 "HABIT_TRACKER_IDENTITY_TOKEN_FILE is required with the resolver"
             )
-        identity_resolver = _http_identity_resolver(settings)
+        identity_resolver = http_identity_resolver(
+            settings.identity_resolver_url, settings.identity_resolver_token
+        )
     repository = WaterRepository(settings.database_path, settings.timezone)
     budget_repository = BudgetRepository(settings.database_path, settings.timezone)
     study_repository = StudyRepository(settings.database_path, settings.timezone)
+
+    def ensure_user(identity: Identity) -> None:
+        repository.ensure_user(identity.key, identity.display_name)
+        budget_repository.ensure_user(
+            identity.key, datetime.now(settings.timezone).date()
+        )
+
+    def adopt_legacy_rows(subject: str, identity: Identity) -> None:
+        legacy_key = tailscale_key(subject)
+        if legacy_key != identity.key:
+            with repository.transaction() as connection:
+                repository.adopt_identity(
+                    connection, legacy_key, identity.key, identity.display_name
+                )
+                budget_repository.adopt_identity(
+                    connection,
+                    legacy_key,
+                    identity.key,
+                    datetime.now(settings.timezone).date(),
+                )
+                study_repository.adopt_identity(connection, legacy_key, identity.key)
+        ensure_user(identity)
+
+    cached_resolver = (
+        CachedResolver(identity_resolver, adopt_legacy_rows, clock=identity_clock)
+        if identity_resolver
+        else None
+    )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -359,68 +389,15 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
+    application.add_middleware(GZipMiddleware, minimum_size=1000)
     application.mount("/static", StaticFiles(directory=SERVICE_DIR / "static"))
-
-    def current_identity(
-        request: Request,
-        tailscale_login: Annotated[
-            str | None, Header(alias="Tailscale-User-Login")
-        ] = None,
-        tailscale_name: Annotated[
-            str | None, Header(alias="Tailscale-User-Name")
-        ] = None,
-        dev_user: Annotated[
-            str | None, Header(alias="X-Habit-Tracker-Dev-User")
-        ] = None,
-    ) -> Identity:
-        if tailscale_login:
-            normalized_login = tailscale_login.strip().lower()
-            legacy_key = f"tailscale:{normalized_login}"
-            if identity_resolver is not None:
-                try:
-                    identity = identity_resolver(normalized_login)
-                except IdentityServiceUnavailableError as error:
-                    raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="Home Platform identity service is unavailable",
-                    ) from error
-                if identity is None:
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail=(
-                            "Link this Tailscale identity from your Job Desk "
-                            "account first"
-                        ),
-                    )
-                local_day = datetime.now(request.app.state.settings.timezone).date()
-                request.app.state.budget_repository.adopt_identity(
-                    legacy_key,
-                    identity.key,
-                    identity.display_name,
-                    local_day,
-                )
-                request.app.state.repository.adopt_identity(
-                    legacy_key, identity.key, identity.display_name
-                )
-            else:
-                identity = Identity(
-                    key=legacy_key,
-                    display_name=(tailscale_name or tailscale_login).strip(),
-                )
-        elif request.app.state.settings.allow_dev_identity and dev_user:
-            clean_user = dev_user.strip().lower()
-            identity = Identity(
-                key=f"development:{clean_user}", display_name=clean_user
-            )
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Open this service through the private Tailscale URL",
-            )
-        request.app.state.repository.ensure_user(identity.key, identity.display_name)
-        local_day = datetime.now(request.app.state.settings.timezone).date()
-        request.app.state.budget_repository.ensure_user(identity.key, local_day)
-        return identity
+    cache_versioned_assets(application, SERVICE_VERSION)
+    current_identity = identity_dependency(
+        dev_header="X-Habit-Tracker-Dev-User",
+        allow_dev_identity=settings.allow_dev_identity,
+        resolver=cached_resolver,
+        ensure_user=ensure_user,
+    )
 
     @application.get("/health")
     def health() -> dict[str, str]:
@@ -931,50 +908,6 @@ def _historical_day(request: Request, selected_date: date) -> date:
             detail="Analysis date cannot be in the future",
         )
     return selected_date
-
-
-def _load_optional_secret(path_value: str) -> str | None:
-    if not path_value:
-        return None
-    value = Path(path_value).read_text(encoding="utf-8").strip()
-    if not value:
-        raise RuntimeError(f"identity token file is empty: {path_value}")
-    return value
-
-
-def _http_identity_resolver(
-    settings: Settings,
-) -> Callable[[str], Identity | None]:
-    resolver_url = settings.identity_resolver_url
-    resolver_token = settings.identity_resolver_token
-    assert resolver_url is not None
-    assert resolver_token is not None
-
-    def resolve(subject: str) -> Identity | None:
-        request = urllib.request.Request(
-            resolver_url,
-            data=json.dumps({"provider": "tailscale", "subject": subject}).encode(),
-            headers={
-                "Content-Type": "application/json",
-                "X-Service-Identity-Token": resolver_token,
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=3) as response:
-                payload = json.load(response)
-        except urllib.error.HTTPError as error:
-            if error.code == 404:
-                return None
-            raise IdentityServiceUnavailableError from error
-        except (OSError, ValueError) as error:
-            raise IdentityServiceUnavailableError from error
-        return Identity(
-            key=f"home-platform:{payload['id']}",
-            display_name=str(payload["username"]),
-        )
-
-    return resolve
 
 
 app = create_app()

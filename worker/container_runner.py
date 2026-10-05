@@ -5,10 +5,12 @@ import json
 import logging
 import os
 import shutil
+import stat
 import subprocess
 import threading
 import time
 from pathlib import Path
+from typing import BinaryIO
 from uuid import UUID, uuid4
 
 import httpx
@@ -218,11 +220,7 @@ def run_batch(
                 failure_kind,
                 f"batch container exited with code {completed.returncode}: {detail}",
             )
-        output_files = sorted(
-            path.name
-            for path in output_directory.iterdir()
-            if path.is_file() and len(path.name) <= 200
-        )[:100]
+        output_files = list_output_files(output_directory)
         return BatchResult(
             project_sha256=parameters.project.sha256,
             exit_code=0,
@@ -399,11 +397,7 @@ def run_python_batch(
                 failure_kind,
                 f"batch container exited with code {completed.returncode}: {detail}",
             )
-        output_files = sorted(
-            path.name
-            for path in output_directory.iterdir()
-            if path.is_file() and len(path.name) <= 200
-        )[:100]
+        output_files = list_output_files(output_directory)
         return PythonBatchResult(
             script_sha256=parameters.script.sha256,
             dataset_sha256=parameters.dataset.sha256,
@@ -415,6 +409,42 @@ def run_python_batch(
         )
     finally:
         _remove_container(workspace.docker_executable, container_name)
+
+
+def open_output_file(path: Path) -> BinaryIO | None:
+    """Open one job output for reading, or None when it is not a regular file.
+
+    The job's container writes the output directory, so its entries are
+    untrusted. A symlink there would be dereferenced by this process with the
+    worker's privileges rather than the container's, so links are refused by
+    name and again on the opened descriptor.
+    """
+    status = os.lstat(path)
+    reparse_point = (
+        getattr(status, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT
+    )
+    if not stat.S_ISREG(status.st_mode) or reparse_point:
+        logging.warning("output=%s skipped: not a regular file", path)
+        return None
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+        os.close(descriptor)
+        logging.warning("output=%s skipped: not a regular file", path)
+        return None
+    return os.fdopen(descriptor, "rb")
+
+
+def list_output_files(directory: Path) -> list[str]:
+    names: list[str] = []
+    for path in sorted(directory.iterdir()):
+        if len(path.name) > 200:
+            continue
+        handle = open_output_file(path)
+        if handle is None:
+            continue
+        handle.close()
+        names.append(path.name)
+    return names[:100]
 
 
 def _run_container(
@@ -490,6 +520,38 @@ def _container_was_oom_killed(executable: str, container_name: str) -> bool:
     except (OSError, subprocess.SubprocessError, json.JSONDecodeError, AttributeError):
         logging.exception("could not inspect failed container=%s", container_name)
         return False
+
+
+def remove_orphaned_containers(executable: str | None) -> None:
+    """Force-remove every container still carrying this worker's job label.
+
+    A worker runs one job at a time and removes that job's container itself,
+    so at startup any labelled container belongs to a worker process that died
+    mid-job. The wall-clock limit lived in that process, so the container has
+    none until it is found here.
+    """
+    if executable is None:
+        return
+    try:
+        listed = subprocess.run(
+            [executable, "ps", "-aq", "--filter", "label=home-platform.job-id"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        orphans = listed.stdout.split()
+        if not orphans:
+            return
+        logging.warning("removing orphaned containers=%s", orphans)
+        subprocess.run(
+            [executable, "rm", "-f", *orphans],
+            capture_output=True,
+            timeout=60,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        logging.exception("could not remove orphaned containers")
 
 
 def _remove_container(executable: str, container_name: str) -> None:

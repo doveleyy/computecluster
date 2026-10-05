@@ -17,6 +17,8 @@ from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
+from services.common.sqlite import connect
+
 SOURCES = ("shopify",)
 
 
@@ -144,6 +146,7 @@ class WishlistRepository:
                 VALUES (?, ?, ?)
                 ON CONFLICT(identity)
                 DO UPDATE SET display_name = excluded.display_name
+                WHERE users.display_name IS NOT excluded.display_name
                 """,
                 (identity, display_name, now),
             )
@@ -163,6 +166,7 @@ class WishlistRepository:
                 VALUES (?, ?, ?)
                 ON CONFLICT(identity)
                 DO UPDATE SET display_name = excluded.display_name
+                WHERE users.display_name IS NOT excluded.display_name
                 """,
                 (new_identity, display_name, now),
             )
@@ -388,7 +392,4 @@ class WishlistRepository:
         )
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self._database_path, timeout=10)
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 10000")
-        return connection
+        return connect(self._database_path)

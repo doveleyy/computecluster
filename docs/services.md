@@ -26,14 +26,17 @@ Every service has:
 - explicit CPU, memory, PID, filesystem, and privilege limits; and
 - an online backup and tested restore procedure for its database.
 
-The operator dashboard checks each application's private `/ready` and
-`/version` endpoints over loopback every 30 seconds while an administrator
-has the Overview open. A ready response means the application and
-its database can answer a lightweight check. An unready response is shown as
-degraded; no response is shown as offline. These checks are read-only and use
-fixed local endpoints, so the control plane needs no Docker socket or restart
-privileges. They do not write database rows or contact external providers.
-They report application readiness, not container CPU usage or logs.
+While an administrator has the Overview open, the operator dashboard checks the
+private `/ready` and `/version` endpoints of the habit tracker, wishlist, and
+transport dashboard over loopback every 30 seconds. It leaves the file sorter
+out on purpose. The sorter's readiness check reads its library on the NAS, and a
+probe every 30 seconds would keep the NAS disks from sleeping. A ready response
+means the application and its database can answer a lightweight check. An
+unready response is shown as degraded; no response is shown as offline. These
+checks are read-only and use fixed local endpoints, so the control plane needs
+no Docker socket or restart privileges. They do not write database rows or
+contact external providers. They report application readiness, not container CPU
+usage or logs.
 
 The request path is the platform's standard one — private HTTPS to the reverse
 proxy, then plain HTTP to a loopback port with authenticated identity headers.
@@ -98,12 +101,15 @@ one owner's share.
 
 Its web boundary is stricter than the other applications'. A tailnet identity
 proves only that a request came through the private route. The sorter also
-requires the platform administrator's dashboard session, and asks the
-control plane to validate it on every request, so signing out or disabling
-the account takes effect at once. The sorter never holds the session-signing
-secret. Members are refused even when their tailnet identity is linked. The
-operator dashboard links to it, but the link is navigation, not access
-control.
+requires the platform administrator's dashboard session. It asks the control
+plane to validate that session and then trusts the answer for 60 seconds, so a
+page that fetches many previews does not call the control plane for each one.
+Signing out removes the cookie from the browser at once. A server-side change,
+such as disabling the account, reaches the sorter within 60 seconds. A refused
+or failed validation is never remembered. The sorter never holds the
+session-signing secret. Members are refused even when their tailnet identity is
+linked. The operator dashboard links to it, but the link is navigation, not
+access control.
 
 The sorter works on *projects*: each pairs one dump folder with one tree
 folder, both inside a single library on one file-server mount. Several dumps

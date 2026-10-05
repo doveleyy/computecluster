@@ -10,12 +10,15 @@ from __future__ import annotations
 import ctypes
 import errno
 import hashlib
+import logging
 import os
 import sys
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 DISCARD_FOLDER = "_discarded"
 RESERVED_FOLDERS = {DISCARD_FOLDER, "_routing"}
@@ -178,6 +181,11 @@ def library_parts(relative: str) -> list[str]:
     return parts
 
 
+def tree_path(folder: str, name: str) -> str:
+    """The tree-relative path of `name` inside `folder` ("" is the root)."""
+    return f"{folder}/{name}" if folder else name
+
+
 def nested(a: str, b: str) -> bool:
     """True when two library paths are the same or one contains the other."""
     return a == b or a.startswith(f"{b}/") or b.startswith(f"{a}/")
@@ -307,23 +315,29 @@ class Library:
 
         A folder holding nothing but Finder or Windows metadata counts as
         empty; that metadata is regenerated on demand and is never sorted.
+        Tidying is best effort: it runs after the entry has already moved,
+        so a folder that cannot be removed (Finder or a download wrote into
+        it meanwhile) is left behind rather than failing the move.
         """
         if self.mode != "files":
             return
-        while folder != self.dump and folder.is_relative_to(self.dump):
-            if folder.is_symlink() or not folder.is_dir():
-                return
-            names = os.listdir(folder)
-            if any(name not in IGNORED_NAMES for name in names):
-                return
-            for name in names:
-                junk = folder / name
-                if junk.is_symlink() or not junk.is_file():
+        try:
+            while folder != self.dump and folder.is_relative_to(self.dump):
+                if folder.is_symlink() or not folder.is_dir():
                     return
-            for name in names:
-                (folder / name).unlink()
-            folder.rmdir()
-            folder = folder.parent
+                names = os.listdir(folder)
+                if any(name not in IGNORED_NAMES for name in names):
+                    return
+                for name in names:
+                    junk = folder / name
+                    if junk.is_symlink() or not junk.is_file():
+                        return
+                for name in names:
+                    (folder / name).unlink()
+                folder.rmdir()
+                folder = folder.parent
+        except OSError as error:
+            logger.warning("Left untidied dump folder %s: %s", folder, error)
 
     def folder_path(self, relative: str) -> Path:
         path = self.sorted_root
@@ -529,7 +543,8 @@ class Library:
             self.tidy(source.parent)
         return f"{folder}/{filename}" if folder else filename
 
-    def discard(self, name: str) -> str:
+    def discard_destination(self, name: str) -> str:
+        """The free `_discarded` name an entry will take, creating the bin."""
         with self.lock:
             source = self.entry_path(name)
             bin_path = self.sorted_root / DISCARD_FOLDER
@@ -545,9 +560,14 @@ class Library:
             ).is_symlink():
                 counter += 1
                 candidate = f"{stem} ({counter}){suffix}"
-            rename_no_replace(source, bin_path / candidate)
-            self.tidy(source.parent)
         return f"{DISCARD_FOLDER}/{candidate}"
+
+    def discard(self, name: str, destination: str) -> None:
+        """Rename a dump entry to the name `discard_destination` chose."""
+        with self.lock:
+            source = self.entry_path(name)
+            rename_no_replace(source, self.sorted_root / destination)
+            self.tidy(source.parent)
 
     def move_back(self, destination: str, original_name: str) -> None:
         with self.lock:

@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import StrEnum
 from ipaddress import ip_address
-from pathlib import PurePosixPath
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Annotated
 from uuid import UUID
 
@@ -54,6 +54,36 @@ InputName = Annotated[
         pattern=r"^[A-Za-z][A-Za-z0-9._-]*$",
     ),
 ]
+
+
+WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{digit}" for digit in "123456789"}
+    | {f"LPT{digit}" for digit in "123456789"}
+)
+
+
+def portable_relative_path(value: str) -> PurePosixPath:
+    """Parse a relative path that stays inside its root on POSIX and on Windows.
+
+    Workers extract project archives on Windows too, where ``D:x`` is
+    drive-relative, trailing dots and spaces are stripped (so ``.. `` is
+    ``..``) and ``CON``/``COM1`` open devices. Raises ``ValueError``.
+    """
+    if "\\" in value or ":" in value or "\x00" in value:
+        raise ValueError(f"unsafe relative path: {value!r}")
+    posix = PurePosixPath(value)
+    windows = PureWindowsPath(value)
+    if not posix.parts or posix.is_absolute() or windows.drive or windows.root:
+        raise ValueError(f"unsafe relative path: {value!r}")
+    for part in posix.parts:
+        if (
+            part in {".", ".."}
+            or part[-1] in ". "
+            or part.partition(".")[0].upper() in WINDOWS_RESERVED_NAMES
+        ):
+            raise ValueError(f"unsafe relative path: {value!r}")
+    return posix
 
 
 class JobType(StrEnum):

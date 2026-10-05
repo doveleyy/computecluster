@@ -13,7 +13,8 @@ import time
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from typing import Protocol
+from typing import BinaryIO, Protocol
+from uuid import UUID
 
 import httpx
 import psutil
@@ -32,7 +33,13 @@ from contracts.models import (
     WorkerMetrics,
 )
 from contracts.tokens import load_api_token
-from worker.container_runner import BatchExecutionFailure, run_batch, run_python_batch
+from worker.container_runner import (
+    BatchExecutionFailure,
+    open_output_file,
+    remove_orphaned_containers,
+    run_batch,
+    run_python_batch,
+)
 from worker.data_plane import WorkerWorkspace
 
 
@@ -67,7 +74,7 @@ class WorkerAPI(Protocol):
         failure_kind: FailureKind = FailureKind.EXECUTION_ERROR,
     ) -> JobRead: ...
 
-    def upload_artifact(self, job: JobRead, path: Path) -> None: ...
+    def upload_artifact(self, job: JobRead, name: str, handle: BinaryIO) -> None: ...
 
 
 class ControlPlaneClient:
@@ -138,19 +145,18 @@ class ControlPlaneClient:
         response.raise_for_status()
         return JobRead.model_validate(response.json())
 
-    def upload_artifact(self, job: JobRead, path: Path) -> None:
+    def upload_artifact(self, job: JobRead, name: str, handle: BinaryIO) -> None:
         if job.lease_token is None:
             raise ValueError("claimed job does not contain a lease token")
-        with path.open("rb") as handle:
-            response = self.http.post(
-                f"/jobs/{job.id}/artifacts",
-                data={
-                    "worker_id": self.worker_id,
-                    "lease_token": str(job.lease_token),
-                },
-                files={"file": (path.name, handle)},
-                timeout=httpx.Timeout(30, write=300, read=120),
-            )
+        response = self.http.post(
+            f"/jobs/{job.id}/artifacts",
+            data={
+                "worker_id": self.worker_id,
+                "lease_token": str(job.lease_token),
+            },
+            files={"file": (name, handle)},
+            timeout=httpx.Timeout(30, write=300, read=120),
+        )
         response.raise_for_status()
 
     def heartbeat(self, job: JobRead | None = None) -> bool:
@@ -595,11 +601,101 @@ def execute(
     raise ValueError(f"Unsupported job type: {job.type}")
 
 
+MAX_UNPUBLISHED_OUTPUTS = 5
+
+
+def reconcile_workspace(workspace: WorkerWorkspace) -> None:
+    """Converge the workspace at startup, whatever the previous process left.
+
+    Nothing is running yet, so every run directory is a leftover whose hard
+    links pin cache entries, and every container still carrying the job label
+    outlived the process that enforced its time limit.
+    """
+    remove_orphaned_containers(workspace.docker_executable)
+    runs = workspace.root / "runs"
+    if runs.is_dir():
+        for stale in runs.iterdir():
+            shutil.rmtree(stale, ignore_errors=True)
+            logging.info("job=%s stale run directory removed", stale.name)
+    _trim_unpublished_outputs(workspace)
+
+
+def _trim_unpublished_outputs(workspace: WorkerWorkspace) -> None:
+    directory = workspace.root / "artifacts"
+    if not directory.is_dir():
+        return
+    outputs = sorted(
+        (path for path in directory.iterdir() if path.is_dir()),
+        key=lambda path: path.stat().st_mtime_ns,
+    )
+    for stale in outputs[:-MAX_UNPUBLISHED_OUTPUTS]:
+        shutil.rmtree(stale, ignore_errors=True)
+        logging.info("job=%s unpublished outputs discarded", stale.name)
+
+
+class JobScratch:
+    """The run and output directories of one job, removed when it is over.
+
+    The run directory holds hard links to cache entries, and the cache never
+    evicts a linked entry, so a leftover run directory pins cache space until
+    someone deletes it by hand. It goes on every exit. The output directory
+    goes too, except when a successful run could not be published: that copy
+    is then the only one, and the storage contract keeps it on the worker,
+    bounded to the newest MAX_UNPUBLISHED_OUTPUTS such copies.
+    """
+
+    def __init__(self, workspace: WorkerWorkspace | None, job_id: UUID) -> None:
+        self.workspace = workspace
+        self.job_id = job_id
+        self.keep_outputs = False
+
+    def __enter__(self) -> "JobScratch":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        if self.workspace is None:
+            return
+        shutil.rmtree(
+            self.workspace.root / "runs" / str(self.job_id), ignore_errors=True
+        )
+        if self.keep_outputs:
+            _trim_unpublished_outputs(self.workspace)
+            return
+        shutil.rmtree(
+            self.workspace.root / "artifacts" / str(self.job_id), ignore_errors=True
+        )
+        logging.info("job=%s worker copies removed", self.job_id)
+
+
+def lease_length(job: JobRead) -> float:
+    """The lease the control plane granted, read off its own two stamps.
+
+    Both come from the server clock, so the difference is the configured
+    lease however far this machine's clock drifts from it.
+    """
+    if job.lease_expires_at is None:
+        raise ValueError("control plane returned a job without a lease expiry")
+    return (job.lease_expires_at - job.updated_at).total_seconds()
+
+
 class LeaseKeeper:
-    def __init__(self, client: WorkerAPI, job: JobRead, interval: float) -> None:
+    """Renew the job's lease in the background until stopped or lost.
+
+    A heartbeat that cannot reach the control plane is retried at the normal
+    interval; the lease is still ours until the server says otherwise, or
+    renewal has failed for longer than the lease itself, by which point the
+    server has expired it anyway. Loss sets the cancellation event so the
+    running container stops instead of finishing work the control plane will
+    no longer accept.
+    """
+
+    def __init__(
+        self, client: WorkerAPI, job: JobRead, interval: float, lease_seconds: float
+    ) -> None:
         self.client = client
         self.job = job
         self.interval = interval
+        self.lease_seconds = lease_seconds
         self.stop_event = threading.Event()
         self.cancellation_event = threading.Event()
         self.lost = False
@@ -614,14 +710,27 @@ class LeaseKeeper:
         self.thread.join()
 
     def _run(self) -> None:
+        renewed_at = time.monotonic()
         while not self.stop_event.wait(self.interval):
             try:
-                if self.client.heartbeat(self.job):
+                cancellation_requested = self.client.heartbeat(self.job)
+            except (httpx.HTTPError, ValueError) as error:
+                stale = (
+                    isinstance(error, httpx.HTTPStatusError)
+                    and error.response.status_code == 409
+                )
+                if stale or time.monotonic() - renewed_at > self.lease_seconds:
+                    logging.error("job=%s lease lost: %s", self.job.id, error)
+                    self.lost = True
                     self.cancellation_event.set()
-            except (httpx.HTTPError, ValueError):
-                logging.exception("job=%s lease heartbeat failed", self.job.id)
-                self.lost = True
-                return
+                    return
+                logging.warning(
+                    "job=%s lease heartbeat failed; retrying: %s", self.job.id, error
+                )
+                continue
+            renewed_at = time.monotonic()
+            if cancellation_requested:
+                self.cancellation_event.set()
 
 
 def publish_artifacts(
@@ -649,51 +758,87 @@ def publish_artifacts(
 
     published = 0
     for path in sorted(directory.iterdir()):
-        if not path.is_file() or path.name.startswith("."):
+        if path.name.startswith("."):
             continue
-        for attempt in range(1, attempts + 1):
-            try:
-                client.upload_artifact(job, path)
-                published += 1
-                break
-            except Exception:
-                if attempt == attempts:
-                    logging.error(
-                        "job=%s artifact=%s upload failed after %d attempts",
+        handle = open_output_file(path)
+        if handle is None:
+            continue
+        with handle:
+            for attempt in range(1, attempts + 1):
+                try:
+                    handle.seek(0)
+                    client.upload_artifact(job, path.name, handle)
+                    published += 1
+                    break
+                except Exception:
+                    if attempt == attempts:
+                        logging.error(
+                            "job=%s artifact=%s upload failed after %d attempts",
+                            job.id,
+                            path.name,
+                            attempts,
+                        )
+                        raise
+                    logging.warning(
+                        "job=%s artifact=%s upload attempt %d failed; retrying",
                         job.id,
                         path.name,
-                        attempts,
+                        attempt,
                     )
-                    raise
-                logging.warning(
-                    "job=%s artifact=%s upload attempt %d failed; retrying",
-                    job.id,
-                    path.name,
-                    attempt,
-                )
-                time.sleep(2 * attempt)
+                    time.sleep(2 * attempt)
     if published:
         logging.info("job=%s artifacts published=%d", job.id, published)
-        # Only reached if every upload succeeded — a failure raises above. Once
-        # the control plane holds the results, this copy is pure duplication,
-        # and keeping it means every laptop slowly accumulates everything it has
-        # ever produced. The per-job input directory goes too; it is just copies
-        # of the cached script and dataset.
-        for stale in (directory, workspace.root / "runs" / str(job.id)):
-            shutil.rmtree(stale, ignore_errors=True)
-        logging.info("job=%s worker copies removed", job.id)
     return published
 
 
-def discard_job_files(job: JobRead, workspace: WorkerWorkspace | None) -> None:
-    """Remove incomplete outputs when an operator deliberately cancels a job."""
-    if workspace is None:
-        return
-    for path in (
-        workspace.root / "artifacts" / str(job.id),
-        workspace.root / "runs" / str(job.id),
-    ):
-        shutil.rmtree(path, ignore_errors=True)
+@dataclass(frozen=True)
+class Failed:
+    kind: FailureKind
+    message: str
+
+
+def report_outcome(
+    client: WorkerAPI,
+    job: JobRead,
+    outcome: JobResult | Failed,
+    attempts: int = 5,
+) -> None:
+    """Tell the control plane how the job ended, retrying across blips.
+
+    By now the results are published and the local copy is about to go, so an
+    unreported completion would expire into a rerun from scratch. Transport
+    and server errors are retried; a 409 means the lease is no longer ours and
+    there is nothing left to say.
+    """
+    for attempt in range(1, attempts + 1):
+        problem: Exception
+        try:
+            if isinstance(outcome, Failed):
+                client.fail(job, outcome.message, outcome.kind)
+            else:
+                completed = client.complete(job, outcome)
+                logging.info("job=%s status=%s", completed.id, completed.status)
+            return
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code == 409:
+                logging.warning(
+                    "job=%s outcome rejected because lease was lost", job.id
+                )
+                return
+            if error.response.status_code < 500 or attempt == attempts:
+                raise
+            problem = error
+        except httpx.RequestError as error:
+            if attempt == attempts:
+                raise
+            problem = error
+        logging.warning(
+            "job=%s outcome report attempt %d failed; retrying: %s",
+            job.id,
+            attempt,
+            problem,
+        )
+        time.sleep(2 * attempt)
 
 
 MAX_IDLE_POLL_SECONDS = 30.0
@@ -725,9 +870,11 @@ def run_once(
         raise ValueError("control plane returned a job without a lease token")
 
     logging.info("job=%s claimed worker=%s", job.id, client.worker_id)
-    execution_error: Exception | None = None
-    result: JobResult | None = None
-    with LeaseKeeper(client, job, heartbeat_seconds) as lease:
+    with (
+        JobScratch(workspace, job.id) as scratch,
+        LeaseKeeper(client, job, heartbeat_seconds, lease_length(job)) as lease,
+    ):
+        outcome: JobResult | Failed
         try:
             result = execute(
                 job,
@@ -739,41 +886,30 @@ def run_once(
                 raise BatchExecutionFailure(
                     FailureKind.CANCELLED_BY_USER, "job cancelled by user"
                 )
-            # Inside the lease keeper on purpose — see publish_artifacts.
-            publish_artifacts(client, job, workspace)
+            try:
+                # Inside the lease keeper on purpose — see publish_artifacts.
+                publish_artifacts(client, job, workspace)
+            except Exception:
+                scratch.keep_outputs = True
+                raise
+            outcome = result
         except Exception as error:
             logging.exception("job=%s execution failed", job.id)
-            execution_error = error
+            if lease.cancellation_event.is_set():
+                kind = FailureKind.CANCELLED_BY_USER
+            elif isinstance(error, BatchExecutionFailure):
+                kind = error.failure_kind
+            else:
+                kind = FailureKind.EXECUTION_ERROR
+            outcome = Failed(kind, f"{type(error).__name__}: {error}")
 
-    if lease.lost:
-        logging.error("job=%s result discarded because lease was lost", job.id)
-        return True
-
-    if lease.cancellation_event.is_set():
-        discard_job_files(job, workspace)
-
-    try:
-        if execution_error is not None:
-            failure_kind = (
-                FailureKind.CANCELLED_BY_USER
-                if lease.cancellation_event.is_set()
-                else execution_error.failure_kind
-                if isinstance(execution_error, BatchExecutionFailure)
-                else FailureKind.EXECUTION_ERROR
-            )
-            client.fail(
-                job,
-                f"{type(execution_error).__name__}: {execution_error}",
-                failure_kind,
-            )
-        else:
-            assert result is not None
-            completed = client.complete(job, result)
-            logging.info("job=%s status=%s", completed.id, completed.status)
-    except httpx.HTTPStatusError as error:
-        if error.response.status_code != 409:
-            raise
-        logging.warning("job=%s completion rejected because lease was lost", job.id)
+        if lease.lost:
+            logging.error("job=%s result discarded because lease was lost", job.id)
+            scratch.keep_outputs = False
+            return True
+        # Still inside the lease keeper: a slow or retried report must not let
+        # the lease lapse on a job whose results are already published.
+        report_outcome(client, job, outcome)
     return True
 
 
@@ -881,6 +1017,7 @@ def main() -> None:
         settings.worker_id,
         settings.api_url,
     )
+    reconcile_workspace(workspace)
 
     try:
         if args.once:

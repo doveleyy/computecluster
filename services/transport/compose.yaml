@@ -5,7 +5,7 @@ services:
     build:
       context: ../..
       dockerfile: services/transport/Dockerfile
-    image: home-platform-transport:0.1.3
+    image: home-platform-transport:0.1.4
     container_name: home-platform-transport
     restart: unless-stopped
     user: "${SERVICE_UID:-1000}:${SERVICE_GID:-1000}"
@@ -37,7 +37,12 @@ services:
     cpus: 0.50
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8102/ready', timeout=2).read()"]
-      interval: 30s
+      # Each probe starts a Python process (about 0.7 s on the Pi); at 30 s
+      # four services spent nearly all the Pi's idle CPU on them. Nothing
+      # restarts on unhealthy, so a slow cadence loses nothing; start-up is
+      # still checked every 2 s so deploys see healthy at once.
+      interval: 5m
       timeout: 3s
       retries: 3
-      start_period: 10s
+      start_period: 60s
+      start_interval: 2s

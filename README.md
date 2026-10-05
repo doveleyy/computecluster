@@ -194,14 +194,14 @@ roomy two-column form on larger screens and a single-column phone layout.
 
 ### Homelab Dashboard
 
-![Homelab Dashboard showing service health and compute workers](docs/assets/dashboard.png)
+![Homelab Dashboard operations view showing four compute workers with metrics and scheduling controls](docs/assets/dashboard.png)
 
 ### Job Desk
 
-![Job Desk showing batch submission and synthetic job history](docs/assets/job-desk.png)
+![Job Desk queue showing a member's job history across sleep, python_batch, and batch array runs](docs/assets/job-desk.png)
 
-The screenshots use synthetic host, worker, job, and timestamp values so the
-public repository does not disclose details of the live deployment.
+The screenshots come from a local run seeded with synthetic workers, accounts,
+and jobs, so they disclose nothing about a real deployment.
 
 ## Documentation
 
@@ -271,9 +271,8 @@ A worker advertises the batch capability only once it can see the pre-built
 container image, re-checking periodically — so capability appears and
 disappears on its own, without restarts.
 
-The retired CSV Summary handler is no longer submittable or advertised. The
-single-file `python_batch` remains available while the compute layer evolves
-toward the general PBS-style batch design described in the
+The single-file `python_batch` type is the lightweight path. Larger work uses
+the general PBS-style batch design described in the
 [architecture](docs/architecture.md) and its normative
 [batch script standard](docs/compute/batch-script.md).
 
@@ -320,7 +319,7 @@ Known gaps, in the order they will start to matter: automatic placement uses
 fixed per-node capacity rather than live load, thermal, or data-locality policy;
 artifact publication still passes through the coordinator in one bounded
 request per file; and browser downloads do not expose the CLI's resumable
-manifest workflow. Worker input caches now have a least-recently-used size
+manifest workflow. Worker input caches have a least-recently-used size
 ceiling, and CLI artifact pulls resume by byte range and verify SHA-256. See
 [Architecture](docs/architecture.md) for why each is currently adequate and
 when it stops being so.

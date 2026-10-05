@@ -43,6 +43,17 @@ def test_shopify_endpoints_are_derived_not_guessed() -> None:
             pricing.shopify_endpoints(bad)
 
 
+def test_shop_currency_must_be_an_iso_code(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pricing, "_get_json", lambda url: {"currency": "jpy"})
+    assert pricing.shop_currency("https://shop.example/meta.json") == "JPY"
+    for hostile in ("<img src=x onerror=alert(1)>", "USD&symbols=EUR", "US"):
+        monkeypatch.setattr(
+            pricing, "_get_json", lambda url, hostile=hostile: {"currency": hostile}
+        )
+        with pytest.raises(pricing.PriceSourceError):
+            pricing.shop_currency("https://shop.example/meta.json")
+
+
 def test_shopify_observation_reads_price_and_per_variant_stock(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -56,11 +67,10 @@ def test_shopify_observation_reads_price_and_per_variant_stock(
     assert observation.in_stock is True
     assert observation.method == "shopify_js"
     # The size you want being sold out is the signal, not the headline price.
-    sold_out = observation.variant("32")
-    in_stock = observation.variant("28")
-    assert sold_out is not None and sold_out.available is False
-    assert in_stock is not None and in_stock.available is True
-    assert observation.variant("99") is None
+    assert observation.variant("32").available is False
+    assert observation.variant("28").available is True
+    with pytest.raises(pricing.PriceSourceError, match="28, 32"):
+        observation.variant("99")
 
 
 def test_conversion_rounds_half_up_to_the_cent() -> None:

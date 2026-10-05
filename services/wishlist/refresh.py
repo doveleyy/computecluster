@@ -17,7 +17,8 @@ import sys
 import time
 
 from services.wishlist import pricing
-from services.wishlist.main import load_settings, observe
+from services.wishlist.main import load_settings
+from services.wishlist.observe import RateCache, observe
 from services.wishlist.repository import WishlistRepository
 
 DEFAULT_PAUSE_SECONDS = 2.0
@@ -46,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     failures = 0
+    rates: RateCache = {}
     for index, product in enumerate(products):
         if index:
             time.sleep(max(0.0, arguments.pause_seconds))
@@ -57,6 +59,7 @@ def main(argv: list[str] | None = None) -> int:
                 product.base_currency,
                 product.display_currency or settings.display_currency,
                 product.variant_label,
+                rates=rates,
             )
             logging.info("checked %s", product.name)
         except pricing.PriceSourceError as error:

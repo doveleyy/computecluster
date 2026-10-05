@@ -4,6 +4,7 @@ import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from secrets import token_urlsafe
 
 from fastapi import FastAPI
 
@@ -12,18 +13,36 @@ from app.api import create_router
 from app.config import load_settings
 from app.dashboard import create_dashboard_router
 from app.database import Database
+from app.http_errors import install_error_handlers
 from app.repository import JobRepository
 from app.service import JobService
 from app.version import VERSION
 
 ROUTINE_WORKER_PATHS = frozenset({"/workers/claim", "/workers/heartbeat"})
+# Successful calls the platform makes to itself all day: application services
+# resolving identities and checking the sorter's session, and the dashboard
+# and Job Desk polling while open. Each wrote a journal line to the SD card.
+ROUTINE_POST_PATHS = ROUTINE_WORKER_PATHS | {"/internal/service-identities/resolve"}
+ROUTINE_GET_PATHS = frozenset(
+    {
+        "/jobs-ui/api/session",
+        "/jobs-ui/api/jobs",
+        "/jobs-ui/api/job-groups",
+        "/jobs-ui/api/workload-owners",
+        "/jobs-ui/api/workers",
+        "/dashboard/api/workers",
+        "/dashboard/api/system",
+        "/dashboard/api/services",
+    }
+)
 
 
 class RoutineWorkerAccessFilter(logging.Filter):
-    """Drop only successful high-frequency worker access lines.
+    """Drop only successful high-frequency routine access lines.
 
-    Application warnings, failed requests, and every other access route remain
-    visible. Uvicorn supplies access fields as positional logging arguments.
+    Application warnings, failed requests (including an unlinked identity's
+    404), and every other route remain visible. Uvicorn supplies access fields
+    as positional logging arguments.
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
@@ -36,11 +55,10 @@ class RoutineWorkerAccessFilter(logging.Filter):
             status_code = int(str(arguments[4]))
         except ValueError:
             return True
-        return not (
-            method == "POST"
-            and path in ROUTINE_WORKER_PATHS
-            and 200 <= status_code < 300
+        routine = (method == "POST" and path in ROUTINE_POST_PATHS) or (
+            method == "GET" and path in ROUTINE_GET_PATHS
         )
+        return not (routine and 200 <= status_code < 300)
 
 
 def configure_access_logging() -> None:
@@ -81,6 +99,10 @@ def create_app(database_path: Path | None = None) -> FastAPI:
         version=VERSION,
         lifespan=lifespan,
     )
+    # Signs dashboard sessions when no API token is configured; per app, so
+    # one process can host independent test apps.
+    application.state.anonymous_session = token_urlsafe(32)
+    install_error_handlers(application)
     application.include_router(create_router())
     application.include_router(create_dashboard_router())
     return application

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
+
+from services.common.sqlite import connect
 
 
 @dataclass(frozen=True)
@@ -179,6 +183,7 @@ class WaterRepository:
                 INSERT INTO users(identity, display_name, created_at)
                 VALUES (?, ?, ?)
                 ON CONFLICT(identity) DO UPDATE SET display_name = excluded.display_name
+                WHERE users.display_name IS NOT excluded.display_name
                 """,
                 (identity, display_name, now),
             )
@@ -191,44 +196,55 @@ class WaterRepository:
                 (identity,),
             )
 
-    def adopt_identity(
-        self, old_identity: str, new_identity: str, display_name: str
-    ) -> None:
-        if old_identity == new_identity:
-            self.ensure_user(new_identity, display_name)
-            return
-        now = datetime.now(UTC).isoformat()
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        """One write transaction shared by every module of this database.
+
+        Foreign keys are checked at commit, so a legacy users row can go
+        before the last module has moved its rows off it.
+        """
         with self._connect() as connection:
-            old_goal = connection.execute(
-                "SELECT daily_goal_ml FROM user_settings WHERE identity = ?",
-                (old_identity,),
-            ).fetchone()
-            connection.execute(
-                """
-                INSERT INTO users(identity, display_name, created_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(identity) DO UPDATE SET display_name = excluded.display_name
-                """,
-                (new_identity, display_name, now),
-            )
-            connection.execute(
-                """
-                INSERT INTO user_settings(identity, daily_goal_ml)
-                VALUES (?, ?)
-                ON CONFLICT(identity) DO NOTHING
-                """,
-                (new_identity, int(old_goal[0]) if old_goal else 2000),
-            )
-            connection.execute(
-                """
-                UPDATE drinks SET owner_identity = ? WHERE owner_identity = ?
-                """,
-                (new_identity, old_identity),
-            )
-            connection.execute(
-                "DELETE FROM user_settings WHERE identity = ?", (old_identity,)
-            )
-            connection.execute("DELETE FROM users WHERE identity = ?", (old_identity,))
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute("PRAGMA defer_foreign_keys = ON")
+            yield connection
+
+    def adopt_identity(
+        self,
+        connection: sqlite3.Connection,
+        old_identity: str,
+        new_identity: str,
+        display_name: str,
+    ) -> None:
+        now = datetime.now(UTC).isoformat()
+        old_goal = connection.execute(
+            "SELECT daily_goal_ml FROM user_settings WHERE identity = ?",
+            (old_identity,),
+        ).fetchone()
+        connection.execute(
+            """
+            INSERT INTO users(identity, display_name, created_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(identity) DO UPDATE SET display_name = excluded.display_name
+            WHERE users.display_name IS NOT excluded.display_name
+            """,
+            (new_identity, display_name, now),
+        )
+        connection.execute(
+            """
+            INSERT INTO user_settings(identity, daily_goal_ml)
+            VALUES (?, ?)
+            ON CONFLICT(identity) DO NOTHING
+            """,
+            (new_identity, int(old_goal[0]) if old_goal else 2000),
+        )
+        connection.execute(
+            "UPDATE drinks SET owner_identity = ? WHERE owner_identity = ?",
+            (new_identity, old_identity),
+        )
+        connection.execute(
+            "DELETE FROM user_settings WHERE identity = ?", (old_identity,)
+        )
+        connection.execute("DELETE FROM users WHERE identity = ?", (old_identity,))
 
     def goal(self, identity: str) -> int:
         with self._connect() as connection:
@@ -382,7 +398,4 @@ class WaterRepository:
         return start.astimezone(UTC), end.astimezone(UTC)
 
     def _connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self._database_path, timeout=10)
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 10000")
-        return connection
+        return connect(self._database_path)

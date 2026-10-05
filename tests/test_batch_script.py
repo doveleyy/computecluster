@@ -7,7 +7,11 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from app.batch_script import BatchScriptError, parse_batch_script
+from app.batch_script import (
+    BatchScriptError,
+    parse_batch_script,
+    validate_project_archive,
+)
 from app.main import create_app
 from contracts.models import (
     BatchParameters,
@@ -207,3 +211,53 @@ def test_batch_runner_passes_index_to_isolated_container(
     assert command[-2:] == ["bash", "/workspace/project/submit.hp"]
     assert "secret" not in command
     assert result.stdout == "ok\n"
+
+
+UNSAFE_PROJECT_ENTRY_NAMES = [
+    "D:evil.dll",
+    "C:x",
+    "sub/D:x",
+    "file.txt:stream",
+    "back\\slash.txt",
+    "\\\\?\\x",
+    "/absolute",
+    "//server/share/x",
+    "../up",
+    "a/../b",
+    "a/.. /x",
+    "trailing.",
+    "trailing /x",
+    "CON",
+    "con.txt",
+    "COM1",
+    "lpt9.log",
+]
+
+
+def archive_with_entries(names: list[str]) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        for name in names:
+            archive.writestr(name, b"" if name.endswith("/") else b"payload")
+    return output.getvalue()
+
+
+@pytest.mark.parametrize("name", UNSAFE_PROJECT_ENTRY_NAMES)
+def test_archive_validation_rejects_entries_unsafe_on_posix_or_windows(
+    tmp_path: Path, name: str
+) -> None:
+    path = tmp_path / "project.zip"
+    path.write_bytes(archive_with_entries(["submit.hp", name]))
+
+    with pytest.raises(BatchScriptError, match="relative path"):
+        validate_project_archive(path)
+
+
+def test_archive_validation_accepts_nested_files_and_directories(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "project.zip"
+    names = ["submit.hp", "lib/", "lib/util.py", "data.v2.csv", "nul_ok"]
+    path.write_bytes(archive_with_entries(names))
+
+    validate_project_archive(path)

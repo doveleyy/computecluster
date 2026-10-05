@@ -19,6 +19,7 @@ from worker.container_runner import (
     BatchCancellationError,
     BatchExecutionFailure,
     materialize_script,
+    remove_orphaned_containers,
     run_python_batch,
 )
 from worker.data_plane import WorkerWorkspace
@@ -121,6 +122,52 @@ def test_python_batch_uses_isolated_limited_container(
     assert (input_directory / "dataset.csv").stat().st_mode & 0o777 == 0o444
     assert result.stdout == "trained\n"
     assert result.artifact_uri == f"worker://windows-primary/{job_id}/"
+
+
+def test_output_listing_refuses_links_out_of_the_output_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = b"print('trained')\n"
+    dataset = b"feature,target\n1,0\n"
+    parameters = batch_parameters(script, dataset)
+    source_script = tmp_path / "source.py"
+    source_dataset = tmp_path / "source.csv"
+    source_script.write_bytes(script)
+    source_dataset.write_bytes(dataset)
+    (tmp_path / "api-token").write_bytes(b"SECRET-WORKER-TOKEN")
+    job_id = uuid4()
+    output_directory = tmp_path / "worker-data" / "artifacts" / str(job_id)
+
+    monkeypatch.setattr(
+        "worker.container_runner.materialize_script",
+        lambda _parameters, _workspace, **_kwargs: source_script,
+    )
+    monkeypatch.setattr(
+        "worker.container_runner.materialize_dataset",
+        lambda _reference, _workspace: source_dataset,
+    )
+
+    class Completed:
+        returncode = 0
+        stdout = ""
+        stderr = ""
+
+    def run(command: list[str], **_kwargs: object) -> Completed:
+        if command[:2] == ["docker", "run"]:
+            (output_directory / "metrics.json").write_bytes(b"{}")
+            (output_directory / "model.joblib").symlink_to(
+                Path("..") / ".." / ".." / "api-token"
+            )
+            (output_directory / "report.txt").symlink_to(tmp_path)
+            (output_directory / "nested").mkdir()
+        return Completed()
+
+    monkeypatch.setattr("worker.container_runner.subprocess.run", run)
+    result = run_python_batch(
+        job_id, "windows-primary", parameters, workspace(tmp_path)
+    )
+
+    assert result.output_files == ["metrics.json"]
 
 
 def test_python_batch_timeout_force_removes_only_its_container(
@@ -378,3 +425,43 @@ def test_fractional_cpu_limits_still_get_one_thread(
         run_python_batch(uuid4(), "mac-one", parameters, workspace)
 
     assert "OMP_NUM_THREADS=1" in recorded[0]
+
+
+def test_startup_removes_containers_left_by_a_previous_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The wall-clock limit lives in the worker process, so a container that
+    outlives its worker has no limit at all until the next worker finds it."""
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs: object) -> SimpleNamespace:
+        commands.append(command)
+        if command[1] == "ps":
+            return SimpleNamespace(returncode=0, stdout="abc123\ndef456\n", stderr="")
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("worker.container_runner.subprocess.run", run)
+
+    remove_orphaned_containers("docker")
+
+    assert commands == [
+        ["docker", "ps", "-aq", "--filter", "label=home-platform.job-id"],
+        ["docker", "rm", "-f", "abc123", "def456"],
+    ]
+
+
+def test_startup_sweep_is_quiet_when_nothing_is_orphaned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs: object) -> SimpleNamespace:
+        commands.append(command)
+        return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("worker.container_runner.subprocess.run", run)
+
+    remove_orphaned_containers("docker")
+    remove_orphaned_containers(None)
+
+    assert [command[1] for command in commands] == ["ps"]

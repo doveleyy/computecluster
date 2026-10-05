@@ -173,3 +173,127 @@ def test_page_embeds_escaped_configuration(tmp_path: Path) -> None:
     assert page.status_code == 200
     assert "</script><script>alert(1)</script>" not in page.text
     assert "\\u003c/script>" in page.text
+
+
+def _shop(monkeypatch: pytest.MonkeyPatch, payloads: dict[str, object]) -> None:
+    def get_json(url: str) -> object:
+        if url in payloads:
+            return payloads[url]
+        raise pricing.PriceSourceError(f"{url} unreachable")
+
+    monkeypatch.setattr(pricing, "_get_json", get_json)
+    monkeypatch.setattr(
+        pricing,
+        "fetch_rate",
+        lambda base, quote: (date(2026, 9, 24), Decimal("1.2799")),
+    )
+
+
+def test_a_tracked_variant_is_priced_at_its_own_price(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dearer = pricing.PriceObservation(
+        **{
+            **SHOPIFY.__dict__,
+            "variants": (
+                pricing.VariantPrice("28", 29800, True),
+                pricing.VariantPrice("32", 45000, True),
+            ),
+        }
+    )
+    stub(monkeypatch, dearer)
+    with client(tmp_path) as user:
+        created = user.post(
+            "/api/products",
+            json={"url": URL, "variant_label": "32", "target_cents": 35000},
+        ).json()
+        history = user.get(f"/api/products/{created['id']}/history").json()
+
+    assert created["latest"]["price_cents"] == 45000
+    # 45000 * 1.2799 = 57595.5, rounded half-up.
+    assert created["latest"]["display_cents"] == 57596
+    assert created["met_target"] is False
+    assert [o["price_cents"] for o in history["observations"]] == [45000]
+
+
+def test_a_variant_the_shop_does_not_offer_is_refused_with_the_offered_ones(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub(monkeypatch)
+    with client(tmp_path) as user:
+        refused = user.post("/api/products", json={"url": URL, "variant_label": "33"})
+        listed = user.get("/api/products").json()["products"]
+
+    assert refused.status_code == 422
+    assert "33" in refused.json()["detail"]
+    assert "28" in refused.json()["detail"] and "32" in refused.json()["detail"]
+    assert listed == []
+
+
+def test_a_variant_that_disappears_is_a_reported_failure_not_a_headline_reading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stub(monkeypatch)
+    with client(tmp_path) as user:
+        created = user.post(
+            "/api/products", json={"url": URL, "variant_label": "32"}
+        ).json()
+        stub(
+            monkeypatch,
+            pricing.PriceObservation(
+                **{**SHOPIFY.__dict__, "variants": (SHOPIFY.variants[0],)}
+            ),
+        )
+        result = user.post("/api/refresh").json()
+        listed = user.get("/api/products").json()["products"][0]
+
+    assert result["checked"] == 0
+    assert [f["id"] for f in result["failed"]] == [created["id"]]
+    assert "32" in result["failed"][0]["error"]
+    assert listed["latest"]["variant_available"] is False
+    assert listed["latest"]["observed_at"] == created["latest"]["observed_at"]
+
+
+def test_adding_a_url_already_tracked_is_a_409_without_asking_the_shop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fetches: list[str] = []
+
+    def shopify(url: str, currency: str | None = None) -> pricing.PriceObservation:
+        fetches.append(url)
+        return SHOPIFY
+
+    stub(monkeypatch)
+    monkeypatch.setattr(pricing, "fetch_shopify", shopify)
+    with client(tmp_path) as user:
+        assert user.post("/api/products", json={"url": URL}).status_code == 201
+        duplicate = user.post("/api/products", json={"url": URL})
+        listed = user.get("/api/products").json()["products"]
+
+    assert duplicate.status_code == 409
+    assert fetches == [URL]
+    assert len(listed) == 1
+
+
+def test_a_malformed_shop_price_fails_that_product_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    product_js = "https://shop.example/products/rivet-pants-black.js"
+    other = "https://shop.example/products/other"
+    payloads: dict[str, object] = {
+        product_js: {"title": "Rivet", "price": 29800, "available": True},
+        f"{other}.js": {"title": "Other", "price": 1000, "available": True},
+        "https://shop.example/meta.json": {"currency": "USD"},
+    }
+    _shop(monkeypatch, payloads)
+    with client(tmp_path) as user:
+        assert user.post("/api/products", json={"url": URL}).status_code == 201
+        assert user.post("/api/products", json={"url": other}).status_code == 201
+        payloads[product_js] = {"title": "Rivet", "price": "298.00"}
+        result = user.post("/api/refresh").json()
+        listed = user.get("/api/products").json()["products"]
+
+    assert result["checked"] == 1
+    assert [f["id"] for f in result["failed"]] == [listed[0]["id"]]
+    assert "price" in result["failed"][0]["error"]
+    assert listed[0]["latest"]["price_cents"] == 29800

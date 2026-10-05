@@ -26,6 +26,19 @@ function show(text, bad = false) {
 
 function busy(value) { document.querySelectorAll('button').forEach(b => b.disabled = value); }
 
+function chip(kind, text) {
+  const node = document.createElement('span');
+  node.className = kind ? `chip ${kind}` : 'chip';
+  node.textContent = text;
+  return node;
+}
+
+function webHref(url) {
+  try { const parsed = new URL(url); if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return parsed.href; }
+  catch {}
+  return null;
+}
+
 function render(products) {
   const root = $('#items');
   root.innerHTML = '';
@@ -36,42 +49,44 @@ function render(products) {
     const latest = p.latest;
     const chips = [];
     if (latest) {
-      chips.push(latest.in_stock
-        ? '<span class="chip in">in stock</span>'
-        : '<span class="chip out">sold out</span>');
+      chips.push(latest.in_stock ? chip('in', 'in stock') : chip('out', 'sold out'));
       if (p.variant_label) {
-        chips.push(latest.variant_available === false
-          ? `<span class="chip out">size ${p.variant_label} out</span>`
-          : `<span class="chip in">size ${p.variant_label}</span>`);
+        chips.push(latest.variant_available === true ? chip('in', `size ${p.variant_label}`)
+          : latest.variant_available === false ? chip('out', `size ${p.variant_label} out`)
+          : chip('warn', `size ${p.variant_label} unknown`));
       }
       if (p.target_cents) {
-        chips.push(p.met_target
-          ? '<span class="chip in">target met</span>'
-          : `<span class="chip">target ${fmt(p.target_cents)}</span>`);
+        chips.push(p.met_target ? chip('in', 'target met') : chip('', `target ${fmt(p.target_cents)}`));
       }
-      if (latest.fx_rate) chips.push(`<span class="chip">@ ${latest.fx_rate}</span>`);
+      if (latest.fx_rate) chips.push(chip('', `@ ${latest.fx_rate}`));
     } else {
-      chips.push('<span class="chip warn">no reading yet</span>');
+      chips.push(chip('warn', 'no reading yet'));
     }
     const delta = p.change_cents;
     const deltaHtml = !delta ? '' :
       `<div class="delta ${delta > 0 ? 'up' : 'down'}">${delta > 0 ? '+' : '−'}${fmt(Math.abs(delta))} since last check</div>`;
     item.innerHTML = `
       <div>
-        <div class="item-name"><a href="${p.url}" target="_blank" rel="noopener noreferrer"></a></div>
-        <div class="item-meta">${p.source} · ${p.base_currency} → ${p.display_currency}</div>
-        <div class="chips">${chips.join('')}</div>
+        <div class="item-name"><a target="_blank" rel="noopener noreferrer"></a></div>
+        <div class="item-meta"></div>
+        <div class="chips"></div>
       </div>
       <div class="item-right">
         <div class="price ${p.met_target ? 'met' : ''}">${latest ? fmt(latest.display_cents) : '—'}</div>
-        ${latest ? `<div class="base">${latest.price_cents / 100} ${latest.currency}</div>` : ''}
+        ${latest ? '<div class="base"></div>' : ''}
         ${deltaHtml}
         <div class="row-actions">
           <button data-target="${p.id}">TARGET</button>
           <button data-delete="${p.id}">REMOVE</button>
         </div>
       </div>`;
-    item.querySelector('.item-name a').textContent = p.name;
+    const link = item.querySelector('.item-name a');
+    link.textContent = p.name;
+    const href = webHref(p.url);
+    if (href) link.href = href;
+    item.querySelector('.item-meta').textContent = `${p.source} · ${p.base_currency} → ${p.display_currency}`;
+    item.querySelector('.chips').append(...chips);
+    if (latest) item.querySelector('.base').textContent = `${latest.price_cents / 100} ${latest.currency}`;
     root.append(item);
   }
 }

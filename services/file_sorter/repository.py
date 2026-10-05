@@ -450,9 +450,16 @@ class SorterRepository:
                 (target, path, description, _now()),
             )
 
-    def record_folder_move(self, target: str, old_path: str, new_path: str) -> None:
+    def record_folder_move(
+        self,
+        target: str,
+        old_path: str,
+        new_path: str,
+        operation_id: int | None = None,
+    ) -> None:
         """Log a moved category folder and carry its descriptions along."""
         with self._connect() as connection:
+            self._complete(connection, operation_id)
             through = connection.execute(
                 "SELECT COALESCE(MAX(id), 0) FROM decisions"
             ).fetchone()[0]
@@ -559,6 +566,7 @@ class SorterRepository:
         duplicate_of_document_id: int | None = None,
         review_type: str | None = None,
         file_mtime_ns: str | None = None,
+        operation_id: int | None = None,
         _connection: sqlite3.Connection | None = None,
     ) -> Decision:
         if _connection is None:
@@ -582,11 +590,13 @@ class SorterRepository:
                     duplicate_of_document_id=duplicate_of_document_id,
                     review_type=review_type,
                     file_mtime_ns=file_mtime_ns,
+                    operation_id=operation_id,
                     _connection=connection,
                 )
         connection = _connection
         from services.file_sorter.index import allocate, bind_decision
 
+        self._complete(connection, operation_id)
         if document_id is None:
             document_id = allocate(connection)
         else:
@@ -633,6 +643,22 @@ class SorterRepository:
         result = Decision(**dict(row), decided_label=row["label"])
         bind_decision(connection, result)
         return result
+
+    # ---------- the operation journal ----------
+    #
+    # `duplicate_resolutions` is named for its first use, but journals every
+    # rename the sorter makes: the plan is written before the disk changes
+    # and stamped complete in the same transaction as the log write, or
+    # cancelled once the disk is back as it was. A row with neither stamp is
+    # an interrupted operation that blocks writes until it is settled.
+
+    @staticmethod
+    def _complete(connection: sqlite3.Connection, operation_id: int | None) -> None:
+        if operation_id is not None:
+            connection.execute(
+                "UPDATE duplicate_resolutions SET completed_at = ? WHERE id = ?",
+                (_now(), operation_id),
+            )
 
     def prepare_duplicates(
         self,
@@ -688,10 +714,7 @@ class SorterRepository:
                     duplicate_of_document_id=kept.document_id,
                     _connection=connection,
                 )
-            connection.execute(
-                "UPDATE duplicate_resolutions SET completed_at = ? WHERE id = ?",
-                (_now(), group_id),
-            )
+            self._complete(connection, group_id)
         return kept
 
     def incomplete_duplicates(self, project_id: int) -> list[dict[str, Any]]:
@@ -721,10 +744,7 @@ class SorterRepository:
                 "UPDATE decisions SET undone_at = ? WHERE duplicate_group_id = ?",
                 (_now(), group_id),
             )
-            connection.execute(
-                "UPDATE duplicate_resolutions SET completed_at = ? WHERE id = ?",
-                (_now(), operation_id),
-            )
+            self._complete(connection, operation_id)
             self._restore_index(connection, decisions)
 
     def _current(
@@ -793,8 +813,9 @@ class SorterRepository:
         )
         return found[0] if found else None
 
-    def mark_undone(self, decision_id: int) -> None:
+    def mark_undone(self, decision_id: int, operation_id: int | None = None) -> None:
         with self._connect() as connection:
+            self._complete(connection, operation_id)
             decisions = self._current(
                 connection.execute(
                     "SELECT * FROM decisions WHERE id=?", (decision_id,)

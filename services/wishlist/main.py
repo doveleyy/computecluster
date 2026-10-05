@@ -1,25 +1,35 @@
 import json
 import os
-import urllib.error
-import urllib.request
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime
 from html import escape
 from pathlib import Path
+from time import monotonic
 from typing import Annotated
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
+from services.common.identity import (
+    CachedResolver,
+    Identity,
+    http_identity_resolver,
+    identity_dependency,
+    read_secret_file,
+    tailscale_key,
+)
+from services.common.web import cache_versioned_assets
 from services.wishlist import pricing
+from services.wishlist.observe import RateCache, observe
 from services.wishlist.repository import WishlistEntry, WishlistRepository
 
-SERVICE_VERSION = "0.1.0"
+SERVICE_VERSION = "0.1.1"
 DEFAULT_DATABASE_PATH = Path("data/wishlist.db")
 SERVICE_DIR = Path(__file__).parent
 TEMPLATES = {
@@ -51,16 +61,6 @@ class Settings:
     identity_resolver_token: str | None
 
 
-@dataclass(frozen=True)
-class Identity:
-    key: str
-    display_name: str
-
-
-class IdentityServiceUnavailableError(Exception):
-    pass
-
-
 class ProductCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -73,15 +73,6 @@ class TargetUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     target_cents: int | None = Field(default=None, ge=1, le=100_000_000)
-
-
-def _load_optional_secret(path_value: str) -> str | None:
-    if not path_value:
-        return None
-    value = Path(path_value).read_text(encoding="utf-8").strip()
-    if not value:
-        raise RuntimeError(f"identity token file is empty: {path_value}")
-    return value
 
 
 def load_settings() -> Settings:
@@ -107,43 +98,10 @@ def load_settings() -> Settings:
         identity_resolver_url=(
             os.environ.get("WISHLIST_IDENTITY_RESOLVER_URL", "").strip() or None
         ),
-        identity_resolver_token=_load_optional_secret(
+        identity_resolver_token=read_secret_file(
             os.environ.get("WISHLIST_IDENTITY_TOKEN_FILE", "").strip()
         ),
     )
-
-
-def _http_identity_resolver(settings: Settings) -> Callable[[str], Identity | None]:
-    resolver_url = settings.identity_resolver_url
-    resolver_token = settings.identity_resolver_token
-    assert resolver_url is not None
-    assert resolver_token is not None
-
-    def resolve(subject: str) -> Identity | None:
-        request = urllib.request.Request(
-            resolver_url,
-            data=json.dumps({"provider": "tailscale", "subject": subject}).encode(),
-            headers={
-                "Content-Type": "application/json",
-                "X-Service-Identity-Token": resolver_token,
-            },
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=3) as response:
-                payload = json.load(response)
-        except urllib.error.HTTPError as error:
-            if error.code == 404:
-                return None
-            raise IdentityServiceUnavailableError from error
-        except (OSError, ValueError) as error:
-            raise IdentityServiceUnavailableError from error
-        return Identity(
-            key=f"home-platform:{payload['id']}",
-            display_name=str(payload["username"]),
-        )
-
-    return resolve
 
 
 def _entry_read(entry: WishlistEntry, display_currency: str) -> dict[str, object]:
@@ -175,36 +133,12 @@ def _entry_read(entry: WishlistEntry, display_currency: str) -> dict[str, object
     }
 
 
-def observe(
-    repository: WishlistRepository,
-    product_id: str,
-    url: str,
-    base_currency: str,
-    display_currency: str,
-    variant_label: str | None,
-) -> None:
-    """Fetch one product and store what was seen, rate and all."""
-    observation = pricing.fetch_shopify(url, currency=base_currency)
-    fx_date, rate = pricing.fetch_rate(observation.currency, display_currency)
-    variant = None if variant_label is None else observation.variant(variant_label)
-    repository.record(
-        product_id,
-        price_cents=observation.price_cents,
-        currency=observation.currency,
-        display_cents=pricing.convert_cents(observation.price_cents, rate),
-        in_stock=observation.in_stock,
-        variant_available=None if variant is None else variant.available,
-        fx_rate=rate,
-        fx_date=fx_date,
-        method=observation.method,
-    )
-
-
 def create_app(
     database_path: Path | None = None,
     *,
     allow_dev_identity: bool | None = None,
     identity_resolver: Callable[[str], Identity | None] | None = None,
+    identity_clock: Callable[[], float] = monotonic,
 ) -> FastAPI:
     settings = load_settings()
     if database_path is not None or allow_dev_identity is not None:
@@ -226,8 +160,21 @@ def create_app(
             raise RuntimeError(
                 "WISHLIST_IDENTITY_TOKEN_FILE is required with the resolver"
             )
-        identity_resolver = _http_identity_resolver(settings)
+        identity_resolver = http_identity_resolver(
+            settings.identity_resolver_url, settings.identity_resolver_token
+        )
     repository = WishlistRepository(settings.database_path, settings.timezone)
+
+    def adopt_legacy_rows(subject: str, identity: Identity) -> None:
+        repository.adopt_identity(
+            tailscale_key(subject), identity.key, identity.display_name
+        )
+
+    cached_resolver = (
+        CachedResolver(identity_resolver, adopt_legacy_rows, clock=identity_clock)
+        if identity_resolver
+        else None
+    )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -244,55 +191,17 @@ def create_app(
         redoc_url=None,
         openapi_url=None,
     )
+    application.add_middleware(GZipMiddleware, minimum_size=1000)
     application.mount("/static", StaticFiles(directory=SERVICE_DIR / "static"))
-
-    def current_identity(
-        request: Request,
-        tailscale_login: Annotated[
-            str | None, Header(alias="Tailscale-User-Login")
-        ] = None,
-        tailscale_name: Annotated[
-            str | None, Header(alias="Tailscale-User-Name")
-        ] = None,
-        dev_user: Annotated[str | None, Header(alias="X-Wishlist-Dev-User")] = None,
-    ) -> Identity:
-        store: WishlistRepository = request.app.state.repository
-        if tailscale_login:
-            normalized = tailscale_login.strip().lower()
-            legacy_key = f"tailscale:{normalized}"
-            if identity_resolver is not None:
-                try:
-                    identity = identity_resolver(normalized)
-                except IdentityServiceUnavailableError as error:
-                    raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail="Home Platform identity service is unavailable",
-                    ) from error
-                if identity is None:
-                    raise HTTPException(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        detail=(
-                            "Link this Tailscale identity from your Job Desk "
-                            "account first"
-                        ),
-                    )
-                store.adopt_identity(legacy_key, identity.key, identity.display_name)
-            else:
-                identity = Identity(
-                    key=legacy_key,
-                    display_name=(tailscale_name or tailscale_login).strip(),
-                )
-        elif request.app.state.settings.allow_dev_identity and dev_user:
-            clean = dev_user.strip().lower()
-            identity = Identity(key=f"development:{clean}", display_name=clean)
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Open this service through the private Tailscale URL",
-            )
-        store.ensure_user(identity.key, identity.display_name)
-        return identity
-
+    cache_versioned_assets(application, SERVICE_VERSION)
+    current_identity = identity_dependency(
+        dev_header="X-Wishlist-Dev-User",
+        allow_dev_identity=settings.allow_dev_identity,
+        resolver=cached_resolver,
+        ensure_user=lambda identity: repository.ensure_user(
+            identity.key, identity.display_name
+        ),
+    )
     CurrentUser = Annotated[Identity, Depends(current_identity)]
 
     @application.get("/health")
@@ -340,8 +249,12 @@ def create_app(
     ) -> dict[str, object]:
         store: WishlistRepository = request.app.state.repository
         currency = request.app.state.settings.display_currency
+        if any(p.url == payload.url for p in store.products(user.key)):
+            raise HTTPException(status_code=409, detail="That URL is already tracked")
         try:
             observation = pricing.fetch_shopify(payload.url)
+            if payload.variant_label is not None:
+                observation.variant(payload.variant_label)
         except pricing.PriceSourceError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         product = store.add_product(
@@ -364,6 +277,7 @@ def create_app(
                 product.base_currency,
                 currency,
                 product.variant_label,
+                observation=observation,
             )
         entries = [e for e in store.entries(user.key) if e.product.id == product.id]
         return _entry_read(entries[0], currency)
@@ -414,6 +328,7 @@ def create_app(
         store: WishlistRepository = request.app.state.repository
         currency = request.app.state.settings.display_currency
         checked, failed = 0, []
+        rates: RateCache = {}
         for entry in store.entries(user.key):
             product = entry.product
             try:
@@ -424,6 +339,7 @@ def create_app(
                     product.base_currency,
                     currency,
                     product.variant_label,
+                    rates=rates,
                 )
                 checked += 1
             except pricing.PriceSourceError as error:

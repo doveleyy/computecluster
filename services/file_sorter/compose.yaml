@@ -5,7 +5,7 @@ services:
     build:
       context: ../..
       dockerfile: services/file_sorter/Dockerfile
-    image: home-platform-file-sorter:0.9.3
+    image: home-platform-file-sorter:0.9.6
     container_name: home-platform-file-sorter
     restart: unless-stopped
     user: "${SERVICE_UID:-1000}:${SERVICE_GID:-1000}"
@@ -40,8 +40,15 @@ services:
     mem_limit: 256m
     cpus: 0.50
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8103/ready', timeout=5).read()"]
-      interval: 30s
+      # Routine liveness must not list the NAS and prevent disk hibernation.
+      # /ready still checks the library when explicitly requested.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8103/health', timeout=5).read()"]
+      # Each probe starts a Python process (about 0.7 s on the Pi); at 30 s
+      # four services spent nearly all the Pi's idle CPU on them. Nothing
+      # restarts on unhealthy, so a slow cadence loses nothing; start-up is
+      # still checked every 2 s so deploys see healthy at once.
+      interval: 5m
       timeout: 6s
       retries: 3
-      start_period: 10s
+      start_period: 60s
+      start_interval: 2s

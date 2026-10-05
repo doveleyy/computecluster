@@ -31,6 +31,7 @@ def timetable() -> bytes:
             "NSL,SERVICE_WE,NS_WE_1,Marina South Pier,1,\n"
             "NSL,SERVICE_WE,NS_WE_2,Marina South Pier,1,\n"
             "NSL,SERVICE_WD,NS_WD_1,Marina South Pier,1,\n"
+            "NSL,SERVICE_WD,NS_WD_2,Marina South Pier,1,\n"
         ),
         "stop_times.txt": (
             "trip_id,arrival_time,departure_time,stop_id,stop_sequence,"
@@ -38,6 +39,7 @@ def timetable() -> bytes:
             "NS_WE_1,23:55:00,23:55:30,NS2_A,1,\n"
             "NS_WE_2,24:15:00,24:15:30,NS2_A,1,\n"
             "NS_WD_1,23:59:00,23:59:30,NS2_A,1,\n"
+            "NS_WD_2,24:10:00,24:10:30,NS2_A,1,\n"
         ),
         "calendar.txt": (
             "service_id,monday,tuesday,wednesday,thursday,friday,saturday,"
@@ -59,6 +61,7 @@ def client(
     *,
     schedule_fetcher: object = None,
     bus_fetcher: object = None,
+    now: datetime = NOW,
 ) -> TestClient:
     schedule = schedule_fetcher or (
         lambda key: datamall.ScheduleDownload("2026-09-23T18:37:00+08:00", timetable())
@@ -70,7 +73,7 @@ def client(
             allow_dev_identity=True,
             schedule_fetcher=schedule,  # type: ignore[arg-type]
             bus_fetcher=bus,  # type: ignore[arg-type]
-            now=lambda: NOW,
+            now=lambda: now,
         ),
         headers={"X-Transport-Dev-User": "owner@example.test"},
     )
@@ -99,7 +102,7 @@ def test_opening_dashboard_does_not_call_datamall(tmp_path: Path) -> None:
         assert "Last train today" in page.text
         assert "Stop codes have five digits" in page.text
         assert 'class="empty-arrow"' not in page.text
-        assert "/static/transport.js?v=0.1.3" in page.text
+        assert "/static/transport.js?v=0.1.4" in page.text
         assert browser.get("/api/train").json()["snapshot"] is None
         assert browser.get("/api/buses").json()["buses"] == []
 

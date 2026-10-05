@@ -21,14 +21,46 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def verify_backup(path: Path) -> None:
+def table_counts(connection: sqlite3.Connection) -> dict[str, int]:
+    """Row count per user table: the content fingerprint a backup must match."""
+    names = [
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+            " AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        )
+    ]
+    counts: dict[str, int] = {}
+    for name in names:
+        quoted = '"' + name.replace('"', '""') + '"'
+        row = connection.execute(f"SELECT count(*) FROM {quoted}").fetchone()
+        counts[name] = row[0]
+    return counts
+
+
+def verify_backup(path: Path, *, expected: dict[str, int] | None = None) -> None:
+    checksum = path.with_suffix(".db.sha256")
+    if checksum.exists():
+        recorded = checksum.read_text(encoding="ascii").split()[0]
+        actual = sha256_file(path)
+        if recorded != actual:
+            raise RuntimeError(
+                f"sha256 mismatch for {path}: sidecar {recorded}, file {actual}"
+            )
     connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
         result = connection.execute("PRAGMA integrity_check").fetchone()
+        if result != ("ok",):
+            raise RuntimeError(f"SQLite integrity check failed: {result!r}")
+        counts = table_counts(connection)
     finally:
         connection.close()
-    if result != ("ok",):
-        raise RuntimeError(f"SQLite integrity check failed: {result!r}")
+    if not counts:
+        raise RuntimeError(f"backup has no user tables: {path}")
+    if expected is not None and counts != expected:
+        raise RuntimeError(
+            f"backup content differs from source: {counts} != {expected}"
+        )
 
 
 def create_backup(source: Path, destination: Path, *, retain: int = 14) -> Path:
@@ -51,11 +83,17 @@ def create_backup(source: Path, destination: Path, *, retain: int = 14) -> Path:
             source_connection = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
             backup_connection = sqlite3.connect(local)
             try:
+                # The open read transaction pins one snapshot for both the
+                # counts and the page copy, so the fingerprint is exact.
+                source_connection.execute("BEGIN")
+                expected = table_counts(source_connection)
+                if not expected:
+                    raise RuntimeError(f"SQLite source has no user tables: {source}")
                 source_connection.backup(backup_connection)
             finally:
                 backup_connection.close()
                 source_connection.close()
-            verify_backup(local)
+            verify_backup(local, expected=expected)
             digest = sha256_file(local)
             shutil.copyfile(local, remote_temporary)
         if sha256_file(remote_temporary) != digest:
