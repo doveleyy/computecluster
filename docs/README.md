@@ -13,6 +13,7 @@ boundaries.
 | [Accounts and access control](access-control.md) | Roles, sessions, identity linking, and ownership |
 | [Compute](compute/README.md) | Durable jobs, leases, placement, and isolated execution |
 | [Storage](storage/README.md) | Logical file areas, published results, and backups |
+| [Application CI/CD](ci-cd.md) | How an app change travels from a push to production |
 
 ## Write applications and jobs
 

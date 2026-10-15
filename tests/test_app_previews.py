@@ -357,6 +357,58 @@ def test_preview_user_can_browse_home_and_shared_in_synthetic_storage(
     installed.database.close()
 
 
+def test_unreachable_staging_says_so_and_the_same_attempt_completes_later(tmp_path):
+    database = Database(tmp_path / "core.db")
+    database.initialize()
+    AppRegistry(database).register(document(registration()))
+    fixture = GitHubFixture()
+    staging_running = False
+    attempts = []
+
+    def respond(request):
+        if not staging_running:
+            raise httpx.ConnectError("refused", request=request)
+        attempts.append(request.url.path.rsplit("/", 1)[1])
+        return httpx.Response(
+            200,
+            json={
+                "attempt_id": attempts[-1],
+                "app_id": request.headers["X-App-ID"],
+                "manifest_sha256": request.headers["X-Release-SHA256"],
+                "bundle_sha256": request.headers["X-Bundle-SHA256"],
+                "state": "installing",
+            },
+        )
+
+    async def run():
+        nonlocal staging_running
+        async with httpx.AsyncClient(
+            transport=httpx.MockTransport(fixture.respond)
+        ) as client:
+            await ReleaseDiscovery(database, GitHubPublications(client)).discover(
+                "notes"
+            )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            previews = PreviewService(
+                database, client, "https://preview.example", "t" * 32
+            )
+            digest = fixture.proof["manifest_sha256"]
+            with pytest.raises(ContractError, match="Staging is not running"):
+                await previews.preview("notes", digest)
+            with database.connect() as connection:
+                pending = connection.execute(
+                    "SELECT attempt_id, state FROM app_preview_attempts"
+                ).fetchall()
+            assert [tuple(row) for row in pending] == [(pending[0][0], "installing")]
+            staging_running = True
+            result = await previews.preview("notes", digest)
+            assert attempts == [pending[0][0]]
+            assert result.state == "installing"
+
+    asyncio.run(run())
+    database.close()
+
+
 def test_core_preserves_uncertain_attempt_and_checks_every_response_key(tmp_path):
     database = Database(tmp_path / "core.db")
     database.initialize()

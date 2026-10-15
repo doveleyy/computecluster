@@ -194,6 +194,13 @@ class PreviewService:
                 raise ContractError("Staging readiness evidence is incomplete")
             if method == "DELETE" and result.state != "retired":
                 raise ContractError("Staging has not confirmed retirement")
+        except (httpx.ConnectError, httpx.ConnectTimeout):
+            # No connection means staging never received the request, so the
+            # attempt is unchanged and the same button retries it.
+            raise ContractError(
+                "Staging is not running or not reachable; start it, then "
+                "press the same button again"
+            ) from None
         except httpx.HTTPError:
             raise ContractError(
                 "Staging outcome is uncertain; reconcile this attempt"

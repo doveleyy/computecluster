@@ -11,6 +11,8 @@ deployment availability is recorded separately by each platform operator.
 
 Use these documents for different tasks.
 
+- [Application CI/CD](../ci-cd.md) gives a one-page overview of the whole
+  pipeline, from a push to an approved deployment.
 - [Runtime contract](runtime-contract.md) defines container configuration,
   request identity, routing, state, and platform capability boundaries.
 - [Release contract](release-contract.md) defines what an app publishes and
