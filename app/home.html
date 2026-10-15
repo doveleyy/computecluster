@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050505">
+  <title>Home Platform</title>
+  <style>
+    :root { color-scheme:dark; --bg:#050505; --surface:#0a0a0a; --raised:#101010; --line:#242424; --strong:#383838; --text:#f3f3f3; --muted:#8b8b8b; --dim:#5d5d5d; --cyan:#55d7ff; --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; }
+    * { box-sizing:border-box; }
+    html { background:var(--bg); }
+    body { margin:0; min-width:280px; min-height:100vh; min-height:100dvh; overflow-x:hidden; background:linear-gradient(rgba(255,255,255,.017) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.017) 1px,transparent 1px),var(--bg); background-size:32px 32px; color:var(--text); font:14px/1.5 var(--mono); -webkit-font-smoothing:antialiased; }
+    a:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
+    .shell { width:min(1240px,100%); margin:0 auto; padding:max(24px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(52px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left)); }
+    .eyebrow { color:var(--muted); font:600 10px/1.2 var(--mono); letter-spacing:.13em; text-transform:uppercase; }
+    .brand { margin:5px 0 2px; font:600 clamp(24px,4vw,36px)/1 var(--mono); letter-spacing:-.06em; }
+    .brand span { color:var(--dim); }
+    .greeting { margin:10px 0 0; color:var(--muted); font:12px/1.4 var(--mono); }
+    .greeting strong { color:var(--text); }
+    .topbar { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-bottom:22px; }
+    .clock { text-align:right; }
+    .clock-time { display:block; font:500 clamp(24px,4vw,36px)/1 var(--mono); letter-spacing:-.05em; font-variant-numeric:tabular-nums; }
+    .clock-date { min-height:1.4em; margin-top:6px; color:var(--muted); font:11px var(--mono); letter-spacing:.06em; text-transform:uppercase; }
+    h2 { margin:0 0 9px; color:var(--muted); font:600 11px/1.2 var(--mono); letter-spacing:.13em; text-transform:uppercase; }
+    .art { position:relative; overflow:hidden; margin-bottom:18px; border:1px solid var(--line); border-radius:12px; background:#030303; }
+    .art-head { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:38px; padding:0 14px; border-bottom:1px solid var(--line); color:var(--muted); font:600 10px var(--mono); letter-spacing:.13em; text-transform:uppercase; }
+    .art-head .dots { display:inline-flex; gap:6px; }
+    .art-head .dots i { width:8px; height:8px; border-radius:50%; background:#2a2a2a; }
+    .art-body { position:relative; overflow:hidden; }
+    .art-body canvas { display:block; }
+    .art-alt { position:absolute; width:1px; height:1px; margin:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+    .tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:10px; }
+    .tile { position:relative; display:flex; flex-direction:column; min-height:150px; padding:16px; border:1px solid var(--line); border-radius:11px; background:rgba(10,10,10,.95); color:var(--text); text-decoration:none; transition:border-color .16s ease; }
+    .tile:hover { border-color:var(--strong); }
+    .tile:hover .tile-go { color:var(--text); }
+    .tile i { width:8px; height:8px; border-radius:2px; background:var(--c); box-shadow:0 0 10px var(--c); }
+    .tile-kicker { margin-top:12px; color:var(--muted); font:600 9px var(--mono); letter-spacing:.13em; text-transform:uppercase; }
+    .tile-name { margin-top:5px; font:600 16px/1.2 var(--mono); letter-spacing:-.02em; }
+    .tile-desc { margin:8px 22px 0 0; color:var(--muted); font:11px/1.55 var(--mono); }
+    .tile-go { position:absolute; top:14px; right:14px; color:var(--dim); font:700 10px var(--mono); }
+    .tile-key { position:absolute; bottom:14px; right:14px; color:var(--dim); font:600 9px var(--mono); letter-spacing:.1em; }
+    footer { margin-top:28px; color:var(--dim); font:10px var(--mono); letter-spacing:.08em; }
+    @media (max-width:600px) {
+      .topbar { align-items:flex-start; flex-direction:column; gap:12px; }
+      .clock { text-align:left; }
+      .tiles { grid-template-columns:1fr; }
+      .tile { min-height:0; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <div class="eyebrow">Private tailnet</div>
+        <h1 class="brand">HOME<span>//</span>PLATFORM</h1>
+        <p class="greeting"><span id="hello">Hello</span>, <strong>__DISPLAY_NAME__</strong>.</p>
+      </div>
+      <div class="clock" aria-live="off">
+        <time class="clock-time" id="time">--:--:--</time>
+        <div class="clock-date" id="date"></div>
+      </div>
+    </header>
+
+    <section class="art" aria-labelledby="art-h">
+      <div class="art-head">
+        <span id="art-h">OPERATOR//CONSOLE</span>
+        <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      </div>
+      <div class="art-body">
+        <canvas id="art" aria-hidden="true"></canvas>
+        <p class="art-alt">Decorative animation: a small cat with happy, closed golden eyes sits at the corner of a desk. Its tail curls beside a keyboard and a steaming mug. Cyan and lavender side monitors surround a green terminal, while Matrix-style glyphs fall around the workstation.</p>
+      </div>
+    </section>
+
+    <section aria-labelledby="apps-h">
+      <h2 id="apps-h">Apps</h2>
+      <div class="tiles">__TILES__</div>
+    </section>
+
+    <footer>HOME PLATFORM · THIS PAGE POLLS NOTHING</footer>
+  </main>
+  <script>
+    (() => {
+      const timeEl = document.getElementById('time');
+      const dateEl = document.getElementById('date');
+      const helloEl = document.getElementById('hello');
+      function tickClock() {
+        const now = new Date();
+        timeEl.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        dateEl.textContent = now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+        const h = now.getHours();
+        helloEl.textContent = h < 5 ? 'Still up' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+      }
+      tickClock();
+      setInterval(tickClock, 1000);
+
+      document.addEventListener('keydown', (event) => {
+        if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || event.repeat) return;
+        if (!/^[1-9]$/.test(event.key)) return;
+        if (event.target instanceof Element && event.target.closest('input, textarea, select, [contenteditable]')) return;
+        const tile = document.querySelectorAll('a.tile')[Number(event.key) - 1];
+        if (!tile) return;
+        event.preventDefault();
+        tile.click();
+      });
+
+      // The scene is data: ASCII sprites (parts) drawn with fillText, each with one or
+      // more frames and an optional paint overlay that recolours single cells, plus
+      // screen boxes that scroll in their own colour. Static parts are baked into one
+      // scenery canvas at layout; only animated parts are redrawn each frame. Glyph
+      // rain falls everywhere the sprites' row hulls (plus a one-cell margin) do not
+      // reach. The widest scene that fits the panel wins, so phones get a complete
+      // composition instead of a crop of the desktop one.
+      const lines = (raw) => raw.split('\n').slice(1, -1);
+      const PALETTE = {
+        line: '#dfeee4', soft: '#83a18e', dim: '#425e4d', pink: '#ff9ec7', cyan: '#55d7ff',
+        mug: '#d9a66b', steam: '#9aa3ab', key: '#f2c96d', leaf: '#75d8a9',
+      };
+      const SCREENS = {
+        G: { color: '#55d7ff', kind: 'graph' }, C: { color: '#a2efb7', kind: 'code' }, Y: { color: '#c4a2ff', kind: 'hex' },
+      };
+      const CAT = lines(String.raw`
+  /\_/\
+ (     )
+  \___/
+  /   \
+ /     \
+(       )
+ \_____/
+`);
+      const TAIL = [
+        ['  .-.', '  |  )', '__/--\''],
+        ['   .-.', '  /   )', '__/--\''],
+        ['  .-.', '  |  )', '__/--\''],
+        [' .-.', ' |  )', '__/-\''],
+      ];
+      const monitor = (x, y, w, h, key, stand) => {
+        const art = [`.${'-'.repeat(w - 2)}.`, ...Array.from({ length: h - 2 }, () => `|${' '.repeat(w - 2)}|`), `'${'-'.repeat(w - 2)}'`];
+        if (stand) art.push(' '.repeat((w >> 1) - 1) + '_|_');
+        return { part: { x, y, frames: [art], color: 'soft' }, screen: { x: x + 1, y: y + 1, w: w - 2, h: h - 2, key } };
+      };
+      const desk = (y, cols) => ({ x: 0, y, frames: [['='.repeat(cols)]], color: 'soft' });
+      const keyboard = (x, y, w) => ({ x, y, frames: [[`[${'.'.repeat(w - 2)}]`]], color: 'soft', keys: true });
+      const plant = (x, y) => ({ x, y, frames: [[' \\ | /', '  \\|/', ' .-+-.', ' |___|']],
+        paint: [' lllll', ' lllll', ' mmmmm', ' mmmmm'], colors: { l: 'leaf', m: 'mug' } });
+      const mug = (x, y, steam, cup) => [
+        { x: x + 1, y, frames: steam, anim: { loop: 6 }, color: 'steam' },
+        { x, y: y + steam[0].length, frames: [cup], color: 'mug', solid: true },
+      ];
+      const cat = (hx, hy) => [
+        { x: hx, y: hy, frames: [CAT], solid: true },
+        { x: hx + 3, y: hy + 1, frames: [['^ ^']], color: 'key' },
+        { x: hx + 8, y: hy + 4, frames: TAIL, anim: { loop: 14 }, color: 'line' },
+      ];
+      const scene = (cols, rows, monitors, parts) => ({
+        cols, rows, parts: [...monitors.map((m) => m.part), ...parts], screens: monitors.map((m) => m.screen),
+      });
+      const SCENES = [
+        scene(82, 20, [
+          monitor(2, 2, 22, 9, 'G', true),
+          monitor(26, 1, 28, 11, 'C', true),
+          monitor(56, 1, 24, 7, 'Y', true),
+        ], [
+          desk(17, 82), ...cat(63, 10), keyboard(28, 15, 24),
+          ...mug(16, 12, [[' ( ', '  )'], ['  )', ' ( '], [' ( ', ' ) ']], ['.---.', '|   |)', "'---'"]),
+          plant(3, 13),
+          { x: 1, y: 18, frames: [['|', '|']], color: 'dim' },
+          { x: 80, y: 18, frames: [['|', '|']], color: 'dim' },
+        ]),
+        scene(32, 18, [monitor(2, 1, 28, 8, 'C', true)], [
+          desk(16, 32), ...cat(17, 9), keyboard(3, 15, 12),
+          ...mug(4, 10, [[' )', '( '], ['( ', ' )']], ['.---.', '|   |)', "'---'"]),
+        ]),
+      ];
+      const RAIN_GLYPHS = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃﾄ0123456789<>/\\|{}[]=+*#$%&';
+      const HEX_GLYPHS = '0123456789ABCDEF.:-=+#%@*<>$';
+      const CODE_GLYPHS = 'abcdefghijklmnopqrstuvwxyz_=(){}[]<>.;:/+-*';
+      const BARS = ' ▁▂▃▄▅▆▇█';
+      const CW = 9;
+      const CH = 16;
+      const FPS = 15;
+      const canvas = document.getElementById('art');
+      const panel = canvas.parentElement;
+      const ctx = canvas.getContext('2d');
+      const SCALE = Math.min(2, window.devicePixelRatio || 1);
+      const FONT = `${CH - 3}px ${getComputedStyle(document.body).getPropertyValue('--mono')}`;
+      const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+      const pick = (glyphs) => glyphs[Math.random() * glyphs.length | 0];
+      let cols = 0;
+      let rows = 0;
+      let occupied = [];
+      let screens = [];
+      let live = [];
+      let drops = [];
+      let scenery = null;
+      let frame = 0;
+      let last = 0;
+      let tick = 0;
+
+      function newDrop(randomStart) {
+        return {
+          y: randomStart ? Math.random() * rows * 2 - rows : -Math.random() * rows,
+          speed: 0.25 + Math.random() * 0.6,
+          len: 6 + Math.random() * 10 | 0,
+          glyphs: Array.from({ length: 18 }, () => pick(RAIN_GLYPHS)),
+        };
+      }
+
+      function codeLine(width) {
+        const indent = Math.random() * 6 | 0;
+        const len = Math.min(width - indent, 3 + Math.random() * width * 0.7 | 0);
+        return { indent, text: Array.from({ length: len }, (_, i) => (i > 0 && Math.random() < 0.15 ? ' ' : pick(CODE_GLYPHS))).join('') };
+      }
+
+      function frameIndex(p) {
+        if (!p.anim) return 0;
+        if (p.anim.loop) return Math.floor(tick / p.anim.loop) % p.frames.length;
+        const phase = (tick + (p.anim.offset || 0)) % p.anim.every;
+        return phase < p.anim.hold ? 1 + Math.floor(phase / p.anim.hold * (p.frames.length - 1)) : 0;
+      }
+
+      function drawPart(target, p) {
+        const art = p.frames[frameIndex(p)];
+        if (p.solid) {
+          target.fillStyle = '#050505';
+          p.hull.forEach((span, j) => { if (span) target.fillRect((p.x + span[0]) * CW, (p.y + j) * CH, (span[1] - span[0]) * CW, CH); });
+        }
+        if (p.keys && tick % 3 === 0) p.lit = 1 + Math.floor(Math.random() * (art[0].length - 2));
+        for (let j = 0; j < art.length; j++) {
+          for (let i = 0; i < art[j].length; i++) {
+            let ch = art[j][i];
+            if (ch === ' ') continue;
+            const key = p.paint && p.paint[j] && p.paint[j][i] !== ' ' ? p.paint[j][i] : null;
+            let color = key && p.colors[key] ? p.colors[key] : p.color || 'line';
+            if (p.keys && i === p.lit) {
+              ch = '*';
+              color = 'key';
+            }
+            target.fillStyle = PALETTE[color];
+            target.fillText(ch, (p.x + i) * CW, (p.y + j) * CH + 1);
+          }
+        }
+      }
+
+      function layout() {
+        const availCols = Math.max(20, Math.floor(panel.clientWidth / CW));
+        const scene = SCENES.find((s) => s.cols + 2 <= availCols) || SCENES[SCENES.length - 1];
+        const nextCols = Math.max(availCols, scene.cols);
+        if (nextCols === cols && scene.rows === rows && scenery && scenery.scene === scene && scenery.panelWidth === panel.clientWidth) return;
+        cols = nextCols;
+        rows = scene.rows;
+        const offCol = Math.floor((cols - scene.cols) / 2);
+        canvas.width = cols * CW * SCALE;
+        canvas.height = rows * CH * SCALE;
+        const fit = Math.min(1, panel.clientWidth / (cols * CW));
+        canvas.style.width = `${cols * CW * fit}px`;
+        canvas.style.height = `${rows * CH * fit}px`;
+        ctx.setTransform(SCALE, 0, 0, SCALE, 0, 0);
+        ctx.font = FONT;
+        ctx.textBaseline = 'top';
+        scenery = document.createElement('canvas');
+        scenery.scene = scene;
+        scenery.panelWidth = panel.clientWidth;
+        scenery.width = canvas.width;
+        scenery.height = canvas.height;
+        const sctx = scenery.getContext('2d');
+        sctx.scale(SCALE, SCALE);
+        sctx.font = FONT;
+        sctx.textBaseline = 'top';
+        occupied = Array.from({ length: rows }, () => new Array(cols).fill(false));
+        const inside = (c, r) => r >= 0 && r < rows && c >= 0 && c < cols;
+        const occupy = (c, r) => {
+          for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) if (inside(c + dc, r + dr)) occupied[r + dr][c + dc] = true;
+        };
+        live = [];
+        for (const p of scene.parts) {
+          const hull = [];
+          for (const f of p.frames) {
+            f.forEach((line, j) => {
+              const a = line.search(/\S/);
+              if (a < 0) return;
+              const b = line.trimEnd().length;
+              hull[j] = hull[j] ? [Math.min(hull[j][0], a), Math.max(hull[j][1], b)] : [a, b];
+            });
+          }
+          const part = { ...p, hull, x: p.x + offCol };
+          hull.forEach((span, j) => { if (span) for (let i = span[0]; i < span[1]; i++) occupy(part.x + i, part.y + j); });
+          if (p.frames.length > 1 || p.keys) live.push(part);
+          else drawPart(sctx, part);
+        }
+        screens = scene.screens.map((m) => {
+          const cells = [];
+          for (let j = 0; j < m.h; j++) {
+            for (let i = 0; i < m.w; i++) {
+              occupy(m.x + i + offCol, m.y + j);
+              cells.push([m.y + j, m.x + i + offCol]);
+            }
+          }
+          return {
+            ...SCREENS[m.key], cells, w: m.w, h: m.h,
+            chars: cells.map(() => pick(HEX_GLYPHS)),
+            phase: Math.random() * 6.28,
+            box: [m.x + offCol, m.y, m.w, m.h],
+            lines: Array.from({ length: m.h }, () => codeLine(m.w)),
+            vals: Array.from({ length: m.w }, () => Math.random()),
+          };
+        });
+        drops = Array.from({ length: cols }, () => newDrop(true));
+      }
+
+      function drawScreen(screen, t) {
+        const flicker = 0.85 + 0.15 * Math.sin(t / 1200 + screen.phase);
+        const [c0, r0, w, h] = screen.box;
+        ctx.globalAlpha = 0.12 * flicker;
+        ctx.fillStyle = screen.color;
+        ctx.fillRect(c0 * CW, r0 * CH, w * CW, h * CH);
+        if (screen.kind === 'hex') {
+          for (let i = 0; i < screen.cells.length; i++) {
+            if (Math.random() < 0.08) screen.chars[i] = Math.random() < 0.35 ? ' ' : pick(HEX_GLYPHS);
+            if (screen.chars[i] === ' ') continue;
+            const [r, c] = screen.cells[i];
+            ctx.globalAlpha = (0.35 + 0.65 * Math.random()) * flicker;
+            ctx.fillText(screen.chars[i], c * CW, r * CH + 1);
+          }
+        } else if (screen.kind === 'code') {
+          if (tick % 7 === 0) {
+            screen.lines.shift();
+            screen.lines.push(codeLine(w));
+          }
+          screen.lines.forEach((line, j) => {
+            ctx.globalAlpha = (0.45 + 0.4 * j / h) * flicker;
+            ctx.fillText(line.text, (c0 + line.indent) * CW, (r0 + j) * CH + 1);
+          });
+          if (tick % 14 < 7) {
+            const line = screen.lines[h - 1];
+            ctx.globalAlpha = flicker;
+            ctx.fillText('▌', (c0 + line.indent + line.text.length) * CW, (r0 + h - 1) * CH + 1);
+          }
+        } else {
+          for (let i = 0; i < w; i++) {
+            if (tick % 3 === 0) screen.vals[i] = Math.min(1, Math.max(0.05, screen.vals[i] + (Math.random() - 0.5) * 0.12));
+            const height = screen.vals[i] * h;
+            for (let j = 0; j < h; j++) {
+              const fill = Math.min(1, height - j);
+              if (fill <= 0) break;
+              ctx.globalAlpha = (0.35 + 0.5 * (1 - j / h)) * flicker;
+              ctx.fillText(BARS[Math.round(fill * 8)], (c0 + i) * CW, (r0 + h - 1 - j) * CH + 1);
+            }
+          }
+        }
+        ctx.globalAlpha = 1;
+      }
+
+      function draw(t) {
+        tick++;
+        ctx.clearRect(0, 0, cols * CW, rows * CH);
+        for (let c = 0; c < cols; c++) {
+          const drop = drops[c];
+          for (let k = 0; k < drop.len; k++) {
+            const r = Math.floor(drop.y) - k;
+            if (r < 0 || r >= rows || occupied[r][c]) continue;
+            const alpha = k === 0 ? 0.8 : (1 - k / drop.len) * 0.4;
+            ctx.fillStyle = k === 0 ? `rgba(220,255,230,${alpha})` : `rgba(76,227,145,${alpha})`;
+            if (Math.random() < 0.03) drop.glyphs[k] = pick(RAIN_GLYPHS);
+            ctx.fillText(drop.glyphs[k], c * CW, r * CH + 1);
+          }
+          drop.y += drop.speed;
+          if (drop.y - drop.len > rows) drops[c] = newDrop(false);
+        }
+        for (const screen of screens) drawScreen(screen, t);
+        ctx.drawImage(scenery, 0, 0, cols * CW, rows * CH);
+        for (const p of live) drawPart(ctx, p);
+      }
+
+      function loop(t) {
+        frame = requestAnimationFrame(loop);
+        if (t - last < 1000 / FPS - 1) return;
+        last = t;
+        draw(t);
+      }
+
+      function stop() {
+        cancelAnimationFrame(frame);
+        frame = 0;
+      }
+
+      function start() {
+        stop();
+        layout();
+        if (reduced.matches) {
+          for (let i = 0; i < 40; i++) draw(i * 66);
+          return;
+        }
+        if (!document.hidden) frame = requestAnimationFrame(loop);
+      }
+
+      document.addEventListener('visibilitychange', () => (document.hidden ? stop() : start()));
+      reduced.addEventListener('change', start);
+      let resizeTimer = 0;
+      new ResizeObserver(() => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(start, 150);
+      }).observe(panel);
+      start();
+    })();
+  </script>
+</body>
+</html>

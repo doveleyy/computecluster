@@ -1,0 +1,115 @@
+# Test-only integration sandbox. Copy next to your app and run:
+#   HP_SANDBOX_TOKEN=$(openssl rand -hex 32) docker compose -f compose.yaml up --wait
+# Required: HP_SANDBOX_TOKEN, HP_SANDBOX_APP_IMAGE, HP_SANDBOX_APP_ID,
+# HP_SANDBOX_MANIFEST (manifest.json or its template), HP_SANDBOX_ARCHIVES
+# (directory holding the declared workload archives).
+# Never attach real storage, credentials, or a production database.
+name: hp-sandbox
+services:
+  core:
+    image: ${HP_SANDBOX_IMAGE:-home-platform-sandbox:local}
+    environment:
+      # Passed through, not required here, so logs and down work without it.
+      # The core refuses to start when it is missing or short.
+      HP_SANDBOX_TOKEN:
+      HP_SANDBOX_APP_HOST: app
+      HP_SANDBOX_APP_PORT: ${HP_SANDBOX_APP_PORT:-8080}
+      HP_SANDBOX_APP_ROUTE: ${HP_SANDBOX_APP_ROUTE:?set HP_SANDBOX_APP_ROUTE, for example /apps/reports}
+      HP_SANDBOX_WORKER_ID: sandbox-worker
+    volumes:
+      - state:/sandbox/state
+      - credentials:/sandbox/credentials
+      # Refuse a missing source instead of creating an empty root-owned one.
+      - type: bind
+        source: ${HP_SANDBOX_ARCHIVES:?set HP_SANDBOX_ARCHIVES to the workload archive directory}
+        target: /sandbox/app
+        read_only: true
+        bind: {create_host_path: false}
+      - type: bind
+        source: ${HP_SANDBOX_MANIFEST:?set HP_SANDBOX_MANIFEST to manifest.json or manifest.template.json}
+        target: /sandbox/manifest.json
+        read_only: true
+        bind: {create_host_path: false}
+    ports:
+      - 127.0.0.1:${HP_SANDBOX_PORT:-18001}:8001
+      - 127.0.0.1:${HP_SANDBOX_API_PORT:-18000}:8000
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import httpx,sys; sys.exit(httpx.get('http://127.0.0.1:8000/ready',trust_env=False).status_code!=200)
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  worker:
+    image: ${HP_SANDBOX_IMAGE:-home-platform-sandbox:local}
+    # Root inside this container only: it drives the host Docker socket to run
+    # workload containers, which is already host-equivalent authority.
+    user: "0:0"
+    command:
+      - python
+      - -m
+      - worker.main
+      - --url
+      - http://core:8000
+      - --worker-id
+      - sandbox-worker
+      - --token-file
+      - /sandbox/state/api-token
+      - --data-dir
+      - ${HP_SANDBOX_WORKER_DIR:-${PWD}/.hp-sandbox-worker}
+      - --poll-seconds
+      - "1"
+      - --max-cache-bytes
+      - "536870912"
+    environment:
+      HOME_PLATFORM_CONTAINER_IMAGE: ${HP_SANDBOX_RUNNER_IMAGE:-${HP_SANDBOX_IMAGE:-home-platform-sandbox:local}}
+    volumes:
+      - state:/sandbox/state:ro
+      # Identical host and container path: the worker names this path when it
+      # bind-mounts job workspaces through the host Docker daemon.
+      - ${HP_SANDBOX_WORKER_DIR:-${PWD}/.hp-sandbox-worker}:${HP_SANDBOX_WORKER_DIR:-${PWD}/.hp-sandbox-worker}
+      - /var/run/docker.sock:/var/run/docker.sock
+    cap_drop: [ALL]
+    # DAC_OVERRIDE: this container's root reads state/api-token, which the
+    # core container's unprivileged user owns with mode 0600. Root needs the
+    # capability to bypass that permission check across the shared volume;
+    # without it, the kernel treats this uid 0 like any other non-owner.
+    cap_add: [DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      core:
+        condition: service_healthy
+  app:
+    image: ${HP_SANDBOX_APP_IMAGE:?set HP_SANDBOX_APP_IMAGE to your built app image}
+    environment:
+      APP_ID: ${HP_SANDBOX_APP_ID:?set HP_SANDBOX_APP_ID to the manifest app_id}
+      APP_BASE_PATH: ${HP_SANDBOX_APP_ROUTE}
+      PLATFORM_API_URL: http://core:8000/api/apps/v1
+      APP_CREDENTIAL_FILE: /run/secrets/app-credential
+      APP_STATE_DIR: /data
+      TZ: UTC
+    volumes:
+      - credentials:/run/secrets:ro
+      - app-state:/data
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs:
+      - /tmp
+    depends_on:
+      core:
+        condition: service_healthy
+volumes:
+  state:
+  credentials:
+  app-state:

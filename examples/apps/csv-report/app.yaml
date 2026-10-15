@@ -1,0 +1,21 @@
+contract_version: 1
+app_id: example-csv-report
+source_commit: "1111111111111111111111111111111111111111"
+image: "ghcr.io/example/example-csv-report@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+runtime:
+  port: 8080
+  health_path: /health
+  ready_path: /ready
+  version_path: /version
+capabilities:
+  - identity
+  - jobs
+  - files
+state:
+  sqlite_file: reports.db
+workloads:
+  - id: csv-summary
+    asset: csv-summary.zip
+    sha256: "1111111111111111111111111111111111111111111111111111111111111111"
+    entrypoint: submit.hp
+    runtime: scientific-python:1

@@ -1,0 +1,729 @@
+{
+  "cases": [
+    {
+      "id": "identity-minimal",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "source_commit": "1111111111111111111111111111111111111111"
+      },
+      "valid": true
+    },
+    {
+      "id": "state-secrets-maintenance-workload",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity",
+          "jobs",
+          "files"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "maintenance": [
+          {
+            "argv": [
+              "python",
+              "-m",
+              "reports.cleanup"
+            ],
+            "interval_hours": 6,
+            "name": "cleanup",
+            "timeout_seconds": 300
+          }
+        ],
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "secrets": [
+          "report-key"
+        ],
+        "source_commit": "1111111111111111111111111111111111111111",
+        "state": {
+          "sqlite_file": "reports.db"
+        },
+        "workloads": [
+          {
+            "asset": "summary.tar.gz",
+            "entrypoint": "tasks/summary.py",
+            "id": "summary",
+            "runtime": "scientific-python:1",
+            "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "id": "root-endpoint-and-hidden-basenames",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity",
+          "jobs",
+          "files"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "maintenance": [
+          {
+            "argv": [
+              "python",
+              "-m",
+              "reports.cleanup"
+            ],
+            "interval_hours": 6,
+            "name": "cleanup",
+            "timeout_seconds": 300
+          }
+        ],
+        "runtime": {
+          "health_path": "/",
+          "port": 8080,
+          "ready_path": "/checks/Ready.json",
+          "version_path": "/version"
+        },
+        "secrets": [
+          "report-key"
+        ],
+        "source_commit": "1111111111111111111111111111111111111111",
+        "state": {
+          "sqlite_file": ".reports.db"
+        },
+        "workloads": [
+          {
+            "asset": ".summary.tar.gz",
+            "entrypoint": "tasks/.summary.py",
+            "id": "summary",
+            "runtime": "scientific-python:1",
+            "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+          }
+        ]
+      },
+      "valid": true
+    },
+    {
+      "id": "explicit-empty-optional-arrays",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity",
+          "files"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "maintenance": [],
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "secrets": [],
+        "source_commit": "1111111111111111111111111111111111111111",
+        "workloads": []
+      },
+      "valid": true
+    },
+    {
+      "id": "unsupported-contract-version",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity"
+        ],
+        "contract_version": 2,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "source_commit": "1111111111111111111111111111111111111111"
+      },
+      "valid": false
+    },
+    {
+      "id": "present-state-null",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "source_commit": "1111111111111111111111111111111111111111",
+        "state": null
+      },
+      "valid": false
+    },
+    {
+      "id": "unknown-release-field",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "source_commit": "1111111111111111111111111111111111111111",
+        "unexpected": true
+      },
+      "valid": false
+    },
+    {
+      "id": "unknown-runtime-field",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "unexpected": true,
+          "version_path": "/version"
+        },
+        "source_commit": "1111111111111111111111111111111111111111"
+      },
+      "valid": false
+    },
+    {
+      "id": "identity-capability-required",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "jobs"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "source_commit": "1111111111111111111111111111111111111111"
+      },
+      "valid": false
+    },
+    {
+      "id": "workloads-require-jobs",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "maintenance": [
+          {
+            "argv": [
+              "python",
+              "-m",
+              "reports.cleanup"
+            ],
+            "interval_hours": 6,
+            "name": "cleanup",
+            "timeout_seconds": 300
+          }
+        ],
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "secrets": [
+          "report-key"
+        ],
+        "source_commit": "1111111111111111111111111111111111111111",
+        "state": {
+          "sqlite_file": "reports.db"
+        },
+        "workloads": [
+          {
+            "asset": "summary.tar.gz",
+            "entrypoint": "tasks/summary.py",
+            "id": "summary",
+            "runtime": "scientific-python:1",
+            "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "duplicate-capabilities",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity",
+          "identity"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "source_commit": "1111111111111111111111111111111111111111"
+      },
+      "valid": false
+    },
+    {
+      "id": "normalized-secret-name-collision",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "secrets": [
+          "report-key",
+          "report_key"
+        ],
+        "source_commit": "1111111111111111111111111111111111111111"
+      },
+      "valid": false
+    },
+    {
+      "id": "duplicate-maintenance-name",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity",
+          "jobs",
+          "files"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "maintenance": [
+          {
+            "argv": [
+              "python",
+              "-m",
+              "reports.cleanup"
+            ],
+            "interval_hours": 6,
+            "name": "cleanup",
+            "timeout_seconds": 300
+          },
+          {
+            "argv": [
+              "python",
+              "-m",
+              "reports.other"
+            ],
+            "interval_hours": 6,
+            "name": "cleanup",
+            "timeout_seconds": 300
+          }
+        ],
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "secrets": [
+          "report-key"
+        ],
+        "source_commit": "1111111111111111111111111111111111111111",
+        "state": {
+          "sqlite_file": "reports.db"
+        },
+        "workloads": [
+          {
+            "asset": "summary.tar.gz",
+            "entrypoint": "tasks/summary.py",
+            "id": "summary",
+            "runtime": "scientific-python:1",
+            "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "duplicate-workload-id",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity",
+          "jobs",
+          "files"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "maintenance": [
+          {
+            "argv": [
+              "python",
+              "-m",
+              "reports.cleanup"
+            ],
+            "interval_hours": 6,
+            "name": "cleanup",
+            "timeout_seconds": 300
+          }
+        ],
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "secrets": [
+          "report-key"
+        ],
+        "source_commit": "1111111111111111111111111111111111111111",
+        "state": {
+          "sqlite_file": "reports.db"
+        },
+        "workloads": [
+          {
+            "asset": "summary.tar.gz",
+            "entrypoint": "tasks/summary.py",
+            "id": "summary",
+            "runtime": "scientific-python:1",
+            "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+          },
+          {
+            "asset": "other.tar.gz",
+            "entrypoint": "tasks/summary.py",
+            "id": "summary",
+            "runtime": "scientific-python:1",
+            "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "endpoint-dot-segment",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "runtime": {
+          "health_path": "/checks/../health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "source_commit": "1111111111111111111111111111111111111111"
+      },
+      "valid": false
+    },
+    {
+      "id": "endpoint-query-string",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "runtime": {
+          "health_path": "/health?ready=1",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "source_commit": "1111111111111111111111111111111111111111"
+      },
+      "valid": false
+    },
+    {
+      "id": "sqlite-filename-with-directory",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity",
+          "jobs",
+          "files"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "maintenance": [
+          {
+            "argv": [
+              "python",
+              "-m",
+              "reports.cleanup"
+            ],
+            "interval_hours": 6,
+            "name": "cleanup",
+            "timeout_seconds": 300
+          }
+        ],
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "secrets": [
+          "report-key"
+        ],
+        "source_commit": "1111111111111111111111111111111111111111",
+        "state": {
+          "sqlite_file": "state/reports.db"
+        },
+        "workloads": [
+          {
+            "asset": "summary.tar.gz",
+            "entrypoint": "tasks/summary.py",
+            "id": "summary",
+            "runtime": "scientific-python:1",
+            "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "workload-asset-with-directory",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity",
+          "jobs",
+          "files"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "maintenance": [
+          {
+            "argv": [
+              "python",
+              "-m",
+              "reports.cleanup"
+            ],
+            "interval_hours": 6,
+            "name": "cleanup",
+            "timeout_seconds": 300
+          }
+        ],
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "secrets": [
+          "report-key"
+        ],
+        "source_commit": "1111111111111111111111111111111111111111",
+        "state": {
+          "sqlite_file": "reports.db"
+        },
+        "workloads": [
+          {
+            "asset": "assets/summary.tar.gz",
+            "entrypoint": "tasks/summary.py",
+            "id": "summary",
+            "runtime": "scientific-python:1",
+            "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "entrypoint-dot-segment",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity",
+          "jobs",
+          "files"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "maintenance": [
+          {
+            "argv": [
+              "python",
+              "-m",
+              "reports.cleanup"
+            ],
+            "interval_hours": 6,
+            "name": "cleanup",
+            "timeout_seconds": 300
+          }
+        ],
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "secrets": [
+          "report-key"
+        ],
+        "source_commit": "1111111111111111111111111111111111111111",
+        "state": {
+          "sqlite_file": "reports.db"
+        },
+        "workloads": [
+          {
+            "asset": "summary.tar.gz",
+            "entrypoint": "tasks/../summary.py",
+            "id": "summary",
+            "runtime": "scientific-python:1",
+            "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "image-mutable-tag",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports:latest",
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "source_commit": "1111111111111111111111111111111111111111"
+      },
+      "valid": false
+    },
+    {
+      "id": "port-boolean",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "runtime": {
+          "health_path": "/health",
+          "port": true,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "source_commit": "1111111111111111111111111111111111111111"
+      },
+      "valid": false
+    },
+    {
+      "id": "port-integral-float",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080.0,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "source_commit": "1111111111111111111111111111111111111111"
+      },
+      "valid": false
+    },
+    {
+      "id": "maintenance-argument-control-character",
+      "manifest": {
+        "app_id": "example-reports",
+        "capabilities": [
+          "identity",
+          "jobs",
+          "files"
+        ],
+        "contract_version": 1,
+        "image": "ghcr.io/example/example-reports@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "maintenance": [
+          {
+            "argv": [
+              "python\n"
+            ],
+            "interval_hours": 6,
+            "name": "cleanup",
+            "timeout_seconds": 300
+          }
+        ],
+        "runtime": {
+          "health_path": "/health",
+          "port": 8080,
+          "ready_path": "/ready",
+          "version_path": "/version"
+        },
+        "secrets": [
+          "report-key"
+        ],
+        "source_commit": "1111111111111111111111111111111111111111",
+        "state": {
+          "sqlite_file": "reports.db"
+        },
+        "workloads": [
+          {
+            "asset": "summary.tar.gz",
+            "entrypoint": "tasks/summary.py",
+            "id": "summary",
+            "runtime": "scientific-python:1",
+            "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+          }
+        ]
+      },
+      "valid": false
+    }
+  ],
+  "contract_version": 1,
+  "corpus_version": 1
+}

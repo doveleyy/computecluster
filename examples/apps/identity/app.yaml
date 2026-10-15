@@ -1,0 +1,13 @@
+contract_version: 1
+app_id: example-notes
+source_commit: "1111111111111111111111111111111111111111"
+image: "ghcr.io/example/example-notes@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+runtime:
+  port: 8080
+  health_path: /health
+  ready_path: /ready
+  version_path: /version
+capabilities:
+  - identity
+state:
+  sqlite_file: notes.db

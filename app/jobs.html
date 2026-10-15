@@ -1,0 +1,492 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050505">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Jobs · Home Platform</title>
+  <style>
+    :root { color-scheme:dark; --bg:#050505; --surface:#0a0a0a; --raised:#101010; --line:#242424; --strong:#383838; --text:#f3f3f3; --muted:#8b8b8b; --dim:#5d5d5d; --green:#4ce391; --cyan:#55d7ff; --yellow:#f2ca52; --red:#ff6666; --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; }
+    * { box-sizing:border-box; }
+    html { background:var(--bg); }
+    body { margin:0; min-width:280px; min-height:100vh; min-height:100dvh; overflow-x:hidden; background:linear-gradient(rgba(255,255,255,.017) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.017) 1px,transparent 1px),var(--bg); background-size:32px 32px; color:var(--text); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; -webkit-font-smoothing:antialiased; }
+    button,input,select,textarea { font:inherit; }
+    button { touch-action:manipulation; }
+    button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,summary:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
+    .hidden { display:none!important; }
+    .shell { width:min(1240px,100%); margin:0 auto; padding:max(24px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(52px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left)); }
+    .topbar,.panel-head,.form-actions { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+    .topbar { align-items:flex-end; gap:18px; margin-bottom:26px; }
+    .topbar-actions { display:flex; flex-direction:column; align-items:flex-end; gap:9px; }
+    .topbar-button-row { display:flex; gap:7px; }
+    .eyebrow,.kicker,.label { color:var(--muted); font:600 10px/1.2 var(--mono); letter-spacing:.13em; text-transform:uppercase; }
+    .brand { margin:5px 0 2px; font:600 clamp(24px,4vw,36px)/1 var(--mono); letter-spacing:-.06em; }
+    .brand span { color:var(--dim); }
+    .context-line,.subtitle { min-height:18px; margin:10px 0 0; color:var(--muted); font:12px/1.4 var(--mono); }
+    .connection { display:inline-flex; align-items:center; gap:7px; color:var(--muted); font:11px var(--mono); }
+    .connection i { width:7px; height:7px; border-radius:50%; background:var(--yellow); box-shadow:0 0 12px currentColor; }
+    .connection.live i { background:var(--green); }
+    .page-nav { display:flex; flex-wrap:wrap; gap:4px; margin:0 0 18px; padding:4px; border:1px solid var(--line); border-radius:10px; background:rgba(8,8,8,.92); }
+    .page-nav a { display:inline-grid; min-height:40px; padding:0 14px; place-items:center; border:1px solid transparent; border-radius:7px; color:var(--muted); font:600 11px var(--mono); letter-spacing:.04em; text-decoration:none; white-space:nowrap; }
+    .page-nav a:hover { color:var(--text); }
+    .page-nav a[aria-current="page"] { border-color:var(--strong); background:var(--raised); color:var(--text); }
+    .ghost,.primary,.filter,.sort,.job-row,.close,.artifact-action,.danger { border:1px solid var(--line); border-radius:8px; background:#090909; color:var(--muted); cursor:pointer; }
+    .ghost { min-height:40px; padding:0 14px; font:11px var(--mono); }
+    .ghost:hover,.filter:hover,.sort:hover,.close:hover,.artifact-action:hover { border-color:var(--strong); color:var(--text); }
+    .danger { min-height:40px; padding:0 13px; border-color:#642d2d; color:var(--red); font:700 10px var(--mono); letter-spacing:.06em; }
+    .danger:hover { border-color:var(--red); background:#180909; }
+    .danger:disabled { cursor:wait; opacity:.5; }
+    .layout { display:grid; grid-template-columns:minmax(280px,360px) minmax(0,1fr); gap:16px; align-items:start; }
+    .layout.one-page { grid-template-columns:minmax(0,1fr); }
+    .layout.submit-only { justify-items:stretch; }
+    .panel { min-width:0; overflow:hidden; border:1px solid var(--line); border-radius:12px; background:rgba(10,10,10,.96); }
+    .panel-head { min-height:66px; padding:15px 17px; border-bottom:1px solid var(--line); }
+    h2 { margin:4px 0 0; font:600 17px/1.2 var(--mono); }
+    .count { color:var(--muted); font:11px var(--mono); white-space:nowrap; }
+    .form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 18px; padding:20px; }
+    .form > #target-worker-field,.form > #sleep-fields,.form > .form-section,.form > .file-flow,.form > .form-actions,.form > .feedback { grid-column:1/-1; }
+    /* Every task type renders the same sections in the same order. Only the
+       controls inside a section vary, so switching task swaps contents without
+       the form itself changing shape. */
+    .form-section { padding-top:15px; border-top:1px solid var(--line); }
+    .form-section-head { display:flex; align-items:baseline; gap:10px; margin-bottom:13px; }
+    .form-section-head h3 { margin:0; color:var(--text); font:600 11px var(--mono); letter-spacing:.13em; text-transform:uppercase; }
+    .form-section-note { min-width:0; color:var(--dim); font:10px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .form-section-body { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 18px; }
+    .form-section-body > .field-wide,.form-section-body > .advanced,.form-section-body > .storage-bindings,.form-section-body > .declared { grid-column:1/-1; }
+    /* Values a project declared for itself. Read-only on purpose: submit.hp is
+       the source of truth, and letting the form override it would create a
+       second contract. */
+    .declared { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:11px; padding:12px 13px; border:1px solid var(--line); border-radius:9px; background:#070707; }
+    .declared-value { margin-top:4px; color:var(--text); font:11px/1.4 var(--mono); overflow-wrap:anywhere; }
+    .declared-empty { grid-column:1/-1; color:var(--dim); font:10px/1.6 var(--mono); }
+    .field { display:block; margin-bottom:15px; }
+    .field input,.field select,.field textarea { width:100%; min-height:46px; margin-top:7px; padding:0 12px; border:1px solid var(--strong); border-radius:8px; outline:none; background:#050505; color:var(--text); }
+    .field textarea { min-height:110px; padding:11px 12px; resize:vertical; font:12px/1.5 var(--mono); }
+    .field input:focus,.field select:focus,.field textarea:focus { border-color:#777; }
+    .hint { display:block; margin-top:6px; color:var(--dim); font:10px/1.45 var(--mono); }
+    .advanced { margin:4px 0 15px; border:1px solid var(--line); border-radius:8px; }
+    .advanced summary { padding:12px; color:var(--muted); font:600 10px var(--mono); cursor:pointer; }
+    .advanced-body { padding:3px 12px 0; border-top:1px solid var(--line); }
+    .primary { min-height:46px; padding:0 16px; border-color:var(--text); background:var(--text); color:var(--bg); font:700 11px var(--mono); letter-spacing:.08em; }
+    .primary:disabled { cursor:wait; opacity:.5; }
+    .feedback { min-height:18px; margin:12px 0 0; color:var(--muted); font:11px/1.5 var(--mono); }
+    .feedback.good { color:var(--green); }
+    .feedback.bad { color:var(--red); }
+    .filters { display:flex; flex-wrap:wrap; gap:6px; padding:12px 15px; border-bottom:1px solid var(--line); }
+    .filter { min-height:34px; padding:0 10px; font:10px var(--mono); }
+    .filter.active { border-color:var(--text); background:var(--text); color:var(--bg); }
+    .job-head,.job-row { display:grid; grid-template-columns:minmax(130px,1.3fr) minmax(82px,.75fr) .8fr .8fr minmax(90px,.9fr) .9fr; gap:9px; align-items:center; }
+    .job-head { padding:8px 12px; border-bottom:1px solid var(--line); background:#080808; }
+    .sort { min-width:0; min-height:32px; padding:0 6px; border-color:transparent; background:transparent; text-align:left; font:600 9px var(--mono); letter-spacing:.09em; text-transform:uppercase; }
+    .sort.active { color:var(--text); }
+    .job-row { width:100%; padding:14px 15px; border-width:0 0 1px; border-radius:0; background:transparent; color:var(--text); text-align:left; }
+    .job-row:last-child { border-bottom:0; }
+    .job-row:hover { background:var(--raised); }
+    .group-block { border-bottom:1px solid var(--line); }
+    .group-block > .job-row { border-bottom:0; }
+    .group-tasks { padding:0 10px 10px 28px; background:#070707; }
+    .group-tasks.hidden { display:none; }
+    .task-row { border-left:1px solid var(--strong); }
+    .cell { min-width:0; overflow:hidden; font:11px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+    .job-name { font-weight:600; }
+    .secondary { color:var(--muted); }
+    .status { display:inline-flex; align-items:center; gap:6px; font:700 10px var(--mono); letter-spacing:.05em; }
+    .status::before { width:6px; height:6px; border-radius:50%; background:currentColor; content:""; }
+    .COMPLETED { color:var(--green); } .RUNNING { color:var(--cyan); } .QUEUED { color:var(--yellow); } .FAILED { color:var(--red); }
+    .empty { padding:36px 18px; color:var(--muted); font:12px var(--mono); text-align:center; }
+    dialog { width:min(640px,calc(100% - 28px)); max-height:calc(100dvh - 28px); padding:0; overflow:hidden; border:1px solid var(--strong); border-radius:12px; background:var(--surface); color:var(--text); box-shadow:0 28px 100px #000; }
+    dialog::backdrop { background:rgba(0,0,0,.82); backdrop-filter:blur(3px); }
+    .dialog-body { display:grid; grid-template-columns:1fr 1fr; gap:1px; overflow:auto; max-height:calc(100dvh - 100px); background:var(--line); }
+    .detail { min-width:0; padding:15px 18px; background:var(--surface); }
+    .detail.wide { grid-column:1/-1; }
+    .value { margin-top:7px; overflow-wrap:anywhere; font:12px/1.55 var(--mono); white-space:pre-wrap; }
+    .artifacts { display:grid; gap:8px; margin-top:10px; }
+    .artifact { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:10px; align-items:center; padding:10px; border:1px solid var(--line); border-radius:8px; background:#080808; }
+    .artifact-name { min-width:0; overflow:hidden; font:600 11px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+    .artifact-size { margin-top:2px; color:var(--dim); font:10px var(--mono); }
+    .artifact-actions { display:flex; gap:6px; }
+    .artifact-action { display:inline-grid; min-height:34px; padding:0 10px; place-items:center; font:600 9px var(--mono); letter-spacing:.06em; text-decoration:none; }
+    .artifact-preview { grid-column:1/-1; max-height:240px; margin:0; padding:10px; overflow:auto; border-top:1px solid var(--line); color:#c9c9c9; font:11px/1.55 var(--mono); white-space:pre-wrap; }
+    .close { width:42px; min-height:42px; padding:0; font-size:20px; }
+    .login-wrap { display:grid; min-height:calc(100dvh - 41px); place-items:center; padding:20px; }
+    .login { width:min(420px,100%); overflow:hidden; border:1px solid var(--line); border-radius:12px; background:#090909; }
+    .login-copy { padding:24px; border-bottom:1px solid var(--line); }
+    .login form { padding:24px; }
+    .login .primary { width:100%; margin-top:8px; }
+    .account-form,.account-section { padding:18px; }
+    .account-section { border-bottom:1px solid var(--line); }
+    .identity-value { margin:9px 0 13px; color:var(--text); font:11px/1.55 var(--mono); overflow-wrap:anywhere; }
+    .dialog-copy { margin:0 0 15px; color:var(--muted); font:11px/1.65 var(--mono); }
+    .storage-choice { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; margin-top:7px; }
+    .storage-choice input { margin-top:0; }
+    .storage-bindings { display:grid; gap:8px; margin:9px 0 0; }
+    .storage-binding { display:grid; grid-template-columns:minmax(0,.7fr) minmax(0,1.3fr) auto; gap:8px; align-items:center; padding:9px 10px; border:1px solid var(--line); border-radius:8px; background:#070707; }
+    .storage-binding span { min-width:0; overflow:hidden; font:11px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+    .storage-browser { padding:0 18px 18px; }
+    .storage-path { margin:0 -18px 12px; padding:11px 18px; border-bottom:1px solid var(--line); color:var(--muted); font:11px var(--mono); overflow-wrap:anywhere; }
+    /* align-content:start stops grid rows sharing out the spare height. Without
+       it a single entry stretches to fill min-height and one folder reads as a
+       120px slab; two would be 60px each. Rows keep their own height, leftover
+       space stays empty, and the list scrolls once it exceeds max-height. */
+    .storage-entries { display:grid; align-content:start; gap:7px; min-height:120px; max-height:50dvh; overflow:auto; }
+    .storage-entry { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:10px; align-items:center; min-height:44px; padding:0 11px; border:1px solid var(--line); border-radius:8px; background:#080808; color:var(--text); cursor:pointer; text-align:left; }
+    .storage-entry:hover { border-color:var(--strong); background:var(--raised); }
+    .storage-entry-kind,.storage-entry-size { color:var(--dim); font:10px var(--mono); }
+    .storage-browser-actions { display:flex; justify-content:space-between; gap:8px; margin-top:13px; }
+    /* Reference material about where files come from and go. It is explanation,
+       not input, so it stays collapsed and reads as a sequence rather than a row
+       of equally weighted cards competing with the fields above it. */
+    /* Flat, not a card. This already sits inside the submit panel, so giving it
+       its own border and fill nests a box in a box. A rule underneath is enough
+       to separate the explanation from the fields it introduces. */
+    .file-flow { grid-column:1/-1; margin-bottom:17px; padding-bottom:14px; border-bottom:1px solid var(--line); }
+    .file-flow-head { margin-bottom:9px; color:var(--text); font:600 11px var(--mono); letter-spacing:.13em; text-transform:uppercase; }
+    .flow-step { display:grid; grid-template-columns:auto minmax(0,1fr); gap:10px; padding:6px 0; }
+    .flow-marker { width:18px; color:var(--dim); font:600 10px/1.5 var(--mono); text-align:right; }
+    .flow-term { margin-bottom:3px; color:var(--text); font:600 11px var(--mono); letter-spacing:.06em; text-transform:uppercase; }
+    .flow-step.is-result .flow-term { color:var(--cyan); }
+    .flow-step p { margin:0 0 4px; color:var(--muted); font:10px/1.6 var(--mono); }
+    .flow-step p:last-child { margin-bottom:0; }
+    .flow-step code { color:var(--text); font-size:10px; overflow-wrap:anywhere; }
+    .project-review-row { display:grid; grid-column:1/-1; grid-template-columns:minmax(0,.65fr) minmax(0,1.35fr) auto; gap:8px; align-items:center; font:10px/1.45 var(--mono); }
+    .project-review-row span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .project-review-row .missing { color:var(--yellow); }
+    .file-toolbar { display:flex; align-items:center; gap:8px; padding:14px 16px; border-bottom:1px solid var(--line); }
+    .file-location { min-width:0; flex:1; overflow:hidden; color:var(--text); font:12px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+    .file-search { width:min(280px,40%); min-height:40px; padding:0 11px; border:1px solid var(--strong); border-radius:8px; background:#050505; color:var(--text); }
+    .file-list { display:grid; align-content:start; min-height:260px; }
+    .file-row { display:grid; grid-template-columns:46px minmax(0,1fr) minmax(72px,auto) auto; gap:12px; align-items:center; min-height:58px; padding:9px 16px; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--text); text-align:left; }
+    .file-row:hover { background:var(--raised); }
+    .file-kind { color:var(--dim); font:700 9px var(--mono); letter-spacing:.08em; }
+    .file-name { min-width:0; overflow:hidden; font:600 12px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+    button.file-name { padding:0; border:0; background:transparent; color:var(--text); cursor:pointer; text-align:left; }
+    button.file-name:hover { text-decoration:underline; }
+    .file-size { color:var(--dim); font:10px var(--mono); text-align:right; white-space:nowrap; }
+    .file-arrow { color:var(--dim); font:16px var(--mono); }
+    .file-actions { display:flex; width:34px; align-items:center; justify-content:flex-end; }
+    .action-menu { position:relative; width:34px; }
+    .action-menu > summary { position:relative; display:block; width:34px; height:34px; padding:0; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--dim); cursor:pointer; font-size:0; list-style:none; }
+    .action-menu > summary::-webkit-details-marker { display:none; }
+    .action-menu > summary::after { position:absolute; top:50%; left:50%; width:3px; height:3px; border-radius:50%; background:currentColor; box-shadow:-5px 0 currentColor,5px 0 currentColor; content:""; transform:translate(-50%,-50%); }
+    .action-menu[open] > summary,.action-menu > summary:hover { border-color:var(--line); background:var(--raised); color:var(--text); }
+    .action-menu-list { position:absolute; top:calc(100% + 7px); right:0; z-index:40; display:grid; min-width:190px; padding:5px; border:1px solid var(--line); border-radius:8px; background:rgba(12,12,12,.98); box-shadow:0 16px 44px rgba(0,0,0,.78); }
+    .action-menu-item { display:flex; width:100%; min-height:38px; align-items:center; padding:0 11px; border:0; border-radius:4px; background:transparent; color:var(--muted); cursor:pointer; font:600 10px var(--mono); letter-spacing:.055em; text-align:left; text-decoration:none; }
+    .action-menu-item:hover { background:var(--raised); color:var(--text); }
+    .action-menu-item.danger-action:hover { color:var(--red); }
+    #files-panel { overflow:visible; }
+    .file-footer { display:flex; justify-content:flex-end; padding:14px 16px; }
+    @media(max-width:900px) { .layout{grid-template-columns:1fr} .submit-panel{order:0}.queue-panel{order:1} }
+    @media(max-width:640px) {
+      .shell{padding-left:12px;padding-right:12px}.topbar{align-items:flex-start;margin-bottom:20px}.context-line{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.panel{border-radius:10px}
+      .form,.form-section-body{grid-template-columns:1fr}.form>*,.form-section-body>*{grid-column:1/-1}.declared{grid-template-columns:1fr}
+      .job-head{grid-template-columns:1fr .75fr .8fr;padding:7px 9px}.head-type,.head-state,.head-worker{display:none}
+      .job-row{grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;padding:15px}.job-name{grid-column:1;grid-row:1}.job-state{grid-column:2;grid-row:1;justify-self:end}.job-id{grid-column:1/-1;grid-row:2}.job-type{grid-column:1;grid-row:3}.job-worker{grid-column:1/-1;grid-row:4}.job-time{grid-column:2;grid-row:3;text-align:right}.job-worker::before{content:"worker  ";color:var(--dim)}
+      .dialog-body{grid-template-columns:1fr}.detail.wide{grid-column:auto}.project-review-row{grid-template-columns:1fr}.project-review-row span{white-space:normal}
+      .file-toolbar{align-items:stretch;flex-wrap:wrap}.file-location{order:-1;flex-basis:100%;padding:2px 0 6px}.file-search{width:auto;flex:1}.file-row{grid-template-columns:38px minmax(0,1fr) auto;padding:11px 12px}.file-size{display:none}.file-footer{justify-content:flex-start}
+    }
+    @media(max-width:390px) { .brand{font-size:22px}.ghost{min-height:38px;padding:0 10px} }
+  </style>
+</head>
+<body>
+  <iframe class="platform-bar" src="/platform/bar?app=__PLATFORM_APP__" title="Home Platform apps" style="display:block;width:100%;height:41px;border:0;flex:none;background:#070707"></iframe>
+  <section id="login-view" class="login-wrap hidden"><div class="login"><div class="login-copy"><div class="eyebrow">home compute</div><h1 class="brand">JOB<span>//</span>DESK</h1><p class="subtitle">Sign in to submit work and follow only your jobs.</p></div><form id="login-form"><label class="field"><span class="label">Username</span><input id="login-username" autocomplete="username" autocapitalize="none" spellcheck="false"></label><label class="field"><span class="label">Password</span><input id="login-password" type="password" autocomplete="current-password"></label><details class="advanced"><summary>OWNER TOKEN</summary><div class="advanced-body"><label class="field"><span class="label">API token</span><input id="token" type="password" autocomplete="current-password"><span class="hint">Operators may use the existing CLI token instead of a member account.</span></label></div></details><button class="primary" type="submit">OPEN JOB DESK</button><p id="login-error" class="feedback bad" aria-live="polite"></p></form></div></section>
+  <main id="app" class="shell hidden">
+    <header class="topbar"><div><div class="eyebrow">home compute</div><h1 class="brand">JOB<span>//</span>DESK</h1><div id="account" class="context-line">Submit work. Track every run.</div></div><div class="topbar-actions"><div id="connection" class="connection"><i></i><span id="updated">SYNCING</span></div><div class="topbar-button-row"><button id="account-open" class="ghost hidden" type="button">ACCOUNT</button><button id="logout" class="ghost" type="button">LOG OUT</button></div></div></header>
+    <nav class="page-nav" aria-label="Home Platform"><a class="operator-nav hidden" href="/dashboard">OVERVIEW</a><a class="operator-nav hidden" href="/dashboard/operations">OPERATIONS</a><a class="operator-nav hidden" href="/dashboard/apps">APPS</a><a id="jobs-nav" href="/jobs-ui">JOBS</a><a id="files-nav" href="/jobs-ui/files">FILES</a><a id="submit-nav" class="member-nav" href="/jobs-ui/new">SUBMIT</a></nav>
+    <div id="workspace" class="layout one-page">
+      <section id="submit-panel" class="panel submit-panel hidden" aria-labelledby="submit-title"><header class="panel-head"><div><div class="kicker">new run</div><h2 id="submit-title">Submit a job</h2></div></header><form id="job-form" class="form">
+        <div class="file-flow hidden" id="file-flow"><div class="file-flow-head">Where your files go</div>
+          <div class="flow-step"><div class="flow-marker">1</div><div><div class="flow-term">Choosing files</div><p><strong>Home</strong> is your private area. <strong>Shared</strong> is for files the household deliberately shares.</p><p id="flow-choose-detail"></p></div></div>
+          <div class="flow-step"><div class="flow-marker">2</div><div><div class="flow-term">Inside the job</div><p id="flow-inside-detail"></p></div></div>
+          <div class="flow-step is-result"><div class="flow-marker">3</div><div><div class="flow-term">Results</div><p>Anything written to <code>HOME_PLATFORM_OUTPUT_DIR</code> is published as an artifact.</p><p id="flow-result-detail"></p></div></div>
+        </div>
+        <label id="job-name-field" class="field"><span class="label">Job name</span><input id="job-name" maxlength="100" placeholder="e.g. Family CSV report" required><span class="hint">Names can be reused. Every run still gets its own ID.</span></label>
+        <label id="job-type-field" class="field"><span class="label">Task</span><select id="job-type"><option value="batch">PBS-style project array</option><option value="python_batch">Python single-script batch</option><option value="sleep">Connectivity check</option></select></label>
+        <label id="target-worker-field" class="field"><span class="label">Run on</span><select id="target-worker"><option value="">Choose an available worker automatically</option></select><span class="hint">Choose a specific worker only when this job needs that machine.</span></label>
+        <div id="sleep-fields"><label class="field"><span class="label">Run for</span><select id="seconds"><option value="1">1 second</option><option value="5" selected>5 seconds</option><option value="10">10 seconds</option><option value="30">30 seconds</option><option value="60">1 minute</option><option value="120">2 minutes</option><option value="300">5 minutes</option></select><span class="hint">A small test that confirms a worker can receive and finish a job.</span></label></div>
+        <section id="section-code" class="form-section hidden"><div class="form-section-head"><h3>Code</h3><span id="code-note" class="form-section-note"></span></div><div class="form-section-body">
+          <div id="python-code" class="field-wide"><label class="field"><span class="label">Python script</span><input id="script-file" type="file" accept=".py,text/x-python"><span class="hint">Runs in an isolated container with no network. It reads its input through HOME_PLATFORM_DATASET.</span></label></div>
+          <div id="batch-code" class="field-wide hidden"><div class="form-section-body">
+            <label class="field"><span class="label">Project source</span><select id="batch-project-source"><option value="storage">Folder on the NAS</option><option value="upload">Upload a project ZIP</option></select><span class="hint">The project contains submit.hp and every script it calls.</span></label>
+            <label class="field"><span class="label">Entrypoint</span><input id="batch-entrypoint" value="submit.hp" placeholder="submit.hp"><span class="hint">Project-relative wrapper containing the #HP header.</span></label>
+            <div id="batch-storage-project" class="field-wide"><label class="field"><span class="label">Project folder</span><span class="storage-choice"><input id="batch-project-path" placeholder="Choose a project folder" readonly><button id="browse-project" class="ghost" type="button">BROWSE</button></span><span class="hint">A NAS folder containing submit.hp and its project files.</span></label></div>
+            <div id="batch-upload-project" class="field-wide hidden"><label class="field"><span class="label">Project ZIP</span><input id="batch-project-file" type="file" accept=".zip,application/zip"><span class="hint">Up to 20 MiB compressed and 100 MiB expanded.</span></label></div>
+            <div id="batch-declared" class="declared"></div>
+          </div></div>
+        </div></section>
+        <section id="section-input" class="form-section hidden"><div class="form-section-head"><h3>Input</h3><span id="input-note" class="form-section-note"></span></div><div class="form-section-body">
+          <div id="python-input" class="field-wide"><div class="form-section-body">
+            <label class="field"><span class="label">Input source</span><select id="dataset-source"><option value="storage">Choose from Home or Shared</option><option value="upload">Upload a small CSV</option><option value="url">Use a verified download link</option></select></label>
+            <div id="storage-dataset-fields"><label class="field"><span class="label">Input file</span><span class="storage-choice"><input id="dataset-storage-path" placeholder="Choose a NAS file" readonly><button id="browse-python-input" class="ghost" type="button">BROWSE</button></span><span class="hint">Personal files live under Home. Shared is for reusable household data.</span></label></div>
+            <div id="upload-fields"><label class="field"><span class="label">CSV file</span><input id="dataset-file" type="file" accept=".csv,text/csv"><span class="hint">Up to 10 MB. The platform verifies and stages it for a worker.</span></label></div>
+            <div id="url-fields" class="field-wide hidden"><label class="field"><span class="label">CSV download link</span><input id="dataset-url" type="url" inputmode="url" placeholder="https://example.com/data.csv"><span class="hint">The worker downloads linked files directly; they do not travel through the platform host.</span></label>
+              <details class="advanced"><summary>DATASET VERIFICATION · REQUIRED</summary><div class="advanced-body">
+                <label class="field"><span class="label">SHA-256 checksum</span><input id="dataset-sha" minlength="64" maxlength="64" pattern="[0-9a-f]{64}" placeholder="64 lowercase characters"></label>
+                <label class="field"><span class="label">File size in bytes</span><input id="dataset-size" type="number" min="1" max="107374182400" inputmode="numeric" placeholder="e.g. 4096"></label>
+              </div></details>
+            </div>
+          </div></div>
+        </div></section>
+        <section id="section-limits" class="form-section hidden"><div class="form-section-head"><h3>Limits</h3><span id="limits-note" class="form-section-note"></span></div><div class="form-section-body">
+          <div id="python-limits" class="field-wide"><div class="form-section-body">
+            <label class="field"><span class="label">Maximum run time</span><select id="timeout"><option value="60">1 minute</option><option value="300">5 minutes</option><option value="900">15 minutes</option><option value="1800" selected>30 minutes</option><option value="3600">1 hour</option><option value="7200">2 hours</option><option value="21600">6 hours</option><option value="43200">12 hours</option><option value="86400">1 day</option><option value="259200">3 days</option><option value="604800">7 days</option></select><span class="hint">A hard wall-time ceiling. Jobs may run for up to seven days.</span></label>
+            <label class="field"><span class="label">CPU cores</span><select id="cpu-limit"><option value="1">1 core</option><option value="2" selected>2 cores</option><option value="4">4 cores</option></select><span class="hint">CPU is throttled to this quota, not merely deprioritised.</span></label>
+            <label class="field"><span class="label">Memory</span><select id="memory-mb"><option value="1024">1 GB</option><option value="2048" selected>2 GB</option><option value="3072">3 GB</option><option value="4096">4 GB</option></select><span class="hint">A hard limit. Exceeding it cancels the container.</span></label>
+          </div></div>
+        </div></section>
+        <section id="section-overrides" class="form-section hidden"><div class="form-section-head"><h3>Input files</h3><span id="batch-input-note" class="form-section-note"></span></div><div class="form-section-body">
+          <div id="project-review-inputs" class="declared"></div>
+          <div class="field field-wide"><span class="label">Missing or replacement input</span><span class="storage-choice"><input id="batch-input-name" maxlength="64" placeholder="Declared input name, e.g. dataset"><button id="browse-input" class="ghost" type="button">CHOOSE FILE</button></span><div id="batch-storage-inputs" class="storage-bindings"></div><span id="batch-storage-hint" class="hint">Choose a file only when the project needs one or you want a different one for this run.</span></div>
+        </div></section>
+        <div class="form-actions"><button id="submit" class="primary" type="submit">SUBMIT JOB</button></div><p id="feedback" class="feedback" aria-live="polite"></p>
+      </form></section>
+      <section id="queue-panel" class="panel queue-panel hidden" aria-labelledby="queue-title"><header class="panel-head"><div><div class="kicker">runs</div><h2 id="queue-title">Queue &amp; history</h2></div><span id="job-count" class="count">—</span></header><nav id="filters" class="filters" aria-label="Filter jobs by state"></nav><div class="job-head" role="row" aria-label="Sortable job columns"><button class="sort head-name" data-sort="name" type="button">Name</button><button class="sort head-id" data-sort="id" type="button">ID</button><button class="sort head-type" data-sort="type" type="button">Type</button><button class="sort head-state" data-sort="status" type="button">State</button><button class="sort head-worker" data-sort="worker_id" type="button">Worker</button><button class="sort head-time" data-sort="created_at" type="button">Created</button></div><div id="jobs"></div></section>
+      <section id="files-panel" class="panel hidden" aria-labelledby="files-title"><header class="panel-head"><div><div class="kicker">your files</div><h2 id="files-title">Files</h2></div><span id="file-count" class="count">—</span></header><div class="file-toolbar"><button id="file-up" class="ghost" type="button">UP</button><div id="file-location" class="file-location">/</div><input id="file-search" class="file-search" type="search" placeholder="Filter this folder" aria-label="Filter this folder"><button id="file-refresh" class="ghost" type="button">REFRESH</button></div><div id="file-entries" class="file-list"></div><div id="file-footer" class="file-footer hidden"><div class="topbar-button-row"><button id="file-clear-artifacts" class="ghost hidden" type="button">CLEAR ARTIFACTS</button><button id="file-new-folder" class="ghost hidden" type="button">NEW FOLDER</button><button id="file-upload" class="ghost hidden" type="button">UPLOAD</button><input id="file-upload-input" class="hidden" type="file"></div></div><p id="file-feedback" class="feedback bad" aria-live="polite"></p></section>
+    </div>
+  </main>
+  <dialog id="job-dialog"><header class="panel-head"><div><div class="kicker">job record</div><h2 id="dialog-title">Details</h2></div><button id="dialog-close" class="close" type="button" aria-label="Close">×</button></header><div id="job-detail" class="dialog-body"></div></dialog>
+  <dialog id="account-dialog"><header class="panel-head"><div><div class="kicker">home platform identity</div><h2>Account</h2></div><button id="account-close" class="close" type="button" aria-label="Close">×</button></header><section class="account-section"><div class="label">Tailscale identity</div><div id="identity-value" class="identity-value">CHECKING…</div><p class="dialog-copy">Link the Tailscale account reaching this private page to the Home Platform account currently signed in. Services then use your existing Home Platform owner ID.</p><div class="topbar-button-row"><button id="identity-link" class="primary hidden" type="button">LINK THIS IDENTITY</button><button id="identity-unlink" class="danger hidden" type="button">UNLINK</button></div><p id="identity-feedback" class="feedback" aria-live="polite"></p></section><form id="account-form" class="account-form"><div class="label">Password</div><p class="dialog-copy">Changing your password signs out every browser using this account.</p><label class="field"><span class="label">Current password</span><input id="current-password" type="password" autocomplete="current-password" required></label><label class="field"><span class="label">New password</span><input id="new-password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><span class="hint">Use at least 12 characters and do not reuse your NAS password.</span></label><label class="field"><span class="label">Confirm new password</span><input id="confirm-password" type="password" minlength="12" maxlength="128" autocomplete="new-password" required></label><button id="account-submit" class="primary" type="submit">CHANGE PASSWORD</button><p id="account-feedback" class="feedback" aria-live="polite"></p></form></dialog>
+  <dialog id="storage-dialog"><header class="panel-head"><div><div class="kicker">home storage</div><h2 id="storage-title">Choose a file</h2></div><button id="storage-close" class="close" type="button" aria-label="Close">×</button></header><div class="storage-browser"><div id="storage-path" class="storage-path">/</div><div id="storage-entries" class="storage-entries"></div><p id="storage-error" class="feedback bad" aria-live="polite"></p><input id="workspace-upload-file" class="hidden" type="file"><div class="storage-browser-actions"><div class="topbar-button-row"><button id="storage-up" class="ghost" type="button">UP</button><button id="workspace-new-folder" class="ghost hidden" type="button">NEW FOLDER</button><button id="workspace-upload" class="ghost hidden" type="button">UPLOAD</button></div><button id="storage-choose" class="primary hidden" type="button">CHOOSE THIS FOLDER</button></div></div></dialog>
+  <script>
+    const $=selector=>document.querySelector(selector),states=["ALL","QUEUED","RUNNING","COMPLETED","FAILED"],labels={name:"Name",id:"ID",type:"Type",status:"State",worker_id:"Worker",created_at:"Created"},operatorView=location.pathname.startsWith("/dashboard/"),submitView=location.pathname.endsWith("/new"),filesView=location.pathname.endsWith("/files");
+    let jobs=[],groups=[],workers=[],sessionIdentity=null,workloadOwners={jobs:{},groups:{}},activeFilter="ALL",jobSort={key:"created_at",direction:"desc"},storageBindings={},projectPreview=null,storagePicker={mode:"input",path:""},fileBrowser={path:"",entries:[],canManage:false,canClearArtifacts:false,canDeleteArtifacts:false,loaded:false};
+    function element(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!==undefined&&text!==null)node.textContent=text;return node}
+    function actionMenu(label,items){const menu=element("details","action-menu"),trigger=element("summary","","•••"),list=element("div","action-menu-list");trigger.title=label;trigger.setAttribute("aria-label",label);trigger.setAttribute("aria-haspopup","menu");trigger.onclick=()=>document.querySelectorAll("details.action-menu[open]").forEach(open=>{if(open!==menu)open.removeAttribute("open")});list.setAttribute("role","menu");items.forEach(item=>{item.classList.add("action-menu-item");item.setAttribute("role","menuitem");item.addEventListener("click",()=>menu.removeAttribute("open"));list.append(item)});menu.append(trigger,list);return menu}
+    document.addEventListener("click",event=>document.querySelectorAll("details.action-menu[open]").forEach(menu=>{if(!menu.contains(event.target))menu.removeAttribute("open")}));
+    document.addEventListener("keydown",event=>{if(event.key==="Escape")document.querySelectorAll("details.action-menu[open]").forEach(menu=>menu.removeAttribute("open"))});
+    function showLogin(message=""){$("#app").classList.add("hidden");$("#login-view").classList.remove("hidden");$("#login-error").textContent=message}
+    function submissionKey(){if(globalThis.crypto&&typeof globalThis.crypto.randomUUID==="function")return globalThis.crypto.randomUUID();const random=Math.random().toString(36).slice(2);return"web-"+Date.now().toString(36)+"-"+random}
+    async function api(path,options){const response=await fetch(path,options);if(response.status===401)throw new Error("AUTH");if(!response.ok){let message="Request failed";try{const body=await response.json();message=Array.isArray(body.detail)?body.detail.map(item=>item.msg).join(" · "):body.detail||message}catch{}throw new Error(message)}return response.status===204?null:response.json()}
+    function status(value,cancelling=false){const node=element("span","status "+value,cancelling?"CANCELLING":value);return node}
+    function timeLabel(value){return new Date(value).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}
+    function topLevelJobs(){return[...groups,...jobs.filter(job=>!job.group_id)]}
+    function renderFilters(){const entries=topLevelJobs(),nodes=states.map(state=>{const count=state==="ALL"?entries.length:entries.filter(job=>job.status===state).length,button=element("button","filter"+(state===activeFilter?" active":""),state+"  "+count);button.type="button";button.onclick=()=>{activeFilter=state;renderFilters();renderJobs()};return button});$("#filters").replaceChildren(...nodes)}
+    function sortValue(job,key){return key==="created_at"?new Date(job.created_at).getTime():String(job[key]||"").toLocaleLowerCase()}
+    function renderHeaders(){document.querySelectorAll("[data-sort]").forEach(button=>{const active=button.dataset.sort===jobSort.key;button.classList.toggle("active",active);button.textContent=labels[button.dataset.sort]+(active?(jobSort.direction==="asc"?" ↑":" ↓"):"");button.setAttribute("aria-pressed",String(active))})}
+    function ownerSuffix(kind,id){const owner=workloadOwners[kind][id];return owner?" · @"+owner:""}
+    function jobRow(job,className="job-row"){const row=element("button",className);row.type="button";const id=element("span","cell secondary job-id",job.id.slice(0,8)+ownerSuffix("jobs",job.id));id.title=job.id;const state=status(job.status,job.cancellation_requested&&job.status==="RUNNING");state.classList.add("job-state");const worker=job.worker_id||(job.target_worker_id?"target: "+job.target_worker_id:"unassigned");row.append(element("span","cell job-name",job.name||job.task_id||"Unnamed job"),id,element("span","cell secondary job-type",job.type),state,element("span","cell secondary job-worker",worker),element("time","cell secondary job-time",timeLabel(job.created_at)));row.onclick=()=>openJob(job);return row}
+    function groupRow(group){const block=element("div","group-block"),row=element("button","job-row group-row"),tasks=element("div","group-tasks hidden"),completed=group.tasks.filter(task=>task.status==="COMPLETED").length;row.type="button";const id=element("span","cell secondary job-id",group.id.slice(0,8)+ownerSuffix("groups",group.id));id.title=group.id;const state=status(group.status);state.classList.add("job-state");row.append(element("span","cell job-name",group.name),id,element("span","cell secondary job-type",group.tasks.length+" task group"),state,element("span","cell secondary job-worker",completed+" / "+group.tasks.length+" complete"),element("time","cell secondary job-time",timeLabel(group.created_at)));for(const task of group.tasks)tasks.append(jobRow(task,"job-row task-row"));row.onclick=()=>tasks.classList.toggle("hidden");block.append(row,tasks);return block}
+    function renderJobs(){const entries=topLevelJobs(),direction=jobSort.direction==="asc"?1:-1,filtered=activeFilter==="ALL"?entries:entries.filter(job=>job.status===activeFilter),visible=[...filtered].sort((left,right)=>{const a=sortValue(left,jobSort.key),b=sortValue(right,jobSort.key);return a<b?-direction:a>b?direction:right.id.localeCompare(left.id)});$("#job-count").textContent=visible.length+(visible.length===1?" submission":" submissions");renderHeaders();if(!visible.length){$("#jobs").replaceChildren(element("div","empty","NO MATCHING JOBS"));return}$("#jobs").replaceChildren(...visible.map(item=>item.tasks?groupRow(item):jobRow(item)))}
+    function renderWorkers(){const select=$("#target-worker"),selected=select.value,options=[new Option("Choose an available worker automatically","")];for(const worker of workers){const accepts=worker.supported_types.join(", ")||"no supported tasks",ceiling=worker.max_job_cpu===null?"capacity not set":worker.max_job_cpu+" cores · "+(worker.max_job_memory_mb/1024).toFixed(1)+" GB per job";options.push(new Option(worker.id+" · "+worker.state.toLowerCase()+" · "+ceiling+" · "+accepts,worker.id))}select.replaceChildren(...options);if([...select.options].some(option=>option.value===selected))select.value=selected}
+    function detail(label,value,wide=false){const node=element("div","detail"+(wide?" wide":""));node.append(element("div","label",label),element("div","value",typeof value==="object"&&value!==null?JSON.stringify(value,null,2):String(value??"—")));return node}
+    function formatBytes(value){if(value<1024)return value+" B";if(value<1048576)return(value/1024).toFixed(1)+" KiB";return(value/1048576).toFixed(1)+" MiB"}
+    function canPreview(file){return file.size_bytes<=262144&&/\.(csv|json|log|md|txt)$/i.test(file.filename)}
+    function artifactPanel(job){const panel=element("div","detail wide"),list=element("div","artifacts");panel.append(element("div","label","Artifacts"),list);if(job.status!=="COMPLETED"){list.append(element("div","value","Available after the job completes."));return panel}list.append(element("div","value","LOADING…"));api("/jobs-ui/api/jobs/"+encodeURIComponent(job.id)+"/artifacts").then(files=>{if(!files.length){list.replaceChildren(element("div","value","No published files."));return}const rows=files.map(file=>{const row=element("div","artifact"),meta=element("div"),actions=element("div","artifact-actions"),url="/jobs-ui/api/jobs/"+encodeURIComponent(job.id)+"/artifacts/"+encodeURIComponent(file.filename);meta.append(element("div","artifact-name",file.filename),element("div","artifact-size",formatBytes(file.size_bytes)));if(canPreview(file)){const view=element("button","artifact-action","VIEW");view.type="button";view.onclick=async()=>{let preview=row.querySelector(".artifact-preview");if(preview){preview.remove();view.textContent="VIEW";return}view.disabled=true;view.textContent="LOADING";try{const response=await fetch(url);if(response.status===401)throw new Error("AUTH");if(!response.ok)throw new Error("Preview failed");preview=element("pre","artifact-preview",await response.text());row.append(preview);view.textContent="HIDE"}catch(error){view.textContent="RETRY"}finally{view.disabled=false}};actions.append(view)}const download=element("a","artifact-action","DOWNLOAD");download.href=url;download.download=file.filename;actions.append(download);row.append(meta,actions);return row});list.replaceChildren(...rows)}).catch(error=>{if(error.message==="AUTH")showLogin();else list.replaceChildren(element("div","feedback bad","ARTIFACTS UNAVAILABLE"))});return panel}
+    function cancellationPanel(job){const panel=element("div","detail wide");if(!["QUEUED","RUNNING"].includes(job.status))return panel;const button=element("button","danger",job.cancellation_requested?"CANCELLATION REQUESTED":"CANCEL JOB");button.type="button";button.disabled=job.cancellation_requested;button.onclick=async()=>{if(!confirm("Cancel this job? Running computation will be stopped and partial outputs will not be published."))return;button.disabled=true;button.textContent="REQUESTING…";try{const updated=await api("/jobs-ui/api/jobs/"+encodeURIComponent(job.id)+"/cancel",{method:"POST"});await refresh();$("#job-dialog").close();openJob(updated)}catch(error){button.disabled=false;button.textContent="RETRY CANCEL"}};panel.append(element("div","label","Job control"),button);return panel}
+    function openJob(job){const displayed=job.cancellation_requested&&job.status==="RUNNING"?"CANCELLING":job.status;$("#dialog-title").textContent=(job.name||"Unnamed job")+" / "+displayed;$("#job-detail").replaceChildren(detail("Name",job.name,true),detail("Owner",workloadOwners.jobs[job.id]||sessionIdentity.username),detail("Job ID",job.id,true),detail("Type",job.type),detail("Status",displayed),detail("Target",job.target_worker_id||"Any available worker"),detail("Worker",job.worker_id),detail("Attempt",job.attempt+" / "+job.max_attempts),detail("Created",timeLabel(job.created_at)),detail("Failure reason",job.failure_kind),detail("Parameters",job.parameters,true),detail("Result",job.result,true),detail("Error",job.error,true),cancellationPanel(job),artifactPanel(job));$("#job-dialog").showModal()}
+    function parentStoragePath(path){const parts=path.split("/").filter(Boolean);parts.pop();return parts.join("/")}
+    function fileDownloadUrl(path){return"/jobs-ui/api/files/download?"+new URLSearchParams({path}).toString()}
+    function fileAction(label,handler,danger=false){const button=element("button",danger?"danger-action":"",label);button.type="button";button.onclick=handler;return button}
+    async function fileMutation(path,method,body){const feedback=$("#file-feedback");feedback.className="feedback";feedback.textContent="WORKING…";try{await api(path,{method,headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});await loadFiles(fileBrowser.path)}catch(error){feedback.className="feedback bad";feedback.textContent=error.message}}
+    function renameFileEntry(entry){const name=prompt("New name",entry.name);if(!name||name===entry.name)return;fileMutation("/jobs-ui/api/files/move","POST",{source:entry.path,destination:(parentStoragePath(entry.path)+"/"+name).replace(/^\//,"")})}
+    function moveFileEntry(entry){const destination=prompt("Move to this full Workspace path",entry.path);if(!destination||destination===entry.path)return;fileMutation("/jobs-ui/api/files/move","POST",{source:entry.path,destination})}
+    function copyFileEntry(entry){const destination=prompt("Copy to this full Workspace path",entry.path+"-copy");if(!destination)return;fileMutation("/jobs-ui/api/files/copy","POST",{source:entry.path,destination})}
+    function deleteFileEntry(entry){if(!confirm("Permanently delete "+entry.name+"? This cannot be undone."))return;fileMutation("/jobs-ui/api/files","DELETE",{path:entry.path})}
+    function renderFileEntries(){const query=$("#file-search").value.trim().toLocaleLowerCase(),visible=fileBrowser.entries.filter(entry=>!query||entry.name.toLocaleLowerCase().includes(query));$("#file-count").textContent=visible.length+(visible.length===1?" item":" items");if(!visible.length){$("#file-entries").replaceChildren(element("div","empty",query?"NO MATCHING FILES":"EMPTY FOLDER"));return}const rows=visible.map(entry=>{const row=element("div","file-row"),name=entry.kind==="directory"?element("button","file-name",entry.name):element("span","file-name",entry.name),actions=element("div","file-actions"),items=[];if(entry.kind==="directory"){name.type="button";name.onclick=()=>loadFiles(entry.path)}else{const download=element("a","","DOWNLOAD");download.href=fileDownloadUrl(entry.path);download.download=entry.name;items.push(download)}if(fileBrowser.canManage)items.push(fileAction("RENAME",()=>renameFileEntry(entry)),fileAction("MOVE",()=>moveFileEntry(entry)),fileAction("COPY",()=>copyFileEntry(entry)),fileAction("DELETE",()=>deleteFileEntry(entry),true));else if(fileBrowser.canDeleteArtifacts)items.push(fileAction("DELETE",()=>deleteFileEntry(entry),true));if(items.length)actions.append(actionMenu("Actions for "+entry.name,items));row.append(element("span","file-kind",entry.kind==="directory"?"DIR":"FILE"),name,element("span","file-size",entry.kind==="file"?formatBytes(entry.size_bytes):""),actions);return row});$("#file-entries").replaceChildren(...rows)}
+    async function loadFiles(path=""){
+      const feedback=$("#file-feedback");feedback.textContent="";$("#file-entries").replaceChildren(element("div","empty","LOADING…"));
+      try{
+        const data=await api("/jobs-ui/api/files?path="+encodeURIComponent(path));
+        fileBrowser={path:data.path,entries:data.entries,canManage:data.can_manage,canClearArtifacts:data.can_clear_artifacts,canDeleteArtifacts:data.can_delete_artifacts,loaded:true};
+        $("#file-location").textContent="/"+(data.path||"");$("#file-up").disabled=!data.path;
+        $("#file-new-folder").classList.toggle("hidden",!data.can_manage);$("#file-upload").classList.toggle("hidden",!data.can_manage);$("#file-clear-artifacts").classList.toggle("hidden",!data.can_clear_artifacts);
+        $("#file-footer").classList.toggle("hidden",!data.can_manage&&!data.can_clear_artifacts);
+        renderFileEntries();
+      }catch(error){
+        fileBrowser={path,entries:[],canManage:false,canClearArtifacts:false,canDeleteArtifacts:false,loaded:false};$("#file-count").textContent="—";
+        $("#file-footer").classList.add("hidden");$("#file-new-folder").classList.add("hidden");$("#file-upload").classList.add("hidden");$("#file-clear-artifacts").classList.add("hidden");
+        $("#file-entries").replaceChildren(element("div","empty","STORAGE UNAVAILABLE"));feedback.textContent=error.message;if(error.message==="AUTH")showLogin();
+      }
+    }
+    async function createFileBrowserFolder(){if(!fileBrowser.canManage)return;const name=prompt("New folder name");if(!name)return;const path=fileBrowser.path.replace(/\/$/,"")+"/"+name;try{await api("/jobs-ui/api/workspace/directories",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path})});await loadFiles(fileBrowser.path)}catch(error){$("#file-feedback").textContent=error.message}}
+    async function uploadFileBrowserFile(file){if(!file||!fileBrowser.canManage)return;const form=new FormData();form.append("directory",fileBrowser.path);form.append("file",file);$("#file-feedback").className="feedback";$("#file-feedback").textContent="UPLOADING "+file.name+"…";try{await api("/jobs-ui/api/workspace/uploads",{method:"POST",body:form});await loadFiles(fileBrowser.path)}catch(error){$("#file-feedback").className="feedback bad";$("#file-feedback").textContent=error.message}finally{$("#file-upload-input").value=""}}
+    function renderStorageBindings(){const rows=Object.entries(storageBindings).map(([name,path])=>{const row=element("div","storage-binding"),remove=element("button","ghost","REMOVE");remove.type="button";remove.onclick=()=>{delete storageBindings[name];renderStorageBindings();renderProjectPreview()};row.append(element("span","",name),element("span","secondary",path),remove);return row});$("#batch-storage-inputs").replaceChildren(...rows)}
+    function reviewValue(label,value){const node=element("div");node.append(element("div","label",label),element("div","declared-value",value));return node}
+    function formatDuration(seconds){const h=Math.floor(seconds/3600),m=Math.floor(seconds%3600/60),s=seconds%60;return [h,m,s].map(part=>String(part).padStart(2,"0")).join(":")}
+    // The parsed submit.hp feeds two sections: its declared inputs go under
+    // INPUT, its declared resources under LIMITS. Both are read-only — the file
+    // is the contract, and a second editable copy in the form would compete
+    // with it.
+    function renderProjectPreview(){
+      const inputs=$("#project-review-inputs"),declared=$("#batch-declared"),codeNote=$("#code-note");
+      if(!projectPreview){
+        inputs.replaceChildren(element("div","declared-empty","Choose a project to read the inputs it declares."));
+        declared.replaceChildren(element("div","declared-empty","Choose a project to read the contract it declares."));
+        codeNote.textContent="";
+        return;
+      }
+      codeNote.textContent=projectPreview.files.length+" file"+(projectPreview.files.length===1?"":"s")+" · "+projectPreview.name;
+      // Resources are part of what the chosen project *is*, not a decision the
+      // submitter makes, so they sit with the project rather than in a Limits
+      // section that would imply they can be changed here.
+      declared.replaceChildren(
+        reviewValue("Job name",projectPreview.name),
+        reviewValue("Run time",formatDuration(projectPreview.timeout_seconds)),
+        reviewValue("CPU",projectPreview.cpu_limit+(projectPreview.cpu_limit===1?" core":" cores")),
+        reviewValue("Memory",projectPreview.memory_mb+" MiB"),
+        reviewValue("Array",projectPreview.array_start+"–"+projectPreview.array_end+" · "+(projectPreview.array_end-projectPreview.array_start+1)+" tasks"),
+        reviewValue("Runtime",projectPreview.runtime));
+      if(!projectPreview.inputs.length){
+        inputs.replaceChildren(element("div","declared-empty","No external inputs · every required file travels inside the project."));
+        $("#batch-input-note").textContent="";
+        return;
+      }
+      const rows=projectPreview.inputs.map(input=>{
+        const override=storageBindings[input.name],path=override||input.default_path,state=override?"OVERRIDE":input.default_path?"AUTO":"REQUIRED",row=element("div","project-review-row");
+        row.append(element("span","",input.name),element("span",path?"secondary":"missing",path||"Choose a file before submitting"),element("span","storage-entry-kind",state));
+        return row;
+      });
+      const missing=projectPreview.inputs.filter(input=>!storageBindings[input.name]&&!input.default_path).length;
+      $("#batch-input-note").textContent=missing?missing+" still needs a file":"all resolved";
+      inputs.replaceChildren(...rows);
+    }
+    async function previewStorageProject(path){projectPreview=null;renderProjectPreview();const feedback=$("#feedback");feedback.className="feedback";feedback.textContent="READING submit.hp…";try{projectPreview=await api("/jobs-ui/api/storage/project-preview",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path,entrypoint:$("#batch-entrypoint").value})});renderProjectPreview();feedback.textContent="PROJECT READY · "+projectPreview.files.length+" FILE"+(projectPreview.files.length===1?"":"S")}catch(error){feedback.className="feedback bad";feedback.textContent=error.message}}
+    async function loadStorage(path=""){const list=$("#storage-entries"),error=$("#storage-error");error.textContent="";list.replaceChildren(element("div","empty","LOADING…"));try{const data=await api("/jobs-ui/api/storage?path="+encodeURIComponent(path));storagePicker.path=data.path;storagePicker.writable=data.workspace_writable;$("#storage-path").textContent="/"+(data.path||"");$("#storage-up").disabled=!data.path;$("#workspace-new-folder").classList.toggle("hidden",!data.workspace_writable);$("#workspace-upload").classList.toggle("hidden",!data.workspace_writable);$("#storage-choose").classList.toggle("hidden",storagePicker.mode!=="project"||!data.path);const rows=data.entries.map(entry=>{const row=element("button","storage-entry");row.type="button";row.append(element("span","storage-entry-kind",entry.kind==="directory"?"DIR":"FILE"),element("span","",entry.name),element("span","storage-entry-size",entry.size_bytes===null?"":formatBytes(entry.size_bytes)));row.onclick=()=>{if(entry.kind==="directory")loadStorage(entry.path);else if(storagePicker.mode==="input"){storageBindings[storagePicker.inputName]=entry.path;renderStorageBindings();renderProjectPreview();$("#batch-input-name").value="";$("#storage-dialog").close()}else if(storagePicker.mode==="python-input"){$("#dataset-storage-path").value=entry.path;$("#storage-dialog").close()}};return row});list.replaceChildren(...rows.length?rows:[element("div","empty","EMPTY FOLDER")])}catch(reason){list.replaceChildren();error.textContent=reason.message;$("#workspace-new-folder").classList.add("hidden");$("#workspace-upload").classList.add("hidden")}}
+    async function createWorkspaceFolder(){if(!storagePicker.writable)return;const name=prompt("New folder name");if(!name)return;const path=storagePicker.path.replace(/\/$/,"")+"/"+name;try{await api("/jobs-ui/api/workspace/directories",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path})});await loadStorage(storagePicker.path)}catch(error){$("#storage-error").textContent=error.message}}
+    async function uploadWorkspaceFile(file){if(!file||!storagePicker.writable)return;const form=new FormData();form.append("directory",storagePicker.path);form.append("file",file);$("#storage-error").className="feedback";$("#storage-error").textContent="UPLOADING "+file.name+"…";try{await api("/jobs-ui/api/workspace/uploads",{method:"POST",body:form});await loadStorage(storagePicker.path)}catch(error){$("#storage-error").className="feedback bad";$("#storage-error").textContent=error.message}finally{$("#workspace-upload-file").value=""}}
+    function openStoragePicker(mode){if(!sessionIdentity?.storage_enabled)return;storagePicker={mode,path:"",inputName:""};if(mode==="input"){const name=$("#batch-input-name").value.trim();if(!/^[A-Za-z][A-Za-z0-9._-]{0,63}$/.test(name)){const feedback=$("#feedback");feedback.className="feedback bad";feedback.textContent="Enter a valid declared input name before choosing a file.";return}if(storageBindings[name]&&!confirm("Replace the existing binding for "+name+"?"))return;storagePicker.inputName=name}$("#storage-title").textContent=mode==="project"?"Choose project folder":"Choose input file";$("#storage-dialog").showModal();loadStorage("")}
+    let refreshInFlight=0;
+    async function refresh(){
+      refreshInFlight++;
+      try{
+        const previousUser=sessionIdentity?.id;sessionIdentity=await api("/jobs-ui/api/session");const member=sessionIdentity.role!=="ADMIN";
+        if(operatorView&&member){location.replace(filesView?"/jobs-ui/files":"/jobs-ui");return}
+        if(!operatorView&&!member){location.replace(filesView?"/dashboard/files":"/dashboard/jobs");return}
+        if(submitView){workers=await api("/jobs-ui/api/workers");renderWorkers()}
+        else if(filesView){if(previousUser!==sessionIdentity.id||!fileBrowser.loaded)await loadFiles("")}
+        else{[jobs,groups]=await Promise.all([api("/jobs-ui/api/jobs"),api("/jobs-ui/api/job-groups")]);workloadOwners=member?{jobs:{},groups:{}}:await api("/jobs-ui/api/workload-owners");renderFilters();renderJobs()}
+        $("#login-view").classList.add("hidden");$("#app").classList.remove("hidden");$("#account").textContent=sessionIdentity.username+" · "+sessionIdentity.role;
+        const storageReady=sessionIdentity.storage_enabled;$("#account-open").classList.toggle("hidden",!member);
+        document.querySelectorAll(".operator-nav").forEach(link=>link.classList.toggle("hidden",member));
+        document.querySelectorAll(".member-nav").forEach(link=>link.classList.toggle("hidden",!member));
+        if(submitView){
+          const storageOption=$("#batch-project-source").querySelector('option[value="storage"]'),pythonStorageOption=$("#dataset-source").querySelector('option[value="storage"]');
+          storageOption.disabled=!storageReady;pythonStorageOption.disabled=!storageReady;$("#browse-project").disabled=!storageReady;$("#browse-input").disabled=!storageReady;$("#browse-python-input").disabled=!storageReady;$("#batch-input-name").disabled=!storageReady;
+          $("#batch-storage-hint").textContent=storageReady?"Choose a file only when the project needs one or you want a different one for this run.":"Home and Shared files are not available for this account.";
+          if(!storageReady&&$("#batch-project-source").value==="storage")$("#batch-project-source").value="upload";
+          if(!storageReady&&$("#dataset-source").value==="storage")$("#dataset-source").value="upload";
+          updateDatasetFields();
+        }
+        $("#connection").classList.add("live");$("#updated").textContent="Updated "+new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+      }catch(error){if(error.message==="AUTH")showLogin();else{$("#connection").classList.remove("live");$("#updated").textContent="OFFLINE"}}finally{refreshInFlight--}
+    }
+    function updateBatchProjectFields(){const batch=$("#job-type").value==="batch",storage=$("#batch-project-source").value==="storage";$("#batch-storage-project").classList.toggle("hidden",!storage);$("#batch-upload-project").classList.toggle("hidden",storage);$("#batch-project-path").required=batch&&storage;$("#batch-project-file").required=batch&&!storage;if(!storage){projectPreview=null;renderProjectPreview()}}
+    // Every task renders the same sections in the same order; only the controls
+    // inside them change. Switching task must never rebuild the form's shape,
+    // because that is what made this page feel like three unrelated screens.
+    const FLOW_COPY={
+      python_batch:{choose:"Pick one input file, upload a small CSV, or paste a verified link.",inside:"The input is staged read-only and read at HOME_PLATFORM_DATASET.",result:"It lands in a folder named after this job, so re-running never overwrites an earlier result. The script cannot choose another destination."},
+      batch:{choose:"Inputs declared as #HP --input NAME=Home/… in submit.hp are resolved for you; you only pick a file when one has no default.",inside:"The project is unpacked read-only at HOME_PLATFORM_PROJECT_DIR, and each named input appears at HOME_PLATFORM_INPUT_DIR/NAME.",result:"The submission gets one folder named after the job, and every array index gets its own folder inside it. Scripts cannot choose another destination."}
+    };
+    function updateDatasetFields(){
+      const type=$("#job-type").value,python=type==="python_batch",batch=type==="batch",runs=python||batch;
+      const source=$("#dataset-source").value,upload=source==="upload",url=source==="url",storage=source==="storage";
+      $("#sleep-fields").classList.toggle("hidden",type!=="sleep");
+      // Code and Input are the same question for both types, so they share a
+      // shape. Limits is not: a batch project fixes its own in submit.hp, so
+      // the section is absent rather than showing values you cannot change.
+      // Overrides are a batch-only escape hatch and sit outside Input.
+      $("#file-flow").classList.toggle("hidden",!runs);
+      $("#section-code").classList.toggle("hidden",!runs);
+      // Python picks one input from a source, so it gets an Input section.
+      // A batch project declares its own, so its single card carries both the
+      // resolved list and the control for filling or replacing one.
+      $("#section-input").classList.toggle("hidden",!python);
+      $("#section-limits").classList.toggle("hidden",!python);
+      $("#section-overrides").classList.toggle("hidden",!batch);
+      $("#python-code").classList.toggle("hidden",!python);
+      $("#batch-code").classList.toggle("hidden",!batch);
+      // A batch job takes its name from submit.hp, so the field would be a
+      // second source of truth.
+      $("#job-name-field").classList.toggle("hidden",batch);
+      $("#storage-dataset-fields").classList.toggle("hidden",!storage);
+      $("#upload-fields").classList.toggle("hidden",!upload);
+      $("#url-fields").classList.toggle("hidden",!url);
+      $("#job-name").required=!batch;
+      $("#script-file").required=python;
+      $("#dataset-storage-path").required=python&&storage;
+      $("#dataset-file").required=python&&upload;
+      ["#dataset-url","#dataset-sha","#dataset-size"].forEach(id=>$(id).required=python&&url);
+      $("#batch-entrypoint").required=batch;
+      if(runs){
+        const copy=FLOW_COPY[type];
+        $("#flow-choose-detail").textContent=copy.choose;
+        $("#flow-inside-detail").textContent=copy.inside;
+        $("#flow-result-detail").textContent=copy.result;
+      }
+      if(python){$("#code-note").textContent="one .py file";$("#input-note").textContent="one input file";$("#limits-note").textContent="this run only"}
+      // Batch notes come from the parsed project, so the renderer owns them.
+      else if(batch)renderProjectPreview();
+      updateBatchProjectFields();
+    }
+    function parseStorageBindings(){return{...storageBindings}}
+    $("#job-type").onchange=updateDatasetFields;$("#dataset-source").onchange=updateDatasetFields;$("#batch-project-source").onchange=updateBatchProjectFields;
+    $("#browse-project").onclick=()=>openStoragePicker("project");$("#browse-input").onclick=()=>openStoragePicker("input");$("#browse-python-input").onclick=()=>openStoragePicker("python-input");$("#storage-up").onclick=()=>loadStorage(parentStoragePath(storagePicker.path));$("#workspace-new-folder").onclick=createWorkspaceFolder;$("#workspace-upload").onclick=()=>$("#workspace-upload-file").click();$("#workspace-upload-file").onchange=event=>uploadWorkspaceFile(event.target.files[0]);$("#storage-choose").onclick=()=>{$("#batch-project-path").value=storagePicker.path;$("#storage-dialog").close();previewStorageProject(storagePicker.path)};$("#storage-close").onclick=()=>$("#storage-dialog").close();$("#storage-dialog").onclick=event=>{if(event.target===$("#storage-dialog"))$("#storage-dialog").close()};$("#batch-entrypoint").onchange=()=>{const path=$("#batch-project-path").value;if(path)previewStorageProject(path)};
+    $("#file-up").onclick=()=>loadFiles(parentStoragePath(fileBrowser.path));$("#file-refresh").onclick=()=>loadFiles(fileBrowser.path);$("#file-search").oninput=renderFileEntries;$("#file-new-folder").onclick=createFileBrowserFolder;$("#file-upload").onclick=()=>$("#file-upload-input").click();$("#file-upload-input").onchange=event=>uploadFileBrowserFile(event.target.files[0]);$("#file-clear-artifacts").onclick=()=>{if(confirm("Permanently delete every artifact for this account? Job history remains, but these files cannot be recovered."))fileMutation("/jobs-ui/api/files","DELETE",{path:"Artifacts"})};
+    $("#job-form").onsubmit=async event=>{
+      event.preventDefault();
+      const button=$("#submit"),feedback=$("#feedback"),type=$("#job-type").value,isPython=type==="python_batch",isGeneral=type==="batch",datasetSource=$("#dataset-source").value,isUpload=datasetSource==="upload";
+      button.disabled=true;button.textContent=(isPython&&isUpload)||isGeneral?"PREPARING…":"SUBMITTING…";feedback.className="feedback";feedback.textContent="";
+      try{
+        let created;
+        if(isGeneral){
+          let project;
+          if($("#batch-project-source").value==="storage")project=await api("/jobs-ui/api/storage/project-uploads",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:$("#batch-project-path").value})});
+          else{const projectForm=new FormData();projectForm.append("file",$("#batch-project-file").files[0]);project=await api("/jobs-ui/api/project-uploads",{method:"POST",body:projectForm})}
+          const inputPaths=parseStorageBindings(),inputs={};button.textContent="RESOLVING INPUTS…";
+          for(const [name,path] of Object.entries(inputPaths))inputs[name]=await api("/jobs-ui/api/storage/references",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path})});
+          button.textContent="QUEUEING ARRAY…";
+          created=await api("/jobs-ui/api/batch-submissions",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":submissionKey()},body:JSON.stringify({project,entrypoint:$("#batch-entrypoint").value,target_worker_id:$("#target-worker").value||null,inputs})});
+          feedback.className="feedback good";feedback.textContent="QUEUED · "+created.tasks.length+" TASKS · "+created.id.slice(0,8);$("#batch-project-file").value="";$("#batch-project-path").value="";storageBindings={};projectPreview=null;renderStorageBindings();renderProjectPreview();
+        }else{
+          let parameters;
+          if(isPython){
+            const scriptForm=new FormData();scriptForm.append("file",$("#script-file").files[0]);const script=await api("/jobs-ui/api/script-uploads",{method:"POST",body:scriptForm});
+            let dataset;
+            if(datasetSource==="upload"){const datasetForm=new FormData();datasetForm.append("file",$("#dataset-file").files[0]);dataset=await api("/jobs-ui/api/uploads",{method:"POST",body:datasetForm})}
+            else if(datasetSource==="storage"){button.textContent="RESOLVING INPUT…";dataset=await api("/jobs-ui/api/storage/references",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({path:$("#dataset-storage-path").value})})}
+            else dataset={url:$("#dataset-url").value,sha256:$("#dataset-sha").value,size_bytes:Number($("#dataset-size").value)};
+            button.textContent="QUEUEING…";parameters={script,dataset,timeout_seconds:Number($("#timeout").value),cpu_limit:Number($("#cpu-limit").value),memory_mb:Number($("#memory-mb").value)};
+          }else parameters={seconds:Number($("#seconds").value)};
+          const body={name:$("#job-name").value,target_worker_id:$("#target-worker").value||null,type,parameters};
+          created=await api("/jobs-ui/api/jobs",{method:"POST",headers:{"Content-Type":"application/json","Idempotency-Key":submissionKey()},body:JSON.stringify(body)});
+          feedback.className="feedback good";feedback.textContent="QUEUED · "+created.id.slice(0,8);$("#job-name").value="";$("#script-file").value="";$("#dataset-file").value="";$("#dataset-storage-path").value="";
+        }
+        await refresh();
+      }catch(error){if(error.message==="AUTH")showLogin();else{feedback.className="feedback bad";feedback.textContent=error.message}}
+      finally{button.disabled=false;button.textContent="SUBMIT JOB"}
+    };
+    document.querySelectorAll("[data-sort]").forEach(button=>button.onclick=()=>{const key=button.dataset.sort;if(jobSort.key===key)jobSort.direction=jobSort.direction==="asc"?"desc":"asc";else jobSort={key,direction:key==="created_at"?"desc":"asc"};renderJobs()});
+    $("#login-form").onsubmit=async event=>{event.preventDefault();const token=$("#token").value,body=token?{token}:{username:$("#login-username").value,password:$("#login-password").value};try{await api("/dashboard/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});$("#token").value="";$("#login-password").value="";await refresh()}catch(error){showLogin(error.message==="AUTH"?"INVALID CREDENTIALS":"CONNECTION FAILED")}};
+    async function refreshIdentityLink(){const value=$("#identity-value"),feedback=$("#identity-feedback"),link=$("#identity-link"),unlink=$("#identity-unlink");feedback.textContent="";link.classList.add("hidden");unlink.classList.add("hidden");value.textContent="CHECKING…";try{const identity=await api("/jobs-ui/api/account/identities/tailscale");if(identity.linked){value.textContent="LINKED · "+identity.linked.subject;unlink.classList.remove("hidden")}else if(identity.request_subject){value.textContent="AVAILABLE · "+identity.request_subject;link.classList.remove("hidden")}else{value.textContent="UNAVAILABLE";feedback.className="feedback bad";feedback.textContent="OPEN JOB DESK THROUGH THE PRIVATE HTTPS TAILSCALE URL"}}catch(error){value.textContent="UNAVAILABLE";feedback.className="feedback bad";feedback.textContent=error.message}}
+    $("#identity-link").onclick=async()=>{const button=$("#identity-link"),feedback=$("#identity-feedback");button.disabled=true;button.textContent="LINKING…";try{await api("/jobs-ui/api/account/identities/tailscale",{method:"POST"});await refreshIdentityLink();feedback.className="feedback good";feedback.textContent="IDENTITY LINKED · SERVICES NOW USE THIS ACCOUNT"}catch(error){feedback.className="feedback bad";feedback.textContent=error.message}finally{button.disabled=false;button.textContent="LINK THIS IDENTITY"}};
+    $("#identity-unlink").onclick=async()=>{if(!confirm("Unlink this Tailscale identity? Services using it will stop recognizing this account."))return;const button=$("#identity-unlink"),feedback=$("#identity-feedback");button.disabled=true;try{await api("/jobs-ui/api/account/identities/tailscale",{method:"DELETE"});await refreshIdentityLink();feedback.className="feedback good";feedback.textContent="IDENTITY UNLINKED"}catch(error){feedback.className="feedback bad";feedback.textContent=error.message}finally{button.disabled=false}};
+    $("#account-open").onclick=()=>{$("#account-feedback").textContent="";$("#account-form").classList.toggle("hidden",sessionIdentity.role==="ADMIN");$("#account-dialog").showModal();refreshIdentityLink();if(sessionIdentity.role!=="ADMIN")$("#current-password").focus()};$("#account-close").onclick=()=>$("#account-dialog").close();$("#account-dialog").onclick=event=>{if(event.target===$("#account-dialog"))$("#account-dialog").close()};$("#account-form").onsubmit=async event=>{event.preventDefault();const button=$("#account-submit"),feedback=$("#account-feedback"),current=$("#current-password").value,next=$("#new-password").value,confirmation=$("#confirm-password").value;if(next!==confirmation){feedback.className="feedback bad";feedback.textContent="NEW PASSWORDS DO NOT MATCH";return}button.disabled=true;button.textContent="CHANGING…";try{await api("/jobs-ui/api/account/password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({current_password:current,new_password:next})});$("#account-dialog").close();$("#account-form").reset();showLogin("PASSWORD UPDATED · SIGN IN AGAIN")}catch(error){if(error.message==="AUTH"){$("#account-dialog").close();showLogin()}else{feedback.className="feedback bad";feedback.textContent=error.message}}finally{button.disabled=false;button.textContent="CHANGE PASSWORD"}};
+    $("#logout").onclick=async()=>{await api("/dashboard/logout",{method:"POST"});sessionIdentity=null;fileBrowser={path:"",entries:[],canManage:false,canClearArtifacts:false,canDeleteArtifacts:false,loaded:false};showLogin()};
+    $("#dialog-close").onclick=()=>$("#job-dialog").close();
+    $("#job-dialog").onclick=event=>{if(event.target===$("#job-dialog"))$("#job-dialog").close()};
+    if(operatorView){
+      $("#jobs-nav").href="/dashboard/jobs";
+      $("#files-nav").href="/dashboard/files";
+      $("#submit-nav").classList.add("hidden");
+      document.querySelector("#app .eyebrow").textContent="operator dashboard";
+      document.querySelector("#app .brand").innerHTML="HOME<span>//</span>CTRL";
+      $("#account").textContent="Monitor workloads and managed storage.";
+      document.querySelector("#login-view .subtitle").textContent="Use the owner token to inspect jobs and managed storage.";
+      document.querySelectorAll("#login-form > .field").forEach(field=>field.classList.add("hidden"));
+      const ownerToken=document.querySelector("#login-form details");
+      ownerToken.open=true;
+      ownerToken.querySelector("summary").classList.add("hidden");
+      $("#token").required=true;
+      document.querySelector("#login-form .primary").textContent="OPEN OPERATOR VIEW";
+    }
+    const activePanel=submitView?"#submit-panel":filesView?"#files-panel":"#queue-panel",activeNav=submitView?"#submit-nav":filesView?"#files-nav":"#jobs-nav",pageTitle=submitView?"Submit":filesView?"Files":"Jobs";
+    function autoRefresh(){if(!document.hidden&&!refreshInFlight)refresh()}
+    $(activePanel).classList.remove("hidden");$("#workspace").classList.toggle("submit-only",submitView);$(activeNav).setAttribute("aria-current","page");document.title=pageTitle+" · Home Platform";updateDatasetFields();renderHeaders();autoRefresh();setInterval(autoRefresh,submitView?30000:filesView?60000:10000);
+    document.addEventListener("visibilitychange",autoRefresh);
+  </script>
+</body>
+</html>

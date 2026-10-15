@@ -1,0 +1,297 @@
+{
+  "$defs": {
+    "Maintenance": {
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "items": {
+            "maxLength": 256,
+            "minLength": 1,
+            "pattern": "^[^\\x00-\\x1f\\x7f]*$(?![\\s\\S])",
+            "type": "string"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Argv",
+          "type": "array"
+        },
+        "interval_hours": {
+          "maximum": 8760,
+          "minimum": 1,
+          "title": "Interval Hours",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 63,
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$(?![\\s\\S])",
+          "title": "Name",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "maximum": 86400,
+          "minimum": 1,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "argv",
+        "interval_hours",
+        "timeout_seconds"
+      ],
+      "title": "Maintenance",
+      "type": "object"
+    },
+    "Runtime": {
+      "additionalProperties": false,
+      "properties": {
+        "health_path": {
+          "maxLength": 256,
+          "not": {
+            "pattern": "(?:^|/)\\.{1,2}(?:/|$)"
+          },
+          "pattern": "^/(?:[A-Za-z0-9_.~-]+(?:/[A-Za-z0-9_.~-]+)*)?$(?![\\s\\S])",
+          "title": "Health Path",
+          "type": "string"
+        },
+        "port": {
+          "maximum": 65535,
+          "minimum": 1,
+          "title": "Port",
+          "type": "integer"
+        },
+        "ready_path": {
+          "maxLength": 256,
+          "not": {
+            "pattern": "(?:^|/)\\.{1,2}(?:/|$)"
+          },
+          "pattern": "^/(?:[A-Za-z0-9_.~-]+(?:/[A-Za-z0-9_.~-]+)*)?$(?![\\s\\S])",
+          "title": "Ready Path",
+          "type": "string"
+        },
+        "version_path": {
+          "maxLength": 256,
+          "not": {
+            "pattern": "(?:^|/)\\.{1,2}(?:/|$)"
+          },
+          "pattern": "^/(?:[A-Za-z0-9_.~-]+(?:/[A-Za-z0-9_.~-]+)*)?$(?![\\s\\S])",
+          "title": "Version Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "port",
+        "health_path",
+        "ready_path",
+        "version_path"
+      ],
+      "title": "Runtime",
+      "type": "object"
+    },
+    "SQLiteState": {
+      "additionalProperties": false,
+      "properties": {
+        "sqlite_file": {
+          "maxLength": 128,
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "pattern": "^[A-Za-z0-9_.~-]+$(?![\\s\\S])",
+          "title": "Sqlite File",
+          "type": "string"
+        }
+      },
+      "required": [
+        "sqlite_file"
+      ],
+      "title": "SQLiteState",
+      "type": "object"
+    },
+    "Workload": {
+      "additionalProperties": false,
+      "properties": {
+        "asset": {
+          "maxLength": 128,
+          "not": {
+            "enum": [
+              ".",
+              ".."
+            ]
+          },
+          "pattern": "^[A-Za-z0-9_.~-]+$(?![\\s\\S])",
+          "title": "Asset",
+          "type": "string"
+        },
+        "entrypoint": {
+          "maxLength": 256,
+          "not": {
+            "pattern": "(?:^|/)\\.{1,2}(?:/|$)"
+          },
+          "pattern": "^[A-Za-z0-9_.~-]+(?:/[A-Za-z0-9_.~-]+)*$(?![\\s\\S])",
+          "title": "Entrypoint",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 63,
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$(?![\\s\\S])",
+          "title": "Id",
+          "type": "string"
+        },
+        "runtime": {
+          "const": "scientific-python:1",
+          "title": "Runtime",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$(?![\\s\\S])",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "asset",
+        "sha256",
+        "entrypoint",
+        "runtime"
+      ],
+      "title": "Workload",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "workloads": {
+            "minItems": 1
+          }
+        },
+        "required": [
+          "workloads"
+        ]
+      },
+      "then": {
+        "properties": {
+          "capabilities": {
+            "contains": {
+              "const": "jobs"
+            }
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "app_id": {
+      "maxLength": 63,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$(?![\\s\\S])",
+      "title": "App Id",
+      "type": "string"
+    },
+    "capabilities": {
+      "contains": {
+        "const": "identity"
+      },
+      "items": {
+        "enum": [
+          "identity",
+          "jobs",
+          "files"
+        ],
+        "type": "string"
+      },
+      "maxItems": 3,
+      "minItems": 1,
+      "title": "Capabilities",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "contract_version": {
+      "maximum": 1,
+      "minimum": 1,
+      "title": "Contract Version",
+      "type": "integer"
+    },
+    "image": {
+      "maxLength": 335,
+      "pattern": "^[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]+)?/[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*@sha256:[0-9a-f]{64}$(?![\\s\\S])",
+      "title": "Image",
+      "type": "string"
+    },
+    "maintenance": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Maintenance"
+      },
+      "maxItems": 32,
+      "title": "Maintenance",
+      "type": "array"
+    },
+    "runtime": {
+      "$ref": "#/$defs/Runtime"
+    },
+    "secrets": {
+      "default": [],
+      "items": {
+        "maxLength": 63,
+        "pattern": "^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$(?![\\s\\S])",
+        "type": "string"
+      },
+      "maxItems": 32,
+      "title": "Secrets",
+      "type": "array",
+      "uniqueItems": true
+    },
+    "source_commit": {
+      "pattern": "^[0-9a-f]{40}$(?![\\s\\S])",
+      "title": "Source Commit",
+      "type": "string"
+    },
+    "state": {
+      "$ref": "#/$defs/SQLiteState"
+    },
+    "workloads": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/Workload"
+      },
+      "maxItems": 32,
+      "title": "Workloads",
+      "type": "array"
+    }
+  },
+  "required": [
+    "contract_version",
+    "app_id",
+    "source_commit",
+    "image",
+    "runtime",
+    "capabilities"
+  ],
+  "title": "Home Platform application release manifest v1",
+  "type": "object",
+  "x-home-platform-constraints": {
+    "canonical-paths": "Paths contain only ASCII letters, digits, underscore, dot, tilde, hyphen, and permitted separators. Segments are nonempty and never dot or dot-dot. Endpoints are absolute and may be root. Entrypoints are relative. SQLite filenames and assets are basenames.",
+    "identity-required": "Every release includes the identity capability.",
+    "state-object-when-present": "Omit state or supply an object. Null is refused.",
+    "strict-integer-representation": "Integer fields require JSON integer numbers. Booleans, strings, and numbers written with a fraction or exponent are refused, including mathematically integral numbers.",
+    "unique-capabilities": "Capability names are unique.",
+    "unique-maintenance-names": "Maintenance name values are unique.",
+    "unique-normalized-secret-names": "Secret names are unique after uppercase conversion and replacing hyphens with underscores.",
+    "unique-workload-ids": "Workload id values are unique across workloads.",
+    "workloads-require-jobs": "A nonempty workloads list requires jobs."
+  },
+  "x-home-platform-contract-version": 1,
+  "x-home-platform-document": {
+    "duplicate_keys": "refused in every object",
+    "max_bytes": 65536,
+    "nonfinite_numbers": "refused"
+  }
+}

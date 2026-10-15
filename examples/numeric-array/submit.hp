@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+#HP --version 1
+#HP --name "numeric array acceptance"
+#HP --runtime scientific-python:1
+#HP --cpus 0.5
+#HP --memory-mb 512
+#HP --time-limit 00:01:00
+#HP --input payload.txt
+#HP --array 1-4
+
+set -euo pipefail
+
+bash "$HOME_PLATFORM_PROJECT_DIR/run-one.sh" \
+  "$HOME_PLATFORM_ARRAY_INDEX"

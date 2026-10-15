@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#050505">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Overview · Home Platform</title>
+  <style>
+    :root { color-scheme: dark; --bg:#050505; --surface:#0a0a0a; --raised:#101010; --line:#242424; --strong:#383838; --text:#f3f3f3; --muted:#8b8b8b; --dim:#5d5d5d; --green:#4ce391; --cyan:#55d7ff; --yellow:#f2ca52; --red:#ff6666; --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; }
+    * { box-sizing:border-box; }
+    html { background:var(--bg); }
+    body { margin:0; min-width:280px; min-height:100vh; min-height:100dvh; overflow-x:hidden; background:linear-gradient(rgba(255,255,255,.017) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.017) 1px,transparent 1px),var(--bg); background-size:32px 32px; color:var(--text); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; -webkit-font-smoothing:antialiased; }
+    button,input { font:inherit; }
+    button { touch-action:manipulation; }
+    button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
+    .hidden { display:none!important; }
+    .shell { width:min(1240px,100%); margin:0 auto; padding:max(24px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(52px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left)); }
+    .topbar { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-bottom:26px; }
+    .eyebrow,.kicker,.metric-label,.field-label,.service-label { color:var(--muted); font:600 10px/1.2 var(--mono); letter-spacing:.13em; text-transform:uppercase; }
+    .brand { margin:5px 0 2px; font:600 clamp(24px,4vw,36px)/1 var(--mono); letter-spacing:-.06em; }
+    .brand span { color:var(--dim); }
+    .context-line { min-height:18px; margin-top:10px; color:var(--muted); font:12px/1.4 var(--mono); }
+    .topbar-actions { display:flex; flex-direction:column; align-items:flex-end; gap:9px; }
+    .connection { display:inline-flex; align-items:center; gap:7px; color:var(--muted); font:11px var(--mono); }
+    .connection-dot { width:7px; height:7px; border-radius:50%; background:var(--yellow); box-shadow:0 0 12px currentColor; }
+    .connection.live .connection-dot { background:var(--green); }
+    .page-nav { display:flex; flex-wrap:wrap; gap:4px; margin:0 0 18px; padding:4px; border:1px solid var(--line); border-radius:10px; background:rgba(8,8,8,.92); }
+    .page-nav a { display:inline-grid; min-height:40px; padding:0 14px; place-items:center; border:1px solid transparent; border-radius:7px; color:var(--muted); font:600 11px var(--mono); letter-spacing:.04em; text-decoration:none; white-space:nowrap; }
+    .page-nav a:hover { color:var(--text); }
+    .page-nav a[aria-current="page"] { border-color:var(--strong); background:var(--raised); color:var(--text); }
+    .ghost-button,.filter-button,.worker-toggle,.close-button,.sort-header,.power-choice { border:1px solid var(--line); border-radius:8px; background:#090909; color:var(--muted); cursor:pointer; }
+    .ghost-button { min-height:40px; padding:0 14px; font:11px var(--mono); }
+    .ghost-button:hover,.filter-button:hover,.worker-toggle:hover,.sort-header:hover,.power-choice:hover { border-color:var(--strong); color:var(--text); }
+    .topbar-button-row { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; }
+    .row-actions { display:flex; align-items:center; justify-content:flex-end; gap:5px; }
+    .account-state { min-width:78px; min-height:30px; justify-content:center; padding:0 9px; border:1px solid var(--line); border-radius:7px; background:#080808; }
+    .action-menu { position:relative; width:34px; }
+    .action-menu > summary { position:relative; display:block; width:34px; height:34px; padding:0; border:1px solid transparent; border-radius:7px; background:transparent; color:var(--dim); cursor:pointer; font-size:0; list-style:none; }
+    .action-menu > summary::-webkit-details-marker { display:none; }
+    .action-menu > summary::after { position:absolute; top:50%; left:50%; width:3px; height:3px; border-radius:50%; background:currentColor; box-shadow:-5px 0 currentColor,5px 0 currentColor; content:""; transform:translate(-50%,-50%); }
+    .action-menu[open] > summary,.action-menu > summary:hover { border-color:var(--line); background:var(--raised); color:var(--text); }
+    .action-menu-list { position:absolute; top:calc(100% + 7px); right:0; z-index:40; display:grid; min-width:190px; padding:5px; border:1px solid var(--line); border-radius:8px; background:rgba(12,12,12,.98); box-shadow:0 16px 44px rgba(0,0,0,.78); }
+    .action-menu-item { width:100%; min-height:38px; padding:0 11px; border:0; border-radius:4px; background:transparent; color:var(--muted); cursor:pointer; font:600 10px var(--mono); letter-spacing:.055em; text-align:left; }
+    .action-menu-item:hover { background:var(--raised); color:var(--text); }
+    .action-menu-item.danger-action:hover { color:var(--red); }
+    .power-open { border-color:rgba(255,102,102,.35); color:var(--red); }
+    .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; overflow:hidden; border:1px solid var(--line); border-radius:12px; background:var(--line); }
+    .metric { min-width:0; padding:18px; background:var(--surface); }
+    .metric-value { margin:9px 0 6px; font:500 clamp(24px,4vw,32px)/1 var(--mono); letter-spacing:-.06em; }
+    .metric-foot { min-height:33px; color:var(--muted); font:11px/1.5 var(--mono); }
+    .meter { height:2px; margin-top:14px; overflow:hidden; background:#272727; }
+    .meter-fill { display:block; width:0; height:100%; background:var(--text); transition:width .35s ease; }
+    .section { margin-top:17px; }
+    .section-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; margin:0 2px 9px; }
+    .section-title { margin:4px 0 0; font:600 16px/1.2 var(--mono); letter-spacing:-.025em; }
+    .count { color:var(--muted); font:11px var(--mono); white-space:nowrap; }
+    .panel { min-width:0; overflow:hidden; border:1px solid var(--line); border-radius:12px; background:rgba(10,10,10,.95); }
+    .panel-header { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:62px; padding:14px 17px; border-bottom:1px solid var(--line); }
+    .empty { padding:32px 17px; color:var(--muted); font:12px var(--mono); text-align:center; }
+    .services { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+    .application-services { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+    .application-services .service-card { display:flex; min-height:166px; flex-direction:column; }
+    .application-services .service-link { align-self:flex-start; margin-top:auto; }
+    .service-card { min-width:0; padding:16px; border:1px solid var(--line); border-radius:11px; background:rgba(10,10,10,.95); }
+    .service-top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+    .service-name { margin-top:6px; overflow:hidden; font:600 14px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+    .service-detail { margin-top:12px; color:var(--muted); font:11px/1.55 var(--mono); }
+    .service-link { display:inline-flex; min-height:36px; align-items:center; margin-top:14px; padding:0 11px; border:1px solid var(--strong); border-radius:7px; color:var(--text); font:700 9px var(--mono); letter-spacing:.08em; text-decoration:none; }
+    .service-link:hover { border-color:var(--text); }
+    .service-facts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; margin-top:13px; overflow:hidden; border:1px solid var(--line); border-radius:7px; background:var(--line); }
+    .service-fact { min-width:0; padding:9px; background:#080808; }
+    .fact-name { color:var(--dim); font:600 8px var(--mono); letter-spacing:.1em; text-transform:uppercase; }
+    .fact-value { margin-top:4px; overflow:hidden; font:10px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+    .status { display:inline-flex; align-items:center; gap:6px; font:700 10px var(--mono); letter-spacing:.06em; white-space:nowrap; }
+    .status::before { width:6px; height:6px; border-radius:50%; background:currentColor; content:""; }
+    .ONLINE,.ACTIVE,.COMPLETED { color:var(--green); }
+    .BUSY,.RUNNING { color:var(--cyan); }
+    .QUEUED,.DEGRADED { color:var(--yellow); }
+    .STALE,.FAILED,.OFFLINE,.DISABLED { color:var(--red); }
+    .UNKNOWN { color:var(--muted); }
+    .worker-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; background:var(--line); }
+    .worker-row { min-width:0; padding:15px 17px; background:var(--surface); }
+    .worker-row.is-disabled { background:linear-gradient(rgba(255,102,102,.025),rgba(255,102,102,.025)),var(--surface); }
+    .worker-top { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:14px; }
+    .worker-name { overflow:hidden; font:600 13px/20px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+    .worker-meta { margin-top:4px; overflow:hidden; color:var(--muted); font:10px/14px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+    .worker-side { display:grid; grid-template-rows:20px 14px; row-gap:4px; justify-items:end; text-align:right; }
+    .worker-side .status { align-self:center; }
+    .last-seen { display:block; margin:0; color:var(--muted); font:10px/14px var(--mono); }
+    .worker-stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; margin-top:13px; overflow:hidden; border:1px solid var(--line); border-radius:7px; background:var(--line); }
+    .worker-stat { min-width:0; padding:9px; background:#080808; }
+    .worker-stat-label { color:var(--dim); font:600 8px var(--mono); letter-spacing:.1em; text-transform:uppercase; }
+    .worker-stat-value { margin-top:4px; overflow:hidden; color:var(--text); font:10px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+    .worker-stat.thermal-warning .worker-stat-value { color:var(--yellow); }
+    .worker-stat.thermal-critical .worker-stat-value { color:var(--red); font-weight:700; }
+    .worker-control { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:12px; }
+    .schedule-state { color:var(--green); font:700 9px var(--mono); letter-spacing:.09em; }
+    .schedule-state.off { color:var(--red); }
+    .worker-toggle { min-height:36px; padding:0 11px; border-color:var(--strong); color:var(--text); font:700 9px var(--mono); letter-spacing:.08em; }
+    .worker-toggle.activate { border-color:rgba(76,227,145,.45); color:var(--green); }
+    .worker-toggle:disabled { cursor:wait; opacity:.5; }
+    .filters { display:flex; flex-wrap:wrap; gap:6px; padding:12px 16px; border-bottom:1px solid var(--line); }
+    .filter-button { min-height:34px; padding:0 10px; font:10px var(--mono); text-transform:uppercase; }
+    .filter-button.active { border-color:var(--text); background:var(--text); color:var(--bg); }
+    .job-head,.job-row { display:grid; grid-template-columns:minmax(130px,1.3fr) minmax(90px,.8fr) .8fr .8fr minmax(100px,1fr) .85fr; gap:10px; align-items:center; }
+    .job-head { padding:8px 13px; border-bottom:1px solid var(--line); background:#080808; }
+    .sort-header { min-width:0; min-height:32px; padding:0 7px; border-color:transparent; border-radius:5px; background:transparent; text-align:left; font:600 9px var(--mono); letter-spacing:.1em; text-transform:uppercase; }
+    .sort-header.active { color:var(--text); }
+    .job-row { width:100%; min-width:0; padding:14px 16px; border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--text); text-align:left; cursor:pointer; }
+    .job-row:last-child { border-bottom:0; }
+    .job-row:hover { background:var(--raised); }
+    .job-cell { min-width:0; overflow:hidden; font:11px var(--mono); text-overflow:ellipsis; white-space:nowrap; }
+    .job-name { color:var(--text); font-weight:600; }
+    .job-id,.job-secondary { color:var(--muted); }
+    dialog { width:min(640px,calc(100% - 32px)); max-height:min(780px,calc(100dvh - 32px)); padding:0; overflow:hidden; border:1px solid var(--strong); border-radius:12px; background:var(--surface); color:var(--text); box-shadow:0 28px 100px #000; }
+    dialog::backdrop { background:rgba(0,0,0,.82); backdrop-filter:blur(3px); }
+    .dialog-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:16px 18px; border-bottom:1px solid var(--line); }
+    .dialog-title { margin:4px 0 0; font:600 15px var(--mono); }
+    .close-button { width:42px; min-height:42px; padding:0; font-size:20px; }
+    .detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:1px; overflow:auto; max-height:calc(100dvh - 120px); background:var(--line); }
+    .detail-field { min-width:0; padding:15px 18px; background:var(--surface); }
+    .detail-field.wide { grid-column:1/-1; }
+    .field-value { margin-top:7px; overflow-wrap:anywhere; color:var(--text); font:12px/1.55 var(--mono); white-space:pre-wrap; }
+    .login-wrap { display:grid; min-height:calc(100vh - 41px); min-height:calc(100dvh - 41px); place-items:center; padding:max(24px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left)); }
+    .login-panel { width:min(420px,100%); border:1px solid var(--line); border-radius:12px; background:#090909; }
+    .login-top { padding:24px; border-bottom:1px solid var(--line); }
+    .login-copy { margin:13px 0 0; color:var(--muted); font:12px/1.6 var(--mono); }
+    .login-form { padding:24px; }
+    .login-input { width:100%; min-height:48px; margin-top:7px; padding:0 13px; border:1px solid var(--strong); border-radius:8px; outline:none; background:#050505; color:var(--text); font:14px var(--mono); }
+    .login-input:focus { border-color:#777; }
+    .primary-button { width:100%; min-height:48px; margin-top:10px; border:0; border-radius:8px; background:var(--text); color:var(--bg); font:700 11px var(--mono); letter-spacing:.08em; cursor:pointer; }
+    .login-error { min-height:18px; margin:10px 0 0; color:var(--red); font:11px var(--mono); }
+    .power-body { padding:18px; }
+    .power-copy { margin:0 0 15px; color:var(--muted); font:11px/1.65 var(--mono); }
+    .power-choices { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .power-choice { min-height:48px; padding:0 12px; font:700 10px var(--mono); letter-spacing:.06em; }
+    .power-choice.active { border-color:var(--red); color:var(--red); background:rgba(255,102,102,.06); }
+    .power-confirm { width:100%; min-height:45px; margin-top:15px; padding:0 12px; border:1px solid var(--strong); border-radius:8px; outline:none; background:#050505; color:var(--text); font:13px var(--mono); }
+    .power-confirm:focus { border-color:var(--red); }
+    .power-submit { width:100%; min-height:46px; margin-top:9px; border:1px solid rgba(255,102,102,.55); border-radius:8px; background:rgba(255,102,102,.08); color:var(--red); font:700 10px var(--mono); letter-spacing:.08em; cursor:pointer; }
+    .power-submit:disabled { cursor:not-allowed; opacity:.35; }
+    .power-message { min-height:18px; margin:10px 0 0; color:var(--muted); font:11px/1.5 var(--mono); }
+    .member-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(260px,360px); gap:1px; background:var(--line); }
+    .member-list { display:grid; align-content:start; background:var(--surface); }
+    .member-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:13px 17px; border-bottom:1px solid var(--line); }
+    .member-name { font:600 12px var(--mono); }
+    .member-meta { margin-top:3px; color:var(--muted); font:9px var(--mono); }
+    .member-form { padding:16px; background:var(--surface); }
+    .member-form .login-input { min-height:42px; }
+    .member-feedback { min-height:17px; margin:9px 0 0; color:var(--muted); font:10px var(--mono); }
+    #members-section { overflow:visible; }
+    .account-reset-body { padding:18px; }
+    body:not(.operations-view) .worker-control { display:none; }
+    @media(max-width:900px) { .metrics{grid-template-columns:repeat(2,minmax(0,1fr))} .worker-list,.member-layout{grid-template-columns:1fr} }
+    @media(max-width:640px) {
+      .shell{padding-left:12px;padding-right:12px} .topbar{align-items:flex-start;margin-bottom:20px} .context-line{max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .metrics,.panel{border-radius:10px} .metric{padding:15px} .metric-value{font-size:24px} .services,.application-services{grid-template-columns:1fr}
+      .worker-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .job-head{grid-template-columns:1fr .8fr .8fr;padding:7px 10px} .head-type,.head-state,.head-worker{display:none}
+      .job-row{grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;padding:15px} .job-name{grid-column:1;grid-row:1} .job-state{grid-column:2;grid-row:1;justify-self:end}
+      .job-id{grid-column:1/-1;grid-row:2} .job-type{grid-column:1;grid-row:3} .job-worker{grid-column:1/-1;grid-row:4} .job-time{grid-column:2;grid-row:3;justify-self:end;text-align:right}
+      .job-worker::before{content:"worker  ";color:var(--dim)} .filters{padding:10px 13px} .worker-toggle{min-height:42px} .detail-grid{grid-template-columns:1fr} .detail-field.wide{grid-column:auto}
+    }
+    @media(max-width:390px) { .metrics{grid-template-columns:1fr} .metric{display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 12px} .metric-value{grid-column:2;grid-row:1;margin:0;font-size:22px} .metric-foot,.meter{grid-column:1/-1} .brand{font-size:22px} .ghost-button{min-height:38px;padding:0 10px} }
+  </style>
+</head>
+<body>
+  <iframe class="platform-bar" src="/platform/bar?app=dashboard" title="Home Platform apps" style="display:block;width:100%;height:41px;border:0;flex:none;background:#070707"></iframe>
+  <section id="login" class="login-wrap hidden"><div class="login-panel"><div class="login-top"><div class="eyebrow">operator dashboard</div><h1 class="brand">HOME<span>//</span>CTRL</h1><p class="login-copy">The operator dashboard requires the owner API token. Members should sign in through <a href="/jobs-ui">Job Desk</a>.</p></div><form id="login-form" class="login-form"><label class="field-label" for="token">Owner API token</label><input id="token" class="login-input" type="password" autocomplete="current-password" autocapitalize="none" spellcheck="false" required><button class="primary-button" type="submit">OPEN SESSION</button><p id="login-error" class="login-error" aria-live="polite"></p></form></div></section>
+  <main id="app" class="shell hidden">
+    <header class="topbar"><div><div class="eyebrow">operator dashboard</div><h1 id="page-brand" class="brand">HOME<span>//</span>CTRL</h1><div id="host" class="context-line">connecting...</div></div><div class="topbar-actions"><div id="connection" class="connection"><i class="connection-dot"></i><span id="updated">SYNCING</span></div><div class="topbar-button-row"><button id="power-open" class="ghost-button power-open hidden" type="button">HOST POWER</button><button id="logout" class="ghost-button" type="button">LOG OUT</button></div></div></header>
+    <nav class="page-nav" aria-label="Home Platform"><a id="overview-nav" href="/dashboard">OVERVIEW</a><a id="operations-nav" href="/dashboard/operations">OPERATIONS</a><a href="/dashboard/apps">APPS</a><a href="/dashboard/jobs">JOBS</a><a href="/dashboard/files">FILES</a></nav>
+    <section id="overview-metrics" class="metrics" aria-label="Control host metrics">
+      <article class="metric"><div class="metric-label">Host CPU in use</div><div id="cpu" class="metric-value">—</div><div id="cpu-foot" class="metric-foot">Share of total processing capacity</div><div class="meter"><i id="cpu-bar" class="meter-fill"></i></div></article>
+      <article class="metric"><div class="metric-label">Host memory in use</div><div id="memory" class="metric-value">—</div><div id="memory-foot" class="metric-foot">Waiting for host</div><div class="meter"><i id="memory-bar" class="meter-fill"></i></div></article>
+      <article class="metric"><div class="metric-label">Host system disk used</div><div id="storage" class="metric-value">—</div><div id="storage-foot" class="metric-foot">Waiting for host</div><div class="meter"><i id="storage-bar" class="meter-fill"></i></div></article>
+      <article class="metric"><div class="metric-label">Host CPU temperature</div><div id="temperature" class="metric-value">—</div><div id="uptime" class="metric-foot">Waiting for host</div></article>
+    </section>
+    <section id="services-section" class="section" aria-labelledby="services-title"><header class="section-heading"><div><div class="kicker">platform</div><h2 id="services-title" class="section-title">Services</h2></div><span id="service-count" class="count">—</span></header><div class="services">
+      <article class="service-card jobs"><div class="service-top"><div><div class="service-label">compute service</div><div class="service-name">Jobs</div></div><span id="jobs-state" class="status UNKNOWN">UNKNOWN</span></div><div id="jobs-detail" class="service-detail">Waiting for job system data</div><a class="service-link" href="/dashboard/jobs">OPEN JOBS →</a></article>
+      <article class="service-card nas"><div class="service-top"><div><div class="service-label">storage service</div><div class="service-name">NAS</div></div><span id="storage-service-state" class="status UNKNOWN">UNKNOWN</span></div><div id="storage-service-detail" class="service-detail">Waiting for storage data</div><div class="service-facts"><div class="service-fact"><div class="fact-name">File access</div><div id="synology-smb" class="fact-value">—</div></div><div class="service-fact"><div class="fact-name">Management page</div><div id="synology-management" class="fact-value">—</div></div></div></article>
+    </div></section>
+    <section id="applications-section" class="section" aria-labelledby="applications-title"><header class="section-heading"><div><div class="kicker">personal apps</div><h2 id="applications-title" class="section-title">Applications</h2></div><span id="application-count" class="count">—</span></header><div id="application-services" class="application-services" aria-live="polite"></div></section>
+    <section class="section panel" aria-labelledby="workers-title"><header class="panel-header"><div><div class="kicker">compute fleet</div><h2 id="workers-title" class="section-title">Worker nodes</h2></div><span id="worker-count" class="count">—</span></header><div id="workers" class="worker-list"></div></section>
+    <section id="members-section" class="section panel hidden" aria-labelledby="members-title"><header class="panel-header"><div><div class="kicker">access control</div><h2 id="members-title" class="section-title">Members</h2></div><span id="member-count" class="count">—</span></header><div class="member-layout"><div id="members" class="member-list"></div><form id="member-form" class="member-form"><label class="field-label" for="member-username">Username</label><input id="member-username" class="login-input" minlength="3" maxlength="32" pattern="[a-z][a-z0-9._-]*" autocomplete="off" placeholder="family-member" required><label class="field-label" for="member-password">Initial password</label><input id="member-password" class="login-input" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button id="member-submit" class="primary-button" type="submit">CREATE MEMBER</button><p id="member-feedback" class="member-feedback" aria-live="polite">Members can change this password from Job Desk.</p></form></div></section>
+  </main>
+  <dialog id="power-dialog"><div class="dialog-head"><div><div class="kicker">host control</div><div class="dialog-title">Host power</div></div><button id="power-close" class="close-button" type="button" aria-label="Close">×</button></div><form id="power-form" class="power-body"><p class="power-copy">This queues a reboot or shutdown request with the host, which stops the control plane and flushes writes before changing power state. It is refused while scheduling is enabled or a job is running.</p><div class="power-choices"><button class="power-choice" data-power-action="reboot" type="button">REBOOT HOST</button><button class="power-choice" data-power-action="shutdown" type="button">SHUT DOWN HOST</button></div><label id="power-confirm-label" class="field-label" for="power-confirm">Choose an action</label><input id="power-confirm" class="power-confirm" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" disabled><button id="power-submit" class="power-submit" type="submit" disabled>CONFIRM</button><p id="power-message" class="power-message" aria-live="polite"></p></form></dialog>
+  <dialog id="reset-dialog"><div class="dialog-head"><div><div class="kicker">member recovery</div><div id="reset-title" class="dialog-title">Reset password</div></div><button id="reset-close" class="close-button" type="button" aria-label="Close">×</button></div><form id="reset-form" class="account-reset-body"><p class="power-copy">Set a temporary password and share it privately. Every existing browser session for this member will be signed out.</p><label class="field-label" for="reset-password">New password</label><input id="reset-password" class="login-input" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><label class="field-label" for="reset-confirm">Confirm new password</label><input id="reset-confirm" class="login-input" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button id="reset-submit" class="primary-button" type="submit">RESET PASSWORD</button><p id="reset-feedback" class="member-feedback" aria-live="polite"></p></form></dialog>
+  <script>
+    const $ = selector => document.querySelector(selector),operationsView=location.pathname.endsWith("/operations");
+    function element(tag,className,text){const item=document.createElement(tag);if(className)item.className=className;if(text!==undefined&&text!==null)item.textContent=text;return item}
+    function actionMenu(label,items){const menu=element("details","action-menu"),trigger=element("summary","","•••"),list=element("div","action-menu-list");trigger.title=label;trigger.setAttribute("aria-label",label);trigger.setAttribute("aria-haspopup","menu");trigger.onclick=()=>document.querySelectorAll("details.action-menu[open]").forEach(open=>{if(open!==menu)open.removeAttribute("open")});list.setAttribute("role","menu");items.forEach(item=>{item.classList.add("action-menu-item");item.setAttribute("role","menuitem");item.addEventListener("click",()=>menu.removeAttribute("open"));list.append(item)});menu.append(trigger,list);return menu}
+    document.addEventListener("click",event=>document.querySelectorAll("details.action-menu[open]").forEach(menu=>{if(!menu.contains(event.target))menu.removeAttribute("open")}));
+    document.addEventListener("keydown",event=>{if(event.key==="Escape")document.querySelectorAll("details.action-menu[open]").forEach(menu=>menu.removeAttribute("open"))});
+    function formatBytes(value){if(value===null||value===undefined)return"—";const units=["B","KB","MB","GB","TB"];let index=0;while(value>=1024&&index<units.length-1){value/=1024;index+=1}return value.toFixed(index>1?1:0)+" "+units[index]}
+    function formatUptime(value){let seconds=Math.max(0,Math.floor(value));const days=Math.floor(seconds/86400);seconds%=86400;const hours=Math.floor(seconds/3600);const minutes=Math.floor((seconds%3600)/60);return"Running for "+(days?days+"d ":"")+hours+"h "+minutes+"m"}
+    function timeLabel(value){if(!value)return"—";return new Date(value).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}
+    function setStatus(target,value){target.className="status "+value;target.textContent=value}
+    function status(value){const item=element("span");setStatus(item,value);return item}
+    async function api(path,options){const response=await fetch(path,options);if(response.status===401)throw new Error("AUTH");if(response.status===403)throw new Error("FORBIDDEN");if(!response.ok){const body=await response.text();let message=body;try{message=JSON.parse(body).detail||body}catch{}throw new Error(message)}return response.status===204?null:response.json()}
+    function showLogin(message=""){$("#app").classList.add("hidden");$("#login").classList.remove("hidden");$("#login-error").textContent=message}
+    function setPercent(id,value){$(id).textContent=value.toFixed(1)+"%";$(id+"-bar").style.width=Math.min(100,value)+"%"}
+    function renderServices(services){
+      const jobsState=services.control_plane.state==="ONLINE"&&services.database.state==="ONLINE"?"ONLINE":"OFFLINE",storageState=services.synology_nas.state,values=[{state:jobsState},{state:storageState}],healthy=values.filter(service=>service.state==="ONLINE").length;
+      $("#service-count").textContent=healthy+" / "+values.length+" healthy";
+      setStatus($("#jobs-state"),jobsState);$("#jobs-detail").textContent=jobsState==="ONLINE"?"Job queue and records are available.":"Job queue or records need attention.";
+      setStatus($("#storage-service-state"),storageState);$("#storage-service-detail").textContent=services.synology_nas.configured?"Files and job results":"Storage is not configured";
+      const synology=services.synology_nas;
+      $("#synology-smb").textContent=synology.smb==="reachable"?"Available":"Unavailable";$("#synology-management").textContent=synology.management==="reachable"?"Available":"Unavailable";
+      renderApplications(services.applications);
+    }
+    function renderApplications(applications){
+      const ready=applications.filter(application=>application.state==="ONLINE").length;
+      $("#application-count").textContent=ready+" / "+applications.length+" ready";
+      $("#application-services").replaceChildren(...applications.map(application=>{
+        const card=element("article","service-card"),top=element("div","service-top"),heading=element("div");
+        heading.append(element("div","service-label","application service"),element("div","service-name",application.name));
+        const availability=status(application.state);availability.textContent=application.state==="ONLINE"?"AVAILABLE":application.state==="DEGRADED"?"NEEDS ATTENTION":"UNAVAILABLE";
+        top.append(heading,availability);card.append(top,element("div","service-detail",application.state==="ONLINE"?"Ready to open":application.state==="DEGRADED"?"The app is responding but cannot serve requests.":"The app cannot be reached right now."));
+        const link=element("a","service-link","OPEN "+application.name.toUpperCase()+" →");link.href=application.path;card.append(link);return card;
+      }));
+    }
+    function renderWorkers(workers){
+      $("#worker-count").textContent=workers.length+(workers.length===1?" node":" nodes");
+      if(!workers.length){$("#workers").replaceChildren(element("div","empty","NO WORKERS REGISTERED"));return}
+      const rows=workers.map(worker=>{
+        const row=element("article","worker-row"+(worker.enabled?"":" is-disabled")),top=element("div","worker-top"),primary=element("div");
+        primary.append(element("div","worker-name",worker.id));
+        const platform=worker.metrics?worker.metrics.platform+" · ":"",ceiling=worker.max_job_cpu===null?"Job capacity not set":"Jobs up to "+worker.max_job_cpu+" cores and "+formatBytes(worker.max_job_memory_mb*1048576)+" memory";
+        primary.append(element("div","worker-meta",platform+ceiling));
+        const side=element("div","worker-side");side.append(status(worker.state),element("time","last-seen","Seen "+timeLabel(worker.last_seen)));top.append(primary,side);row.append(top);
+        const live=worker.state==="STALE"?null:worker.metrics,gpu=live&&live.gpus.length?live.gpus[0]:null,stats=element("div","worker-stats");
+        const metric=(label,value)=>{const cell=element("div","worker-stat");cell.append(element("div","worker-stat-label",label));const text=element("div","worker-stat-value",value);text.title=value;cell.append(text);return cell};
+        stats.append(metric("CPU in use",live?live.cpu_percent.toFixed(1)+"%":"—"),metric("Memory in use",live?live.memory_percent.toFixed(1)+"% · "+formatBytes(live.memory_available)+" free":"—"),metric("Disk used",live?live.storage_percent.toFixed(1)+"% · "+formatBytes(live.storage_free)+" free":"—"));
+        if(live&&live.temperature_c!==null){const thermal=metric("Warmest sensor",live.temperature_c.toFixed(1)+"°C");thermal.title="Highest available temperature reading on this worker";thermal.classList.add(live.temperature_c>=90?"thermal-critical":live.temperature_c>=80?"thermal-warning":"thermal-normal");stats.append(thermal)}
+        if(gpu){stats.append(metric("Graphics processor",gpu.name+(gpu.percent===null?"":" · "+gpu.percent.toFixed(1)+"% in use")));if(gpu.temperature_c!==null)stats.append(metric("Graphics temperature",gpu.temperature_c.toFixed(1)+"°C"))}row.append(stats);
+        const control=element("div","worker-control"),scheduleState=element("span","schedule-state"+(worker.enabled?"":" off"),worker.enabled?"ACCEPTING NEW JOBS":"NOT ACCEPTING JOBS"),toggle=element("button","worker-toggle"+(worker.enabled?"":" activate"),worker.enabled?"PAUSE JOBS":"ALLOW JOBS");
+        toggle.type="button";toggle.title=worker.enabled?"Stop assigning new jobs to this worker":"Allow this worker to claim new jobs";toggle.setAttribute("aria-label",toggle.textContent+" worker "+worker.id);
+        toggle.onclick=async()=>{toggle.disabled=true;toggle.textContent="UPDATING…";try{await api("/dashboard/api/workers/"+encodeURIComponent(worker.id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled:!worker.enabled})});await refresh()}catch(error){if(error.message==="AUTH")showLogin();else{toggle.disabled=false;toggle.textContent="RETRY";toggle.title="Update failed: "+error.message}}};
+        control.append(scheduleState,toggle);row.append(control);return row;
+      });$("#workers").replaceChildren(...rows);
+    }
+    let resetMember=null;
+    function openPasswordReset(user){resetMember=user;$("#reset-title").textContent="Reset @"+user.username;$("#reset-form").reset();$("#reset-feedback").textContent="";$("#reset-dialog").showModal();$("#reset-password").focus()}
+    function renderMembers(users){$("#member-count").textContent=users.length+(users.length===1?" account":" accounts");const rows=users.map(user=>{const row=element("div","member-row"),copy=element("div"),actions=element("div","row-actions"),state=status(user.disabled?"DISABLED":"ACTIVE");state.classList.add("account-state");copy.append(element("div","member-name",user.username),element("div","member-meta",user.role==="ADMIN"?"Administrator":"Member"));if(user.role==="MEMBER"){const copyKey=element("button","","COPY STORAGE KEY");copyKey.type="button";copyKey.title="Copy stable NAS directory key";copyKey.onclick=async()=>{try{await navigator.clipboard.writeText(user.id);$("#member-feedback").textContent="STORAGE KEY COPIED · @"+user.username}catch{$("#member-feedback").textContent="COPY FAILED · storage key is "+user.id}};const reset=element("button","","RESET PASSWORD");reset.type="button";reset.onclick=()=>openPasswordReset(user);const toggle=element("button","",user.disabled?"ENABLE ACCOUNT":"DISABLE ACCOUNT");toggle.type="button";toggle.classList.toggle("danger-action",!user.disabled);toggle.onclick=async()=>{toggle.disabled=true;try{await api("/dashboard/api/users/"+encodeURIComponent(user.id),{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({disabled:!user.disabled})});await refresh()}catch(error){toggle.disabled=false;toggle.textContent="RETRY"}};actions.append(actionMenu("Actions for "+user.username,[copyKey,reset,toggle]))}actions.append(state);row.append(copy,actions);return row});$("#members").replaceChildren(...rows)}
+    let refreshInFlight=0;
+    async function refresh(){
+      refreshInFlight++;
+      try{
+        if(operationsView){const [workers,users]=await Promise.all([api("/dashboard/api/workers"),api("/dashboard/api/users")]);renderWorkers(workers);renderMembers(users);$("#host").textContent="worker scheduling / member access / host power"}
+        else{const [system,services,workers]=await Promise.all([api("/dashboard/api/system"),api("/dashboard/api/services"),api("/dashboard/api/workers")]);$("#host").textContent=system.hostname+" / "+system.platform.toLowerCase();setPercent("#cpu",system.cpu.percent);setPercent("#memory",system.memory.percent);setPercent("#storage",system.storage.percent);$("#memory-foot").textContent=formatBytes(system.memory.available)+" available";$("#storage-foot").textContent=formatBytes(system.storage.free)+" free";$("#temperature").textContent=system.cpu.temperature_c===null?"N/A":system.cpu.temperature_c.toFixed(1)+"°C";$("#uptime").textContent=formatUptime(system.uptime_seconds);renderServices(services);renderWorkers(workers)}
+        $("#login").classList.add("hidden");$("#app").classList.remove("hidden");$("#connection").classList.add("live");$("#updated").textContent="Updated "+new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
+      }catch(error){if(error.message==="AUTH")showLogin();else if(error.message==="FORBIDDEN")showLogin("ADMINISTRATOR SESSION REQUIRED");else{$("#connection").classList.remove("live");$("#updated").textContent="OFFLINE"}}finally{refreshInFlight--}
+    }
+    $("#login-form").addEventListener("submit",async event=>{event.preventDefault();try{await api("/dashboard/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token:$("#token").value})});$("#token").value="";await refresh()}catch(error){showLogin(error.message==="AUTH"?"INVALID TOKEN":"CONNECTION FAILED")}});
+    $("#member-form").addEventListener("submit",async event=>{event.preventDefault();const button=$("#member-submit"),feedback=$("#member-feedback");button.disabled=true;button.textContent="CREATING…";try{const created=await api("/dashboard/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:$("#member-username").value,password:$("#member-password").value,role:"MEMBER"})});$("#member-username").value="";$("#member-password").value="";feedback.textContent="CREATED · "+created.username;await refresh()}catch(error){feedback.textContent=error.message}finally{button.disabled=false;button.textContent="CREATE MEMBER"}});
+    $("#reset-close").onclick=()=>$("#reset-dialog").close();$("#reset-dialog").onclick=event=>{if(event.target===$("#reset-dialog"))$("#reset-dialog").close()};$("#reset-form").addEventListener("submit",async event=>{event.preventDefault();const password=$("#reset-password").value,confirmation=$("#reset-confirm").value,button=$("#reset-submit"),feedback=$("#reset-feedback");if(password!==confirmation){feedback.textContent="PASSWORDS DO NOT MATCH";return}button.disabled=true;button.textContent="RESETTING…";try{await api("/dashboard/api/users/"+encodeURIComponent(resetMember.id)+"/password",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({new_password:password})});$("#reset-dialog").close();$("#member-feedback").textContent="PASSWORD RESET · @"+resetMember.username}catch(error){feedback.textContent=error.message}finally{button.disabled=false;button.textContent="RESET PASSWORD"}});
+    let powerAction=null;
+    function choosePower(action){powerAction=action;document.querySelectorAll("[data-power-action]").forEach(button=>button.classList.toggle("active",button.dataset.powerAction===action));const word=action.toUpperCase();$("#power-confirm-label").textContent="Type "+word+" to confirm";$("#power-confirm").disabled=false;$("#power-confirm").value="";$("#power-confirm").placeholder=word;$("#power-submit").disabled=true;$("#power-submit").textContent=word+" HOST";$("#power-message").textContent="";$("#power-confirm").focus()}
+    $("#power-open").onclick=()=>{$("#power-dialog").showModal()};
+    $("#power-close").onclick=()=>{$("#power-dialog").close()};
+    document.querySelectorAll("[data-power-action]").forEach(button=>button.onclick=()=>choosePower(button.dataset.powerAction));
+    $("#power-confirm").oninput=()=>{$("#power-submit").disabled=!powerAction||$("#power-confirm").value!==powerAction.toUpperCase()};
+    $("#power-form").addEventListener("submit",async event=>{event.preventDefault();if(!powerAction)return;const submit=$("#power-submit");submit.disabled=true;submit.textContent="REQUESTING…";$("#power-message").textContent="Checking jobs and storage…";try{const result=await api("/dashboard/api/system/power",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:powerAction,confirmation:$("#power-confirm").value})});$("#power-message").textContent=result.message+". The dashboard will disconnect shortly.";submit.textContent="ACCEPTED";$("#power-close").disabled=true;$("#updated").textContent=powerAction==="reboot"?"REBOOTING":"SHUTTING DOWN"}catch(error){if(error.message==="AUTH"){$("#power-dialog").close();showLogin()}else{$("#power-message").textContent="Request refused: "+error.message;submit.textContent=powerAction.toUpperCase()+" HOST";submit.disabled=false}}});
+    $("#logout").onclick=async()=>{await api("/dashboard/logout",{method:"POST"});showLogin()};document.body.classList.add(operationsView?"operations-view":"overview-view");$(operationsView?"#operations-nav":"#overview-nav").setAttribute("aria-current","page");$("#overview-metrics").classList.toggle("hidden",operationsView);$("#services-section").classList.toggle("hidden",operationsView);$("#applications-section").classList.toggle("hidden",operationsView);$("#members-section").classList.toggle("hidden",!operationsView);$("#power-open").classList.toggle("hidden",!operationsView);if(operationsView)document.title="Operations · Home Platform"
+    function autoRefresh(){if(!document.hidden&&!refreshInFlight)refresh()}
+    autoRefresh();setInterval(autoRefresh,30000);
+    document.addEventListener("visibilitychange",autoRefresh);
+  </script>
+</body>
+</html>

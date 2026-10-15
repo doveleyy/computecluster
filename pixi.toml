@@ -1,0 +1,47 @@
+[workspace]
+channels = ["conda-forge"]
+name = "personal-home-platform"
+platforms = ["osx-arm64", "linux-aarch64", "linux-64", "win-64"]
+version = "0.20.0"
+
+[tasks]
+dev = "uvicorn app.main:app --reload --host 127.0.0.1 --port 8000"
+start = "uvicorn app.main:app --host 127.0.0.1 --port 8000"
+start-lan = "uvicorn app.main:app --host 0.0.0.0 --port 8000"
+client = "python -m cli.client"
+worker = "python -m worker.main"
+test = "python -m pytest"
+lint = "ruff check ."
+format-check = "ruff format --check ."
+typecheck = "mypy app worker contracts cli ops"
+
+[tasks.check]
+depends-on = ["lint", "format-check", "typecheck", "test"]
+
+[dependencies]
+python = ">=3.13,<3.14"
+
+[feature.control-plane.dependencies]
+httpx = ">=0.28.0,<0.29"
+fastapi = ">=0.141.1,<0.142"
+uvicorn = ">=0.52.0,<0.53"
+psutil = ">=7.1,<8"
+python-multipart = ">=0.0.20,<0.1"
+
+[feature.worker.dependencies]
+httpx = ">=0.28.0,<0.29"
+pydantic = ">=2.12,<3"
+psutil = ">=7.1,<8"
+
+[feature.dev.dependencies]
+pytest = ">=9.0.0,<10"
+httpx2 = ">=2.12,<3"
+ruff = ">=0.13,<0.15"
+mypy = ">=1.18,<2"
+types-psutil = ">=7.1,<8"
+pyyaml = ">=6.0.3,<7"
+
+[environments]
+default = { features = ["control-plane", "worker", "dev"], solve-group = "home-platform" }
+production = { features = ["control-plane"], solve-group = "home-platform" }
+worker = { features = ["worker"], solve-group = "home-platform" }
