@@ -1,11 +1,12 @@
 """Public documentation carries design, never deployment identifiers.
 
-AGENTS.md keeps hardware, vendors, share and account names, addresses,
+AGENTS.md keeps hardware inventories, share and account names, addresses,
 machine paths, and rollout or version narration out of `docs/` and the root
-README. This gate turns that rule into a failing test. Fix a hit by
+README. The owner permits machine types in the architecture diagram only.
+This gate turns that rule into a failing test. Fix a hit by
 rewriting the sentence in generic terms ("the control-plane host", "the NAS",
-"a storage share"); widen `ALLOWED` only for a value that is itself part of
-the public configuration contract.
+"a storage share"); `ALLOWED` records exact machine-type labels and values
+that are themselves part of the public configuration contract.
 """
 
 from __future__ import annotations
@@ -99,6 +100,16 @@ if PRIVATE_TERMS.exists():
     )
 
 ALLOWED = (
+    Allowed(
+        "docs/architecture.md",
+        "Raspberry Pi: always-on coordinator",
+        "owner permits machine types in the public diagram, without host inventory",
+    ),
+    Allowed(
+        "docs/architecture.md",
+        "Synology NAS: file server",
+        "owner permits machine types in the public diagram, without host inventory",
+    ),
     Allowed(
         "docs/configuration.md",
         "`HOME_PLATFORM_SYNOLOGY_HOST`",

@@ -10,26 +10,117 @@ lose its connection while the core preserves job truth. An application can
 change its dependencies and release schedule without becoming part of the
 core's source tree.
 
-## Components and ownership
+## Machines and network
 
-```mermaid
-flowchart TB
-    clients[Browser and command-line clients] --> ingress[Private HTTPS ingress]
-    ingress --> core[Core]
-    core --> apps[Independent application containers]
-    apps --> api[Scoped core APIs]
-    api --> core
-    workers[Workers and isolated job containers] --> core
-    core --> state[Core database on local disk]
-    apps --> appstate[Separate application state]
-    core --> files[Shared files and published results]
-    core --> backups[Verified database backups]
-    apps --> backups
+The coordinator and application containers run together on one always-on
+machine. Compute workers run on separate machines, and a NAS holds shared
+files and backup copies. The outer boxes below are machines. Boxes inside
+them are processes or containers. Arrows follow the component that starts a
+request, rather than the direction of every response byte.
+
+```text
+User device
+  Browser or CLI
+       |
+       | HTTPS over the private Tailscale network
+       v
++-- Raspberry Pi: always-on coordinator ---------------------------------+
+|                                                                        |
+|  Tailscale Serve                                                       |
+|  HTTPS termination and reverse proxy                                   |
+|       |                                                                |
+|       | HTTP to the core through host loopback                         |
+|       v                                                                |
+|  +-- Core process --------------------------------------------------+  |
+|  | Launcher, accounts, Job Desk, Files, and administrator pages     |  |
+|  | APIs, scheduler, job leases, and application registry            |  |
+|  |                                                                  |  |
+|  | Application gateway                                              |  |
+|  +-------|----------------------------------------------------------+  |
+|          | HTTP to each app's published host-loopback port             |
+|          v                                                             |
+|  +-- Docker --------------------------------------------------------+  |
+|  | Independent application containers                               |  |
+|  | Each has its own identity, limits, credentials, and state mount  |  |
+|  +------------------------------------------------------------------+  |
+|                                                                        |
+|  App callbacks: container --> Docker host gateway --> core app API     |
+|  Local disk: core SQLite, separate app databases, and upload staging   |
+|  Host services: bounded installer, app units, and backup timers        |
+|  NAS mounts: shared inputs, workspace, results, and backup storage     |
++------------------------------------------------------------------------+
+       |
+       | SMB through separately authenticated mounts
+       v
++-- Synology NAS: file server -------------------------------------------+
+|  Private and shared files | workspace | published results | backups    |
+|  File-server accounts and filesystem permissions protect each area     |
++------------------------------------------------------------------------+
 ```
 
-Arrows show request or data dependencies. Workers initiate their connections to
-the core. The diagram describes responsibilities rather than a machine
-inventory.
+There are two routing layers on the coordinator. Tailscale Serve is the outer
+reverse proxy. It terminates HTTPS and forwards the root route to the core.
+The application gateway is part of the core process. It authenticates a
+registered application request, adds signed user context, and forwards it to
+that application's container. A managed app does not need its own Tailscale
+Serve route or externally published port.
+
+App containers also call the core in the other direction. They reach the
+host's scoped app API through the Docker host gateway and authenticate with
+their own credential plus signed user context. This callback does not pass
+through the browser-facing reverse proxy. The core listener must be reachable
+from the containers; the diagram's loopback arrow describes Serve's upstream
+connection, not a loopback-only core listener.
+
+The core runs as a host service under systemd. The privileged installer is a
+separate, bounded host helper that manages application units and containers.
+The web process does not receive the Docker socket or arbitrary host-command
+access.
+
+## Worker machines
+
+Mac, Windows, and Linux machines provide compute without hosting the
+production core or its application containers. Each runs a native worker
+agent. Linux uses its local Docker engine. Mac and Windows use Docker Desktop
+with a Linux execution environment. The Mac also runs development tools and
+the CLI; those processes do not become the production coordinator.
+
+```text
++-- Worker machine: Mac, Windows, or Linux ------------------------------+
+|  Native worker agent                                                   |
+|       |                                                                |
+|       +--> Local input cache and per-job working directory             |
+|       |                                                                |
+|       +--> Docker engine --> bounded job container                     |
+|                              inputs read-only; output directory RW     |
+|                              no network or platform credentials        |
++------------------------------------------------------------------------+
+       |
+       | Worker-initiated HTTPS over Tailscale
+       | claims, heartbeats, input downloads, and result uploads
+       v
+  Coordinator's Tailscale Serve --> core job API
+
+  External HTTPS input source <--- worker downloads linked inputs
+```
+
+The worker agent makes network requests on behalf of the job. The job
+container itself has no network. The core does not connect to an inbound
+worker service. Disabling scheduling leaves an agent able to report status
+while preventing new claims.
+
+NAS inputs selected through Files travel from the NAS through the core to
+the worker. Externally linked HTTPS inputs go directly to the worker.
+Results always travel from the worker through the core, which chooses the
+owner's result directory on the NAS. Workers do not publish directly to a
+member's file share.
+
+The Linux machine can also host an isolated staging VM for application
+previews. That VM has its own test core, installer, containers, credentials,
+and disposable storage. Staging is a separate environment; a preview does
+not run inside the production coordinator or mount production storage.
+
+## Components and ownership
 
 | Component | Owns | Detail |
 |---|---|---|
@@ -51,9 +142,9 @@ different URL.
 
 ## Requests and identity
 
-Clients reach a private HTTPS ingress. The core serves its own routes and sends
-registered application paths through the gateway. Adding a managed application
-changes the registry rather than adding a public backend port.
+Clients reach Tailscale Serve on the coordinator. The core serves its routes
+and sends registered application paths through the gateway. Adding a managed
+application changes the registry rather than adding a public backend port.
 
 Private network membership supplies reachability. The core resolves a trusted
 external identity to a linked account, and enforces roles and immutable user
@@ -65,8 +156,10 @@ environment. The application verifies that context through the core API using
 its own credential, then enforces ownership of its own data. Raw forwarded
 identity headers are not an application authentication contract.
 
-Loopback publishing prevents remote clients from bypassing ingress. Local
-processes can still reach loopback, so the host and ingress remain trusted.
+Loopback publishing prevents remote clients from reaching managed app ports.
+The core also accepts container callbacks and enforces authentication on those
+requests. Local processes can reach loopback, so the host and ingress remain
+trusted.
 Same-origin applications are also trusted browser code. Separate containers
 and credentials do not isolate malicious JavaScript sharing the core's origin.
 See [Network](network.md) and the [runtime contract](apps/runtime-contract.md).

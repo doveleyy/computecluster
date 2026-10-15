@@ -6,16 +6,17 @@ Application authorization remains a separate responsibility.
 ## Private ingress
 
 Authorized devices join a private overlay network. The platform does not need
-router port forwarding or a public tunnel. A reverse proxy terminates HTTPS
-and forwards requests to the core on loopback.
+router port forwarding or a public tunnel. Tailscale Serve runs on the
+coordinator host, terminates HTTPS, and forwards requests to the host-native
+core through loopback.
 
 The core serves its own pages and APIs. Registered application paths pass
 through the managed gateway to their corresponding containers. Adding an app
 changes the registry rather than adding another external listener.
 
-The [architecture diagram](architecture.md#components-and-ownership) shows the
-request dependencies. Hostnames and routing configuration belong to each
-deployment.
+The [machine diagrams](architecture.md#machines-and-network) show the reverse
+proxy, core gateway, application containers, worker agents, and NAS. Hostnames
+and routing configuration belong to each deployment.
 
 ## Reachability and authorization
 
@@ -31,8 +32,16 @@ Role and ownership checks still apply after authentication. See
 
 ## The host is a trust boundary
 
-Backends publish on `127.0.0.1` rather than `0.0.0.0`. This blocks remote
-clients from connecting directly and bypassing the ingress controls.
+Managed app containers publish host ports on `127.0.0.1`. This prevents remote
+clients from connecting directly to an app backend. The gateway inside the
+core uses those loopback ports to forward requests.
+
+The core has a different requirement. App containers call its scoped API
+through the Docker host gateway, so its listener is reachable from that
+network. Serve using a loopback upstream does not mean the core listens only
+on loopback. The core authenticates callbacks with the app credential and
+signed user context, independently of their network source. A direct request
+does not gain a trusted browser identity by supplying forwarded headers.
 
 Local host processes can connect to loopback. Binding there does not prove
 that a request came from the proxy. The host and configured ingress are
@@ -41,8 +50,9 @@ boundary. An untrusted process on the same host can violate its assumptions.
 
 The ingress must replace client-supplied identity headers with authenticated
 values. Development identity shortcuts must stay disabled outside local test
-instances. A backend exposed off-host needs an authentication design that does
-not trust caller-supplied headers.
+instances. A core listener reachable off-host must preserve that proxy trust
+boundary and enforce endpoint authentication. Its listen address alone
+provides neither identity nor authorization.
 
 ## Applications verify signed context
 
