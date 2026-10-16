@@ -333,6 +333,7 @@ def test_every_page_frames_the_bar_with_the_one_canonical_tag() -> None:
             framed[name] += ["platform-bar styled outside the tag"] * stray
 
     assert framed == {
+        "app/apps.html": ["dashboard"],
         "app/dashboard.html": ["dashboard"],
         "app/jobs.html": ["__PLATFORM_APP__"],
     }

@@ -18,6 +18,9 @@
     .hidden { display:none!important; }
     .shell { width:min(1240px,100%); margin:0 auto; padding:max(24px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(52px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left)); }
     .topbar { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-bottom:26px; }
+    .topbar > :first-child { min-width:0; flex:1; }
+    .topbar .context-line { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .topbar-actions { flex-shrink:0; }
     .eyebrow,.kicker,.metric-label,.field-label,.service-label { color:var(--muted); font:600 10px/1.2 var(--mono); letter-spacing:.13em; text-transform:uppercase; }
     .brand { margin:5px 0 2px; font:600 clamp(24px,4vw,36px)/1 var(--mono); letter-spacing:-.06em; }
     .brand span { color:var(--dim); }
@@ -33,7 +36,7 @@
     .ghost-button,.filter-button,.worker-toggle,.close-button,.sort-header,.power-choice { border:1px solid var(--line); border-radius:8px; background:#090909; color:var(--muted); cursor:pointer; }
     .ghost-button { min-height:40px; padding:0 14px; font:11px var(--mono); }
     .ghost-button:hover,.filter-button:hover,.worker-toggle:hover,.sort-header:hover,.power-choice:hover { border-color:var(--strong); color:var(--text); }
-    .topbar-button-row { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:7px; }
+    .topbar-button-row { display:flex; justify-content:flex-end; gap:7px; }
     .row-actions { display:flex; align-items:center; justify-content:flex-end; gap:5px; }
     .account-state { min-width:78px; min-height:30px; justify-content:center; padding:0 9px; border:1px solid var(--line); border-radius:7px; background:#080808; }
     .action-menu { position:relative; width:34px; }
@@ -164,6 +167,7 @@
       .job-worker::before{content:"worker  ";color:var(--dim)} .filters{padding:10px 13px} .worker-toggle{min-height:42px} .detail-grid{grid-template-columns:1fr} .detail-field.wide{grid-column:auto}
     }
     @media(max-width:390px) { .metrics{grid-template-columns:1fr} .metric{display:grid;grid-template-columns:1fr auto;align-items:center;gap:4px 12px} .metric-value{grid-column:2;grid-row:1;margin:0;font-size:22px} .metric-foot,.meter{grid-column:1/-1} .brand{font-size:22px} .ghost-button{min-height:38px;padding:0 10px} }
+    @media(max-width:360px) { .topbar{display:block} .topbar-actions{margin-top:14px} }
   </style>
 </head>
 <body>

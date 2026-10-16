@@ -19,6 +19,9 @@
     .shell { width:min(1240px,100%); margin:0 auto; padding:max(24px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(52px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left)); }
     .topbar,.panel-head,.form-actions { display:flex; align-items:center; justify-content:space-between; gap:16px; }
     .topbar { align-items:flex-end; gap:18px; margin-bottom:26px; }
+    .topbar > :first-child { min-width:0; flex:1; }
+    .topbar .context-line { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .topbar-actions { flex-shrink:0; }
     .topbar-actions { display:flex; flex-direction:column; align-items:flex-end; gap:9px; }
     .topbar-button-row { display:flex; gap:7px; }
     .eyebrow,.kicker,.label { color:var(--muted); font:600 10px/1.2 var(--mono); letter-spacing:.13em; text-transform:uppercase; }
@@ -188,6 +191,7 @@
       .file-toolbar{align-items:stretch;flex-wrap:wrap}.file-location{order:-1;flex-basis:100%;padding:2px 0 6px}.file-search{width:auto;flex:1}.file-row{grid-template-columns:38px minmax(0,1fr) auto;padding:11px 12px}.file-size{display:none}.file-footer{justify-content:flex-start}
     }
     @media(max-width:390px) { .brand{font-size:22px}.ghost{min-height:38px;padding:0 10px} }
+    @media(max-width:360px) { .topbar{display:block}.topbar-actions{margin-top:14px} }
   </style>
 </head>
 <body>
