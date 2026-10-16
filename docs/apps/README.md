@@ -19,6 +19,8 @@ Use these documents for different tasks.
   what the platform registers, verifies, previews, and approves.
 - [Registry](registry.md) describes operator-owned registration, immutable
   release records, navigation, and optional monitoring.
+- [Register a published application](onboarding.md) prepares a new app's
+  registration, credential and host policy with one operator command.
 - [Release discovery and previews](releases.md) describes workflow proof,
   retained assets, pinned attempts, and guest isolation.
 - [Approval and installation](installation.md) describes exact approval,

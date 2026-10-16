@@ -7,6 +7,11 @@ Navigation visibility does not authorize access to an application's routes.
 
 ## Registration
 
+For a new managed app, use [Register a published application](onboarding.md).
+That command builds one registration for both the core and root host policy,
+then prepares its account, directories and credential. The schema below also
+supports operators who manage those resources separately.
+
 An operator definition has these fields.
 
 | Field | Meaning |
