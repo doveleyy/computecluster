@@ -160,7 +160,7 @@ class HostPolicy(Contract):
     environment: str
     app_api_url: str
     timezone: str
-    apps: Annotated[tuple[HostApp, ...], Field(min_length=1, max_length=32)]
+    apps: Annotated[tuple[HostApp, ...], Field(max_length=32)]
     # A root-owned Docker config directory whose config.json holds the registry
     # login root pulls with. Only root reads it; no app or core process does.
     registry_credentials: HostPath | None = None
