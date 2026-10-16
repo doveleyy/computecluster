@@ -353,6 +353,11 @@ def plan_onboarding(
                 )
         elif routes_overlap(item.route, registration.route):
             raise ContractError("Application route overlaps an existing registration")
+        elif (
+            item.installation is not None
+            and item.installation.host_port == target.installation.host_port
+        ):
+            raise ContractError("Application port overlaps an existing registration")
     if core.credential_path is not None and (
         core.credential_path != target.credential_file or not core.credential_valid
     ):

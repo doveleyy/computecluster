@@ -124,6 +124,17 @@ def test_other_onboarding_cannot_take_a_crashed_reservation(inputs):
     assert retried.candidate.apps == (second.app, first.app)
 
 
+def test_retry_refuses_port_claimed_by_a_manual_core_registration(inputs):
+    spec, policy, facts, core, manifest = inputs
+    first = plan_onboarding(spec, policy, facts, core, manifest)
+    other = first.app.registration.model_copy(
+        update={"app_id": "other", "route": "/other"}
+    )
+    changed_core = core.model_copy(update={"registrations": (other,)})
+    with pytest.raises(ContractError, match=r"port.*registration"):
+        plan_onboarding(spec, policy, facts, changed_core, manifest, first.record)
+
+
 @pytest.mark.parametrize("same_id", [True, False])
 def test_another_repository_cannot_take_reserved_app_id_or_route(inputs, same_id):
     spec, policy, facts, core, manifest = inputs
