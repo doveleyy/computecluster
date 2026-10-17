@@ -17,7 +17,7 @@ unless absolute.
 | `HOME_PLATFORM_LEASE_SECONDS` | `15` | How long a claimed job's lease lasts before it must be renewed |
 | `HOME_PLATFORM_WORKER_STALE_SECONDS` | `90` | Silence after which a worker is reported `STALE`. Keep it well above the worker's 30-second maximum idle poll interval |
 | `HOME_PLATFORM_RECOVERY_INTERVAL_SECONDS` | `2` | How often expired leases are swept and requeued |
-| `HOME_PLATFORM_MAX_ATTEMPTS` | `3` | Requeues before a job is failed permanently |
+| `HOME_PLATFORM_MAX_ATTEMPTS` | `3` | Claims a job may have, counting the first, before a lost lease fails it permanently. The default allows two requeues |
 | `HOME_PLATFORM_POWER_REQUEST_DIR` | unset | Runtime marker directory watched by the optional root-owned host power units |
 
 If no token is configured the API is unauthenticated. That is only appropriate
@@ -209,7 +209,7 @@ NAS is present.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `HOME_PLATFORM_API_URL` | `http://raspberrypi.local:8000` | Control plane to poll |
+| `HOME_PLATFORM_API_URL` | `http://raspberrypi.local:8000` | Control plane to poll. The default suits a local development network; a deployed worker uses the coordinator's HTTPS address on the private network |
 | `HOME_PLATFORM_WORKER_ID` | `worker-<hostname>` | Identity in the registry. Stable across restarts |
 | `HOME_PLATFORM_API_TOKEN_FILE` | `~/.config/home-platform/api-token` | Token used for every call |
 | `HOME_PLATFORM_WORKER_DATA_DIR` | `~/.local/share/home-platform-worker` | Cache, staged inputs, and outputs |

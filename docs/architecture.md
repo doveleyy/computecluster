@@ -104,6 +104,10 @@ the CLI; those processes do not become the production coordinator.
   External HTTPS input source <--- worker downloads linked inputs
 ```
 
+A deployed worker reaches the core through the coordinator's HTTPS address,
+as the diagram shows. The worker's built-in default is a plain local-network
+address for development; see [Configuration](configuration.md).
+
 The worker agent makes network requests on behalf of the job. The job
 container itself has no network. The core does not connect to an inbound
 worker service. Disabling scheduling leaves an agent able to report status
