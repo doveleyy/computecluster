@@ -129,11 +129,10 @@ def test_apps_recover_action_needs_a_blocked_operation(browser, ledger):
     token = client.get("/dashboard/api/apps").json()["csrf"]
     headers = {"Origin": "https://platform.test", "X-CSRF-Token": token}
     payload = dict(app_id="notes", digest=ledger.digest, request_id=str(uuid4()))
-    assert (
-        client.post(
-            "/dashboard/api/apps/recover", json=payload, headers=headers
-        ).status_code
-        == 409
+    refused = client.post("/dashboard/api/apps/recover", json=payload, headers=headers)
+    assert (refused.status_code, refused.json()) == (
+        409,
+        {"detail": "No blocked operation matches the selection"},
     )
     deploy = deploy_request(ledger)
     switch_request(ledger, deploy)
@@ -1075,3 +1074,103 @@ def test_a_stale_preview_the_registration_no_longer_admits_is_skipped(
     pending = client.get("/dashboard/api/apps").json()["apps"][0]["pending"]
     assert (pending["digest"], pending["preview_state"]) == (newer, "ready")
     assert preview().json() == {"state": "installing"}
+
+
+@pytest.fixture
+def staging(browser, monkeypatch, tmp_path):
+    """Preview through a staging stand-in that records what core retires."""
+    retired = []
+
+    class Previews:
+        def __init__(self, *_):
+            pass
+
+        async def retire(self, attempt):
+            retired.append(attempt)
+
+        async def preview(self, app_id, digest):
+            return SimpleNamespace(state="installing")
+
+    token_file = tmp_path / "token"
+    token_file.write_text("x" * 40)
+    monkeypatch.setenv("HOME_PLATFORM_PREVIEW_ORIGIN", "https://staging.test")
+    monkeypatch.setenv("HOME_PLATFORM_PREVIEW_TOKEN_FILE", str(token_file))
+    monkeypatch.setattr(dashboard_apps, "PreviewService", Previews)
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+    headers = {
+        "Origin": "https://platform.test",
+        "X-CSRF-Token": client.get("/dashboard/api/apps").json()["csrf"],
+    }
+
+    def preview(app_id, digest):
+        return client.post(
+            "/dashboard/api/apps/preview",
+            json=dict(app_id=app_id, digest=digest, request_id=str(uuid4())),
+            headers=headers,
+        ).json()
+
+    return SimpleNamespace(preview=preview, retired=retired)
+
+
+def other_app(ledger, monkeypatch, tmp_path):
+    ledger.registry.register(
+        document(managed("other", "/apps/other", state=str(tmp_path / "other")))
+    )
+    monkeypatch.setattr(dashboard_apps, "eligible", lambda *_: None)
+    return "d" * 64
+
+
+def test_preview_frees_the_staging_slot_of_an_installed_release(
+    staging, ledger, monkeypatch, tmp_path
+):
+    digest = other_app(ledger, monkeypatch, tmp_path)
+    assert staging.preview("other", digest) == {"state": "installing"}
+    assert staging.retired == []
+    install(ledger)
+    assert staging.preview("other", digest) == {"state": "installing"}
+    assert staging.retired == [ledger.preview.attempt_id]
+
+
+def test_preview_frees_the_staging_slot_of_a_rejected_release(
+    staging, ledger, monkeypatch, tmp_path
+):
+    digest = other_app(ledger, monkeypatch, tmp_path)
+    ledger.service.reject("notes", ledger.digest, UUID(ADMIN_USER_ID), 1)
+    assert staging.preview("other", digest) == {"state": "installing"}
+    assert staging.retired == [ledger.preview.attempt_id]
+
+
+def test_preview_again_replaces_a_failed_attempt(staging, ledger):
+    with ledger.database.connect() as connection:
+        connection.execute("UPDATE app_preview_attempts SET state = 'failed'")
+    assert staging.preview("notes", ledger.digest) == {"state": "installing"}
+    assert staging.retired == [ledger.preview.attempt_id]
+
+
+def test_preview_evicts_the_oldest_idle_preview_when_staging_is_full(
+    staging, ledger, monkeypatch, tmp_path
+):
+    digest = other_app(ledger, monkeypatch, tmp_path)
+    ledger.registry.register(
+        document(managed("third", "/apps/third", state=str(tmp_path / "third")))
+    )
+    third = uuid4()
+    with ledger.database.connect() as connection:
+        connection.execute(
+            "INSERT INTO app_eligible_releases(app_id,manifest_sha256,release_id,"
+            "artifact_id,artifact_sha256,archive) VALUES (?,?,?,?,?,?)",
+            ("third", "f" * 64, 9, 44, "0" * 64, b"archive"),
+        )
+        connection.execute(
+            "INSERT INTO app_preview_attempts VALUES (?,?,?,?,?,?)",
+            (str(third), "third", "f" * 64, "0" * 64, "ready", None),
+        )
+    request(ledger)
+    assert staging.preview("other", digest) == {"state": "installing"}
+    assert staging.retired == [third]
+    staging.retired.clear()
+    with ledger.database.connect() as connection:
+        connection.execute("UPDATE app_operations SET state = 'failed'")
+    assert staging.preview("other", digest) == {"state": "installing"}
+    assert staging.retired == [ledger.preview.attempt_id]

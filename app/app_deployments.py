@@ -147,6 +147,61 @@ def pending_change(
     return RegistrationProposal(row[0], registration)
 
 
+PREVIEW_SLOTS = 2
+
+
+def previews_to_retire(
+    connection: sqlite3.Connection, app_id: str, digest: str
+) -> list[UUID]:
+    """The previews to retire so staging can admit ``digest`` for ``app_id``.
+
+    Staging holds two previews, and any preview can run again. So retire those
+    no card can still offer (a rejected release, or the installed one with no
+    settings change pending), the app's own failed or other-release attempt,
+    and then the oldest previews of idle apps while staging would stay full.
+    """
+    environment = environment_of(connection)
+    retire = []
+    others = []
+    for attempt_id, owner, release, state, rejected in connection.execute(
+        "SELECT attempt_id, app_id, manifest_sha256, state, EXISTS (SELECT 1 "
+        "FROM app_rejections WHERE app_id = app_preview_attempts.app_id AND "
+        "manifest_sha256 = app_preview_attempts.manifest_sha256) FROM "
+        "app_preview_attempts WHERE state != 'retired' ORDER BY rowid"
+    ).fetchall():
+        current = installed(connection, owner, environment) if environment else None
+        if (
+            rejected
+            or (owner == app_id and (release != digest or state == "failed"))
+            or (
+                environment is not None
+                and current is not None
+                and current.selection.manifest_sha256 == release
+                and pending_change(connection, owner, environment) is None
+            )
+        ):
+            retire.append(UUID(attempt_id))
+        elif owner != app_id:
+            others.append((UUID(attempt_id), owner, state))
+    excess = len(others) - (PREVIEW_SLOTS - 1)
+    for attempt, owner, state in others:
+        if excess <= 0:
+            break
+        # Staging refuses to retire an installation still in progress.
+        if state != "installing" and idle(connection, owner):
+            retire.append(attempt)
+            excess -= 1
+    return retire
+
+
+def idle(connection: sqlite3.Connection, app_id: str) -> bool:
+    try:
+        require_idle(connection, app_id)
+    except ContractError:
+        return False
+    return True
+
+
 def proposed_registration(connection: sqlite3.Connection, app_id: str) -> Registration:
     registration = registration_for(connection, app_id)
     environment = environment_of(connection)

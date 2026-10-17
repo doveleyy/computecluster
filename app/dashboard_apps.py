@@ -39,6 +39,7 @@ from app.app_deployments import (
     installed,
     managed,
     pending_change,
+    previews_to_retire,
     proposed_registration,
     redacted_error,
     require_idle,
@@ -704,7 +705,10 @@ async def act(
     async with locks.setdefault(body.app_id, asyncio.Lock()):
         try:
             return await perform(action, body, request, identity, apps, claims[1])
-        except (ContractError, OSError):
+        except ContractError as error:
+            raise HTTPException(409, str(error)) from None
+        except OSError:
+            logger.exception("Application action %s failed", action)
             raise HTTPException(
                 409,
                 (
@@ -762,16 +766,9 @@ async def perform(
                     proposed_registration(connection, body.app_id),
                     body.digest,
                 )
-                old = connection.execute(
-                    (
-                        "SELECT attempt_id, manifest_sha256 "
-                        "FROM app_preview_attempts WHERE app_id = ? "
-                        "AND state != 'retired'"
-                    ),
-                    (body.app_id,),
-                ).fetchone()
-            if old and old[1] != body.digest:
-                await previews.retire(UUID(old[0]))
+                stale = previews_to_retire(connection, body.app_id, body.digest)
+            for attempt in stale:
+                await previews.retire(attempt)
             result = await previews.preview(body.app_id, body.digest)
             if result.state != "ready":
                 return {"state": result.state}

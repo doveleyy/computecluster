@@ -854,7 +854,7 @@ def test_core_retires_attempt_that_staging_never_admitted(tmp_path):
                 database, client, "https://preview.example", "t" * 32
             )
             digest = fixture.proof["manifest_sha256"]
-            with pytest.raises(ContractError, match="did not confirm"):
+            with pytest.raises(ContractError, match="Staging is busy"):
                 await previews.preview("notes", digest)
             with database.connect() as connection:
                 attempt = connection.execute(
@@ -862,7 +862,7 @@ def test_core_retires_attempt_that_staging_never_admitted(tmp_path):
                 ).fetchone()[0]
             retired = await previews.retire(UUID(attempt))
             assert retired.state == "retired" and retired.manifest_sha256 == digest
-            with pytest.raises(ContractError, match="did not confirm"):
+            with pytest.raises(ContractError, match="Staging is busy"):
                 await previews.preview("notes", digest)
         with database.connect() as connection:
             states = connection.execute(

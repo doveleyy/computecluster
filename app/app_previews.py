@@ -161,6 +161,12 @@ class PreviewService:
                         state="retired",
                     )
                     payload.extend(retired.model_dump_json().encode())
+                elif method == "PUT" and response.status_code == 409:
+                    raise ContractError(
+                        "Staging is busy with other previews; wait for an "
+                        "installation to finish, or deploy or reject another "
+                        "app's preview, then press the same button again"
+                    )
                 elif response.status_code != 200:
                     raise ContractError(
                         "Staging did not confirm this attempt; "
