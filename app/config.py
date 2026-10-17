@@ -157,10 +157,10 @@ def load_settings() -> Settings:
     max_artifact_store_bytes = positive_int(
         "HOME_PLATFORM_MAX_ARTIFACT_STORE_BYTES", 50 * 1024**3
     )
-    # On the Pi the artifact directory lives on the external SSD. If that disk is
-    # absent the mount point is an ordinary directory on the small system card,
-    # and writes would silently fill the boot disk. Set this so the API refuses
-    # to write unless the intended filesystem is actually mounted.
+    # In a deployment the artifact directory is a mounted share. If the mount is
+    # absent the mount point is an ordinary directory on the small system disk,
+    # and writes would silently fill it. Set this so the API refuses to write
+    # unless the intended filesystem is actually mounted.
     artifact_requires_mount = os.environ.get(
         "HOME_PLATFORM_ARTIFACT_REQUIRE_MOUNT", ""
     ).strip().lower() in {"1", "true", "yes"}
