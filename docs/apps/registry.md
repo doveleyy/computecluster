@@ -5,6 +5,14 @@ The launcher, shared navigation, and optional application monitoring read the
 same installed registrations. Home, Job Desk, and Dashboard remain built in.
 Navigation visibility does not authorize access to an application's routes.
 
+The launcher is the full library: it shows every installed app the viewer's
+role can open. The shared navigation shows the builtins and only the
+registered apps that the viewer pinned from the launcher. A pin is a
+preference, not a grant. An app that is no longer installed, or that the
+viewer's role cannot open, stays out of the navigation even when pinned.
+A newly registered app starts unpinned for everyone, so it appears on the
+launcher at once and in a user's navigation only after that user pins it.
+
 ## Registration
 
 For a new managed app, use [Register a published application](onboarding.md).
@@ -35,7 +43,8 @@ Presentation contains `label`, `health_name`, `position`, and `accent`.
 `kicker` and `description` are optional. Position determines order alongside
 the builtins; the app ID breaks ties. The shared navigation lists apps that
 every role can open before role-specific apps, and keeps position order within
-each group. The accent is a six-digit hex color.
+each group. Pins choose which apps appear, never their order. The accent is a
+six-digit hex color.
 
 Bindings contain named `secret_files`, non-secret `settings`, optional state
 and backup directory references, named `integration_bindings`, and declared
@@ -61,9 +70,10 @@ and a required `v1-status` probe. It requires an absolute app state directory.
 The core gateway serves its registered route and verifies its caller. Recording
 this observation still does not start a container or approve a release. Where
 an installer policy is configured, the gateway serves a managed app only from
-an accepted installation, so the app joins the launcher, shared navigation and
-system health monitoring with its first accepted install rather than showing a
-link the gateway refuses or a probe of a container that does not exist yet.
+an accepted installation, so the app joins the launcher and system health
+monitoring, and can be pinned to the shared navigation, with its first accepted
+install rather than showing a link the gateway refuses or a probe of a
+container that does not exist yet.
 Previews have no installer policy and list their app at once.
 Existing script-managed installations retain their separate hosting path.
 

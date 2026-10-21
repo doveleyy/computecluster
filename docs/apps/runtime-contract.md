@@ -101,7 +101,9 @@ directly on loopback. Health endpoints must expose no user data.
 
 The optional shared navigation document is `/platform/bar?app=<APP_ID>` on the
 same external origin. It is navigation, not authorization. The core decides
-which installed apps the viewer can access.
+which installed apps the viewer can access, and shows those the viewer pinned
+from the launcher. Every installed app can frame the document, pinned or not;
+an unpinned app's page shows the navigation without marking a current app.
 
 ## User identity
 
