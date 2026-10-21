@@ -58,6 +58,8 @@ BUILTIN_APPS: tuple[tuple[int, PlatformApp], ...] = (
     ),
 )
 
+BUILTIN_KEYS = frozenset(app.key for _, app in BUILTIN_APPS)
+
 
 def viewer_role(
     request: Request, account_store: AccountStore, session_cookie: str | None

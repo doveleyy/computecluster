@@ -53,6 +53,7 @@ from app.app_registry import decode_registration
 from app.dashboard_auth import (
     SESSION_COOKIE,
     AdminSession,
+    same_origin,
     session_claims,
     session_secret,
 )
@@ -115,14 +116,8 @@ def csrf(request: Request) -> str:
 
 
 def mutation(request: Request) -> None:
-    expected = os.environ.get("HOME_PLATFORM_APPS_ORIGIN")
-    origins = request.headers.getlist("origin")
-    if (
-        expected is None
-        or origins != [expected]
-        or not hmac.compare_digest(
-            request.headers.get("x-csrf-token", ""), csrf(request)
-        )
+    if not same_origin(request) or not hmac.compare_digest(
+        request.headers.get("x-csrf-token", ""), csrf(request)
     ):
         raise HTTPException(403, "Same-origin request and CSRF token required")
 

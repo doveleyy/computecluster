@@ -5,6 +5,7 @@ per-member storage and Workspace entitlements all resolve here so every route
 group shares one definition of each.
 """
 
+import os
 import time
 from pathlib import Path
 from secrets import compare_digest
@@ -126,6 +127,13 @@ ServiceIdentityToken = Annotated[None, Depends(require_service_identity_token)]
 
 def owner_scope(identity: SessionIdentity) -> str | None:
     return None if identity.is_admin else str(identity.id)
+
+
+def same_origin(request: Request) -> bool:
+    """Whether a browser mutation names the one configured origin. Without that
+    configuration every mutation is refused."""
+    expected = os.environ.get("HOME_PLATFORM_APPS_ORIGIN")
+    return expected is not None and request.headers.getlist("origin") == [expected]
 
 
 def tailscale_request_identity(

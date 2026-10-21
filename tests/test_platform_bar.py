@@ -16,6 +16,7 @@ from app.main import create_app
 TOKEN = "test-secret"
 MEMBER_PASSWORD = "member password 1234"
 TAILNET = {"Tailscale-User-Login": "member@example.test", "Tailscale-User-Name": "M"}
+ORIGIN = "https://testserver"
 REPO = Path(__file__).resolve().parents[1]
 # Every page frames the bar with this one tag, so no app can size, offset or
 # restyle it; only the app key varies.
@@ -29,6 +30,7 @@ BAR_FRAME = (
 @contextmanager
 def platform(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setenv("HOME_PLATFORM_API_TOKEN", TOKEN)
+    monkeypatch.setenv("HOME_PLATFORM_APPS_ORIGIN", ORIGIN)
     with TestClient(
         create_app(tmp_path / "jobs.db"), base_url="https://testserver"
     ) as client:
@@ -47,6 +49,21 @@ def sign_in_member(client: TestClient) -> None:
         "/dashboard/login", json={"username": "member", "password": MEMBER_PASSWORD}
     )
     assert response.status_code == 204
+
+
+def link_member(client: TestClient) -> None:
+    """Sign in as the member and link the TAILNET login to that account."""
+    sign_in_member(client)
+    linked = client.post("/jobs-ui/api/account/identities/tailscale", headers=TAILNET)
+    assert linked.status_code == 200
+
+
+def pin(client: TestClient, *app_ids: str, tailnet: dict[str, str] = TAILNET) -> None:
+    for app_id in app_ids:
+        pinned = client.put(
+            f"/platform/pins/{app_id}", headers={**tailnet, "Origin": ORIGIN}
+        )
+        assert pinned.status_code == 204, app_id
 
 
 def register_sample_apps(registry: AppRegistry) -> None:
@@ -91,11 +108,15 @@ def test_bar_shows_each_role_only_the_apps_it_can_open(
 ) -> None:
     with platform(tmp_path, monkeypatch) as client:
         register_sample_apps(client.app.state.app_registry)
-        admin = client.get("/platform/bar", params={"app": "toolbox"})
-        sign_in_member(client)
-        member = client.get("/platform/bar", params={"app": "notes"})
+        link_member(client)
+        pin(client, "notes", "calendar", "weather", "toolbox")
+        member = client.get("/platform/bar", params={"app": "notes"}, headers=TAILNET)
         client.post("/dashboard/logout")
-        anonymous = client.get("/platform/bar", params={"app": "calendar"})
+        anonymous = client.get(
+            "/platform/bar", params={"app": "calendar"}, headers=TAILNET
+        )
+        assert client.post("/dashboard/login", json={"token": TOKEN}).status_code == 204
+        admin = client.get("/platform/bar", params={"app": "toolbox"}, headers=TAILNET)
 
     assert admin.status_code == 200
     assert bar_links(admin.text) == [
@@ -142,7 +163,6 @@ def test_bar_rejects_an_app_outside_the_registry(
 def test_new_registration_appears_on_the_next_browser_read_and_after_restart(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    application = create_app(tmp_path / "dynamic.db")
     definition = {
         "app_id": "notes",
         "route": "/notes",
@@ -157,16 +177,22 @@ def test_new_registration_appears_on_the_next_browser_read_and_after_restart(
         },
         "installation": {"owner": "legacy-scripts", "host_port": 19000},
     }
-    with TestClient(application) as client:
-        assert client.get("/platform/bar", params={"app": "notes"}).status_code == 400
-        application.state.app_registry.register(json.dumps(definition).encode())
-        current = client.get("/platform/bar", params={"app": "notes"})
+    bar = {"url": "/platform/bar", "params": {"app": "notes"}, "headers": TAILNET}
+    with platform(tmp_path, monkeypatch) as client:
+        link_member(client)
+        client.post("/dashboard/logout")
+        assert client.get(**bar).status_code == 400
+        client.app.state.app_registry.register(json.dumps(definition).encode())
+        pin(client, "notes")
+        current = client.get(**bar)
         assert current.status_code == 200
         assert ("/notes/", "Notes &lt;safe&gt;", True) in bar_links(current.text)
         assert '<a href="/notes/" aria-current="page"' in current.text
         assert "<safe>" not in current.text
-    with TestClient(create_app(tmp_path / "dynamic.db")) as client:
-        assert client.get("/platform/bar", params={"app": "notes"}).text == current.text
+    with TestClient(
+        create_app(tmp_path / "jobs.db"), base_url="https://testserver"
+    ) as client:
+        assert client.get(**bar).text == current.text
 
 
 def test_bar_divider_follows_every_shared_app_when_a_role_app_sorts_first(
@@ -189,7 +215,11 @@ def test_bar_divider_follows_every_shared_app_when_a_role_app_sorts_first(
     with platform(tmp_path, monkeypatch) as client:
         register_sample_apps(client.app.state.app_registry)
         client.app.state.app_registry.register(json.dumps(definition).encode())
-        admin = client.get("/platform/bar", params={"app": "vault"})
+        link_member(client)
+        pin(client, "notes", "calendar", "weather", "toolbox", "vault")
+        client.post("/dashboard/logout")
+        assert client.post("/dashboard/login", json={"token": TOKEN}).status_code == 204
+        admin = client.get("/platform/bar", params={"app": "vault"}, headers=TAILNET)
 
     sequence = re.findall(r'<li class="sep"|href="([^"]+)"', admin.text)
     assert [item or "|" for item in sequence] == [

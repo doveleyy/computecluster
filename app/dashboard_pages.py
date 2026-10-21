@@ -1,20 +1,23 @@
-"""The HTML shells, the tailnet launcher page, and the platform bar."""
+"""The HTML shells, the tailnet launcher page, the platform bar, and its pins."""
 
 from html import escape
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Cookie, Header, HTTPException, Request, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 
-from app.app_registry import AppRegistry
+from app.accounts import AccountStore, SessionIdentity
+from app.app_registry import AppNotServed, AppRegistry
 from app.dashboard_auth import (
     SESSION_COOKIE,
     AccountStoreDependency,
+    same_origin,
     session_identity,
     tailscale_request_identity,
 )
 from app.platform_apps import (
+    BUILTIN_KEYS,
     render_bar,
     render_launcher_tiles,
     viewer_role,
@@ -25,6 +28,7 @@ JOBS_HTML = Path(__file__).with_name("jobs.html").read_text()
 HOME_HTML = Path(__file__).with_name("home.html").read_text()
 
 SessionCookie = Annotated[str | None, Cookie(alias=SESSION_COOKIE)]
+TailscaleLogin = Annotated[str | None, Header(alias="Tailscale-User-Login")]
 
 router = APIRouter()
 
@@ -100,24 +104,76 @@ def jobs_files_page() -> str:
     return JOB_DESK_HTML
 
 
+def linked_user(
+    request: Request, account_store: AccountStore, login: str | None
+) -> SessionIdentity | None:
+    tailnet = tailscale_request_identity(request, login, None)
+    if tailnet is None:
+        return None
+    return account_store.resolve_external_identity("tailscale", tailnet[0])
+
+
+def require_linked_user(
+    request: Request,
+    account_store: AccountStoreDependency,
+    login: TailscaleLogin = None,
+) -> SessionIdentity:
+    if tailscale_request_identity(request, login, None) is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Open Home Platform through its private Tailscale URL",
+        )
+    identity = linked_user(request, account_store, login)
+    if identity is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Link this Tailscale identity from your Job Desk account first",
+        )
+    return identity
+
+
+LinkedUser = Annotated[SessionIdentity, Depends(require_linked_user)]
+
+
+def require_same_origin(request: Request) -> None:
+    """The Tailscale header is ambient, so a pin change must also prove it was
+    sent from the platform's own pages."""
+    if not same_origin(request):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Same-origin request required"
+        )
+
+
 @router.get("/platform/bar", response_class=HTMLResponse)
 def platform_bar(
     request: Request,
     account_store: AccountStoreDependency,
     app: str,
     session: SessionCookie = None,
+    tailscale_login: TailscaleLogin = None,
 ) -> HTMLResponse:
-    """The cross-app navigation strip every app frames; the role comes from the
-    dashboard cookie alone, so a visitor without one sees the member set."""
+    """The cross-app navigation strip every app frames. The role comes from the
+    dashboard cookie alone, so a visitor without one sees the member set; the
+    registered apps are those the linked Tailscale user pinned, so a request
+    without a linked user sees only the builtins."""
     registry: AppRegistry = request.app.state.app_registry
     role = viewer_role(request, account_store, session)
+    viewer = linked_user(request, account_store, tailscale_login)
+    pins = registry.pins(viewer.id) if viewer is not None else frozenset()
     apps = registry.navigation()
     if app not in {item.key for item in apps}:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="Unknown platform app"
         )
     return HTMLResponse(
-        render_bar(tuple(item for item in apps if role in item.roles), app),
+        render_bar(
+            tuple(
+                item
+                for item in apps
+                if role in item.roles and (item.key in BUILTIN_KEYS or item.key in pins)
+            ),
+            app,
+        ),
         headers={
             "Cache-Control": "no-store",
             "Content-Security-Policy": "frame-ancestors 'self'",
@@ -126,28 +182,36 @@ def platform_bar(
     )
 
 
+@router.put(
+    "/platform/pins/{app_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_same_origin)],
+)
+def pin_app(request: Request, app_id: str, identity: LinkedUser) -> None:
+    try:
+        request.app.state.app_registry.pin(identity.id, app_id)
+    except AppNotServed:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Unknown platform app"
+        ) from None
+
+
+@router.delete(
+    "/platform/pins/{app_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_same_origin)],
+)
+def unpin_app(request: Request, app_id: str, identity: LinkedUser) -> None:
+    request.app.state.app_registry.unpin(identity.id, app_id)
+
+
 @router.get("/", response_class=HTMLResponse)
 def home_page(
     request: Request,
     account_store: AccountStoreDependency,
-    tailscale_login: Annotated[str | None, Header(alias="Tailscale-User-Login")] = None,
-    tailscale_name: Annotated[str | None, Header(alias="Tailscale-User-Name")] = None,
+    identity: LinkedUser,
     session: SessionCookie = None,
 ) -> str:
-    request_identity = tailscale_request_identity(
-        request, tailscale_login, tailscale_name
-    )
-    if request_identity is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Open Home Platform through its private Tailscale URL",
-        )
-    identity = account_store.resolve_external_identity("tailscale", request_identity[0])
-    if identity is None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Link this Tailscale identity from your Job Desk account first",
-        )
     role = viewer_role(request, account_store, session)
     return HOME_HTML.replace(
         "__DISPLAY_NAME__", escape(identity.username, quote=True)
