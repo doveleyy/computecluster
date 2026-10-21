@@ -197,7 +197,7 @@ def test_failed_fresh_initialization_rolls_back_schema_and_retries(
 
     with monkeypatch.context() as failure:
         failure.setattr(
-            migrations, "MIGRATIONS", (*migrations.MIGRATIONS, (25, interrupted))
+            migrations, "MIGRATIONS", (*migrations.MIGRATIONS, (26, interrupted))
         )
         with pytest.raises(sqlite3.OperationalError, match="injected bootstrap"):
             database.initialize()
@@ -232,7 +232,7 @@ def test_fresh_bootstrap_preserves_registrations_added_after_historical_seeds(
         )
 
     monkeypatch.setattr(
-        migrations, "MIGRATIONS", (*migrations.MIGRATIONS, (25, register_explicit_app))
+        migrations, "MIGRATIONS", (*migrations.MIGRATIONS, (26, register_explicit_app))
     )
     database = Database(tmp_path / "explicit-migration.db")
     database.initialize()

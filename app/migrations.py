@@ -828,6 +828,21 @@ def add_registration_proposals(connection: sqlite3.Connection) -> None:
             )
 
 
+def add_app_pins(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        "CREATE TABLE app_pins (user_id TEXT NOT NULL REFERENCES users(id) "
+        "ON DELETE CASCADE, app_id TEXT NOT NULL REFERENCES "
+        "app_registrations(app_id), PRIMARY KEY (user_id, app_id))"
+    )
+    # Every bar looked like this before pins existed; only later registrations
+    # start unpinned.
+    connection.execute(
+        "INSERT INTO app_pins (user_id, app_id) "
+        "SELECT users.id, app_registrations.app_id "
+        "FROM users CROSS JOIN app_registrations"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (1, create_jobs_table),
     (2, add_execution_columns),
@@ -853,4 +868,5 @@ MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (22, add_app_deployments),
     (23, add_release_commit_facts),
     (24, add_registration_proposals),
+    (25, add_app_pins),
 )

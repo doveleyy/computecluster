@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.app_registry import AppRegistry
 from app.main import create_app
 
 TOKEN = "test-secret"
@@ -48,7 +49,7 @@ def sign_in_member(client: TestClient) -> None:
     assert response.status_code == 204
 
 
-def register_sample_apps(client: TestClient) -> None:
+def register_sample_apps(registry: AppRegistry) -> None:
     for index, (app_id, label, access) in enumerate(
         (
             ("notes", "Notes", "linked-user"),
@@ -71,7 +72,7 @@ def register_sample_apps(client: TestClient) -> None:
             },
             "installation": {"owner": "legacy-scripts", "host_port": 19000 + index},
         }
-        client.app.state.app_registry.register(json.dumps(definition).encode())
+        registry.register(json.dumps(definition).encode())
 
 
 def bar_links(html: str) -> list[tuple[str, str, bool]]:
@@ -89,7 +90,7 @@ def test_bar_shows_each_role_only_the_apps_it_can_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with platform(tmp_path, monkeypatch) as client:
-        register_sample_apps(client)
+        register_sample_apps(client.app.state.app_registry)
         admin = client.get("/platform/bar", params={"app": "toolbox"})
         sign_in_member(client)
         member = client.get("/platform/bar", params={"app": "notes"})
@@ -186,7 +187,7 @@ def test_bar_divider_follows_every_shared_app_when_a_role_app_sorts_first(
         "installation": {"owner": "legacy-scripts", "host_port": 19000},
     }
     with platform(tmp_path, monkeypatch) as client:
-        register_sample_apps(client)
+        register_sample_apps(client.app.state.app_registry)
         client.app.state.app_registry.register(json.dumps(definition).encode())
         admin = client.get("/platform/bar", params={"app": "vault"})
 
@@ -262,7 +263,7 @@ def test_launcher_shows_one_tile_per_app_the_role_can_open(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with platform(tmp_path, monkeypatch) as client:
-        register_sample_apps(client)
+        register_sample_apps(client.app.state.app_registry)
         sign_in_member(client)
         linked = client.post(
             "/jobs-ui/api/account/identities/tailscale", headers=TAILNET

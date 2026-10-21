@@ -321,7 +321,7 @@ def test_migration_23_keeps_schema_22_releases_and_their_immutability(
             connection.execute("SELECT max(version) FROM schema_migrations").fetchone()[
                 0
             ]
-            == 24
+            == migrations.MIGRATIONS[-1][0]
         )
         with pytest.raises(sqlite3.IntegrityError, match="immutable"):
             connection.execute(

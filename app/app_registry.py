@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
+from uuid import UUID
 
 from app.app_contracts import (
     ContractError,
@@ -59,6 +60,10 @@ CORE_APP_IDS = frozenset({"home", "jobs", "dashboard"})
 
 
 class RegistrationConflict(ContractError):
+    pass
+
+
+class AppNotServed(LookupError):
     pass
 
 
@@ -560,6 +565,31 @@ class AppRegistry:
             )
         positioned.sort(key=lambda pair: (pair[0], pair[1].key))
         return tuple(app for _, app in positioned if role is None or role in app.roles)
+
+    def pins(self, user_id: UUID) -> frozenset[str]:
+        """The registered apps this user keeps in the bar. A preference only:
+        navigation still decides what the user may open."""
+        with self.database.connect() as connection:
+            rows = connection.execute(
+                "SELECT app_id FROM app_pins WHERE user_id = ?", (str(user_id),)
+            ).fetchall()
+        return frozenset(row[0] for row in rows)
+
+    def pin(self, user_id: UUID, app_id: str) -> None:
+        if app_id not in {registration.app_id for registration in self._served()}:
+            raise AppNotServed(app_id)
+        with self.database.connect() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO app_pins (user_id, app_id) VALUES (?, ?)",
+                (str(user_id), app_id),
+            )
+
+    def unpin(self, user_id: UUID, app_id: str) -> None:
+        with self.database.connect() as connection:
+            connection.execute(
+                "DELETE FROM app_pins WHERE user_id = ? AND app_id = ?",
+                (str(user_id), app_id),
+            )
 
     def monitoring(self) -> tuple[ProbeTarget, ...]:
         targets = []
