@@ -332,7 +332,9 @@ def test_launcher_shows_one_tile_per_app_the_role_can_open(
         assert '<canvas id="art" aria-hidden="true">' in page
         assert '<p class="art-alt">Decorative animation:' in page
         script = page[page.index("<script") :]
-        for service_call in ("fetch(", "XMLHttpRequest", "EventSource"):
+        # The one request the launcher makes is a pin change the viewer asks for.
+        assert re.findall(r"fetch\(`([^$`]*)", script) == ["/platform/pins/"]
+        for service_call in ("XMLHttpRequest", "EventSource"):
             assert service_call not in script
     assert "<strong>member</strong>" in member_home.text
 

@@ -110,16 +110,28 @@ def render_bar(apps: tuple[PlatformApp, ...], current: str) -> str:
     )
 
 
-def render_launcher_tiles(apps: tuple[PlatformApp, ...]) -> str:
-    """One link per app the role can open; the launcher itself is not a tile."""
-    tiles = (app for app in apps if app.key != "home")
-    return "".join(
-        f'<a class="tile" href="{escape(app.href, quote=True)}"'
-        f' style="--c:{app.accent}"><i aria-hidden="true"></i>'
-        f'<div class="tile-copy"><div class="tile-kicker">{escape(app.kicker)}</div>'
-        f'<div class="tile-name">{escape(app.label)}</div>'
-        f'<p class="tile-desc">{escape(app.description)}</p></div>'
-        '<span class="tile-go" aria-hidden="true">→</span>'
-        f'<span class="tile-key" aria-hidden="true">{index:02d}</span></a>'
-        for index, app in enumerate(tiles, start=1)
-    )
+def render_launcher_tiles(apps: tuple[PlatformApp, ...], pinned: frozenset[str]) -> str:
+    """One link per app the role can open; the launcher itself is not a tile.
+    Each registered app also gets a toggle for whether the viewer's bar shows
+    it. The toggle sits beside the link, since a button cannot nest in one."""
+    tiles: list[str] = []
+    for index, app in enumerate((app for app in apps if app.key != "home"), 1):
+        tile = (
+            f'<a class="tile" href="{escape(app.href, quote=True)}"'
+            f' style="--c:{app.accent}"><i aria-hidden="true"></i>'
+            f'<div class="tile-copy"><div class="tile-kicker">{escape(app.kicker)}'
+            f'</div><div class="tile-name">{escape(app.label)}</div>'
+            f'<p class="tile-desc">{escape(app.description)}</p></div>'
+            '<span class="tile-go" aria-hidden="true">→</span>'
+            f'<span class="tile-key" aria-hidden="true">{index:02d}</span></a>'
+        )
+        if app.key not in BUILTIN_KEYS:
+            pressed = "true" if app.key in pinned else "false"
+            tile = (
+                f'<div class="slot">{tile}<button class="pin" type="button"'
+                f' data-app="{escape(app.key, quote=True)}" aria-pressed="{pressed}"'
+                f' aria-label="Pin {escape(app.label, quote=True)} to the bar">'
+                "Pin</button></div>"
+            )
+        tiles.append(tile)
+    return "".join(tiles)

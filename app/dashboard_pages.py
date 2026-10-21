@@ -212,10 +212,11 @@ def home_page(
     identity: LinkedUser,
     session: SessionCookie = None,
 ) -> str:
+    registry: AppRegistry = request.app.state.app_registry
     role = viewer_role(request, account_store, session)
     return HOME_HTML.replace(
         "__DISPLAY_NAME__", escape(identity.username, quote=True)
     ).replace(
         "__TILES__",
-        render_launcher_tiles(request.app.state.app_registry.navigation(role)),
+        render_launcher_tiles(registry.navigation(role), registry.pins(identity.id)),
     )

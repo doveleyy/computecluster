@@ -134,7 +134,7 @@ def test_fresh_core_starts_without_external_apps_and_explicit_registration_survi
         "home",
         "dashboard",
     ]
-    tiles = render_launcher_tiles(registry.navigation(Role.ADMINISTRATOR))
+    tiles = render_launcher_tiles(registry.navigation(Role.ADMINISTRATOR), frozenset())
     assert 'href="/dashboard"' in tiles
     for route in ("/habits", "/wishlist", "/transport", "/sorter"):
         assert f'href="{route}' not in tiles
@@ -151,7 +151,9 @@ def test_fresh_core_starts_without_external_apps_and_explicit_registration_survi
         "jobs",
     ]
     assert [target.key for target in registry.monitoring()] == ["notes"]
-    assert 'href="/notes/"' in render_launcher_tiles(registry.navigation(Role.MEMBER))
+    assert 'href="/notes/"' in render_launcher_tiles(
+        registry.navigation(Role.MEMBER), frozenset()
+    )
     database.close()
 
 

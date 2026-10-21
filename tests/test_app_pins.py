@@ -2,6 +2,7 @@
 shows. Pins filter the bar; they never decide who may open an app."""
 
 import json
+import re
 from pathlib import Path
 from uuid import UUID
 
@@ -241,3 +242,28 @@ def test_a_pin_never_shows_an_app_the_role_cannot_open(
 
     assert member == signed_out == ["/", "/jobs-ui"]
     assert admin == ["/", "/dashboard", "/toolbox/"]
+
+
+def test_launcher_pin_toggles_mirror_the_viewers_pins_on_registered_tiles_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with platform(tmp_path, monkeypatch) as client:
+        register_sample_apps(client.app.state.app_registry)
+        link_member(client)
+        pin(client, "calendar")
+        page = client.get("/", headers=TAILNET).text
+
+    toggles = [
+        dict(re.findall(r'([\w-]+)="([^"]*)"', button))
+        for button in re.findall(r"<button [^>]*>", page)
+    ]
+    assert [
+        (toggle["data-app"], toggle["aria-pressed"], toggle["aria-label"])
+        for toggle in toggles
+    ] == [
+        ("notes", "false", "Pin Notes to the bar"),
+        ("calendar", "true", "Pin Calendar to the bar"),
+        ("weather", "false", "Pin Weather to the bar"),
+    ]
+    assert re.findall(r'<a class="tile" href="([^"]+)"', page)[-1] == "/jobs-ui"
+    assert re.search(r"<a [^>]*>(?:(?!</a>).)*<button", page, re.S) is None

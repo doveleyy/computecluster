@@ -10,7 +10,7 @@
     * { box-sizing:border-box; }
     html { background:var(--bg); }
     body { margin:0; min-width:280px; min-height:100vh; min-height:100dvh; overflow-x:hidden; background:linear-gradient(rgba(255,255,255,.017) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.017) 1px,transparent 1px),var(--bg); background-size:32px 32px; color:var(--text); font:14px/1.5 var(--mono); -webkit-font-smoothing:antialiased; }
-    a:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
+    a:focus-visible, button:focus-visible { outline:2px solid var(--cyan); outline-offset:2px; }
     .shell { width:min(1240px,100%); margin:0 auto; padding:max(24px,env(safe-area-inset-top)) max(18px,env(safe-area-inset-right)) max(52px,env(safe-area-inset-bottom)) max(18px,env(safe-area-inset-left)); }
     .eyebrow { color:var(--muted); font:600 10px/1.2 var(--mono); letter-spacing:.13em; text-transform:uppercase; }
     .brand { margin:5px 0 2px; font:600 clamp(24px,4vw,36px)/1 var(--mono); letter-spacing:-.06em; }
@@ -39,12 +39,22 @@
     .tile-desc { margin:8px 22px 0 0; color:var(--muted); font:11px/1.55 var(--mono); }
     .tile-go { position:absolute; top:14px; right:14px; color:var(--dim); font:700 10px var(--mono); }
     .tile-key { position:absolute; bottom:14px; right:14px; color:var(--dim); font:600 9px var(--mono); letter-spacing:.1em; }
+    .slot { position:relative; display:grid; }
+    .slot .tile { padding-bottom:58px; }
+    .pin { position:absolute; left:16px; bottom:12px; display:inline-flex; align-items:center; gap:8px; min-height:32px; padding:0 11px 0 9px; border:1px solid var(--line); border-radius:7px; background:transparent; color:var(--muted); font:600 9px var(--mono); letter-spacing:.13em; text-transform:uppercase; cursor:pointer; transition:border-color .16s ease, color .16s ease; }
+    .pin::before { content:""; width:9px; height:9px; border:1px solid var(--dim); border-radius:2px; }
+    .pin:hover { border-color:var(--strong); color:var(--text); }
+    .pin[aria-pressed="true"] { border-color:rgba(85,215,255,.32); color:var(--cyan); }
+    .pin[aria-pressed="true"]::before { border-color:var(--cyan); background:var(--cyan); box-shadow:inset 0 0 0 2px #0a0a0a, 0 0 8px rgba(85,215,255,.45); }
+    .pin[aria-busy="true"] { opacity:.55; cursor:progress; }
     footer { margin-top:28px; color:var(--dim); font:10px var(--mono); letter-spacing:.08em; }
     @media (max-width:600px) {
       .topbar { align-items:flex-start; flex-direction:column; gap:12px; }
       .clock { text-align:left; }
       .tiles { grid-template-columns:1fr; }
       .tile { min-height:0; }
+      .slot .tile { padding-bottom:64px; }
+      .pin { min-height:40px; padding:0 14px 0 12px; }
     }
   </style>
 </head>
@@ -104,6 +114,22 @@
         event.preventDefault();
         tile.click();
       });
+
+      for (const pin of document.querySelectorAll('button.pin')) {
+        pin.addEventListener('click', async () => {
+          if (pin.getAttribute('aria-busy') === 'true') return;
+          const pinned = pin.getAttribute('aria-pressed') === 'true';
+          pin.setAttribute('aria-busy', 'true');
+          try {
+            const response = await fetch(`/platform/pins/${encodeURIComponent(pin.dataset.app)}`, { method: pinned ? 'DELETE' : 'PUT' });
+            if (response.ok) pin.setAttribute('aria-pressed', String(!pinned));
+          } catch {
+            // A failed request leaves the toggle showing what the server last confirmed.
+          } finally {
+            pin.removeAttribute('aria-busy');
+          }
+        });
+      }
 
       // The scene is data: ASCII sprites (parts) drawn with fillText, each with one or
       // more frames and an optional paint overlay that recolours single cells, plus
