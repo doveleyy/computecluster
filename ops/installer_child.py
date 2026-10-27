@@ -109,8 +109,8 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    except ReconciliationPending:
-        print("Installation requires reconciliation", file=sys.stderr)
+    except ReconciliationPending as pending:
+        print(pending, file=sys.stderr)
         sys.exit(DEFERRED)
     except Exception:
         print("Installer child refused the operation", file=sys.stderr)

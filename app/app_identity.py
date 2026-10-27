@@ -127,6 +127,8 @@ class AppIdentity:
             or credential.environment != self.platform.instance.environment
         ):
             return Refusal(401, "Missing or invalid application credential")
+        if self.registry.retirement(credential.app_id) is not None:
+            return Refusal(403, "Application is retired")
         app = self.registry.managed_app(credential.app_id)
         if app is None:
             return Refusal(403, "Managed installation required")

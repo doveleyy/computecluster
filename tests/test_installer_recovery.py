@@ -17,35 +17,45 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from test_app_deployments import complete_rehearsal, push, request
+from test_app_platform import managed
 from test_app_registry import document, registration
 from test_managed_installer import helper as helper_fixture
 from test_managed_installer import installed_by_root
 from test_managed_installer import ledger as ledger_fixture
 
+from app.accounts import AccountStore
 from app.app_contracts import ContractError, Maintenance
 from app.app_deployment_contracts import (
+    KINDS,
     InstalledSnapshot,
+    InstallerCapabilities,
     OperationHint,
     Receipt,
+    RetiredSnapshot,
     fingerprint,
 )
 from app.app_deployments import (
+    ApplicationRetired,
+    ReconciliationPending,
+    accepted,
     eligible,
     pending_change,
     read_authority,
     read_installed_authority,
     registration_for,
+    retire_blocker,
+    retirement,
     update_registration,
 )
 from app.app_deployments import installed as accepted_install
 from app.app_gateway import AppGateway
-from app.app_identity import Refusal
+from app.app_identity import AppIdentity, Refusal
 from app.app_previews import CHECKS, PreviewResult
 from app.app_publication import sha256
 from app.app_registry import AppCredential, ManagedApp
 from app.app_runtime import docker_run_argv, runtime_spec
 from app.app_spool import publish, read_owned
-from app.config import InstanceFacts
+from app.config import AppPlatformSettings, InstanceFacts
 from app.identity import ADMIN_USER_ID
 from ops import managed_installer
 from ops.installer_policy import HostPolicy, app_fingerprint, maintenance_calendar
@@ -1879,3 +1889,282 @@ def test_managed_containers_choose_their_log_driver_independently_of_the_host(
     for argv in commands:
         assert argv[argv.index("--log-driver") + 1] == "local"
         assert log_options(argv) == ["max-size=1m", "max-file=1", "compress=false"]
+
+
+def advertise(ledger, kinds=tuple(KINDS)):
+    publish(
+        ledger.spool / "receipts" / "installer.json",
+        InstallerCapabilities(kinds=kinds).model_dump_json().encode(),
+    )
+
+
+def retire_request(ledger, current):
+    """Request a retirement as the card would: the installed digest and preview."""
+    advertise(ledger)
+    return request(
+        ledger,
+        "retire",
+        digest=current.selection.manifest_sha256,
+        preview_id=current.selection.preview_id,
+    )
+
+
+def retired_receipt(operation, last_installed, **changes):
+    selection = operation.approval.selection
+    retired = RetiredSnapshot(
+        operation_id=operation.operation_id,
+        generation=selection.generation + 1,
+        selection=selection,
+        registration=last_installed.registration,
+        last_installed=last_installed,
+        archive=None,
+    )
+    return Receipt(
+        operation_id=operation.operation_id,
+        selection=selection,
+        state="succeeded",
+        retired=retired.model_copy(update=changes),
+        authorization_committed=True,
+    )
+
+
+def retire(ledger, current=None):
+    current = current or install(ledger)
+    operation = retire_request(ledger, current)
+    switch_request(ledger, operation)
+    publish(
+        ledger.spool / "receipts" / f"{operation.operation_id}.json",
+        retired_receipt(operation, current).model_dump_json().encode(),
+    )
+    ledger.service.reconcile()
+    return current, operation
+
+
+def served(ledger, monkeypatch):
+    monkeypatch.setenv("HOME_PLATFORM_INSTALLER_POLICY", "/etc/home-platform/x.json")
+    return {
+        "navigation": [app.key for app in ledger.registry.navigation()],
+        "monitoring": [target.key for target in ledger.registry.monitoring()],
+    }
+
+
+def test_retire_selection_pins_the_installed_generation(ledger, monkeypatch):
+    current = install(ledger)
+    newer = push(ledger, monkeypatch, source_commit="c" * 40)
+    advertise(ledger)
+    with pytest.raises(ContractError, match="Retire target changed"):
+        request(ledger, "retire", digest=newer)
+    with pytest.raises(ContractError, match="Retire target changed"):
+        request(ledger, "retire", preview_id=uuid4())
+    operation = retire_request(ledger, current)
+    selected = operation.approval.selection
+    assert selected.generation == 1
+    assert selected.manifest_sha256 == current.selection.manifest_sha256
+    assert selected.preview_id == current.selection.preview_id
+    assert selected.registration_sha256 == fingerprint(current.registration)
+    with ledger.database.connect() as connection:
+        authority = read_authority(connection, operation.operation_id, "a" * 64)
+    assert authority.previous == current
+    assert authority.registration == current.registration
+
+
+def test_retire_refuses_while_compute_runs_are_queued_or_running(ledger):
+    current = install(ledger)
+    raw = sqlite3.connect(ledger.database.path)
+    with raw:
+        for index, status in enumerate(("QUEUED", "RUNNING", "COMPLETED")):
+            raw.execute(
+                "INSERT INTO jobs(id,type,parameters_json,status,created_at,"
+                "updated_at,group_id,owner_user_id) VALUES "
+                "(?,'app','{}',?,'t','t',?,?)",
+                (f"job-{index}", status, f"group-{index}", ADMIN_USER_ID),
+            )
+            raw.execute(
+                "INSERT INTO app_runs(group_id,app_id,owner_user_id,installation_id,"
+                "submission_key,payload_sha256,inputs_json) VALUES "
+                "(?,'notes','owner','workload',?,'p','[]')",
+                (f"group-{index}", f"key-{index}"),
+            )
+    raw.close()
+    with ledger.database.connect() as connection:
+        assert retire_blocker(connection, "notes") == (
+            "2 compute runs still queued or running"
+        )
+    with pytest.raises(ContractError, match="2 compute runs still queued"):
+        retire_request(ledger, current)
+    assert not list((ledger.spool / "requests").iterdir())
+
+
+def test_retire_receipt_appends_a_retired_generation_and_installed_becomes_none(
+    ledger, monkeypatch
+):
+    current, operation = retire(ledger)
+    with ledger.database.connect() as connection:
+        states = dict(connection.execute("SELECT kind, state FROM app_operations"))
+        assert states["retire"] == "succeeded"
+        assert accepted_install(connection, "notes", "test") is None
+        assert accepted_install(connection, "notes", "test", 1) is None
+        latest = accepted(connection, "notes", "test")
+        assert isinstance(latest, RetiredSnapshot)
+        assert latest.generation == 2 and latest.last_installed == current
+        assert retirement(connection, "notes", "test") == latest
+        assert pending_change(connection, "notes", "test") is None
+        with pytest.raises(ApplicationRetired, match="retired") as refused:
+            read_installed_authority(connection, "notes")
+        assert isinstance(refused.value, ReconciliationPending)
+    assert not (ledger.spool / "requests" / f"{operation.operation_id}.json").exists()
+    with gateway(ledger) as client:
+        response = client.get("/apps/notes/")
+    assert response.status_code == 503
+    assert "retired" in response.text
+    assert ledger.registry.retirement("notes") is not None
+    assert "notes" not in served(ledger, monkeypatch)["navigation"]
+    assert "notes" not in served(ledger, monkeypatch)["monitoring"]
+    with pytest.raises(ContractError, match="Nothing is installed to retire"):
+        retire_request(ledger, current)
+
+
+def test_retired_receipt_must_name_the_row_it_retires(ledger):
+    current = install(ledger)
+    operation = retire_request(ledger, current)
+    switch_request(ledger, operation)
+    stale = current.model_copy(update={"operation_id": uuid4()})
+    publish(
+        ledger.spool / "receipts" / f"{operation.operation_id}.json",
+        retired_receipt(operation, stale).model_dump_json().encode(),
+    )
+    ledger.service.reconcile()
+    with ledger.database.connect() as connection:
+        state, error = connection.execute(
+            "SELECT state, reconcile_error FROM app_operations WHERE kind = 'retire'"
+        ).fetchone()
+        assert (state, error) == ("switching", "Installer retirement is incomplete")
+        assert accepted_install(connection, "notes", "test") == current
+
+
+def test_gateway_closes_while_a_retirement_switches(ledger):
+    current = install(ledger)
+    operation = retire_request(ledger, current)
+    with gateway(ledger) as client:
+        assert client.get("/apps/notes/").status_code == 403
+    switch_request(ledger, operation)
+    with gateway(ledger) as client:
+        response = client.get("/apps/notes/")
+    assert response.status_code == 503
+    assert "pending" in response.text
+
+
+def test_restore_deploy_selects_the_retired_generation_and_lands_at_n_plus_two(
+    ledger, monkeypatch
+):
+    current, _ = retire(ledger)
+    rehearsal = request(ledger)
+    assert rehearsal.approval.selection.generation == 2
+    complete_rehearsal(ledger, rehearsal)
+    deploy = request(ledger, "deploy", rehearsal_id=rehearsal.operation_id)
+    with ledger.database.connect() as connection:
+        authority = read_authority(connection, deploy.operation_id, "a" * 64)
+    assert isinstance(authority.previous, RetiredSnapshot)
+    assert authority.previous.last_installed == current
+    restored = accept(ledger, deploy, 3)
+    with ledger.database.connect() as connection:
+        assert accepted_install(connection, "notes", "test") == restored
+        assert accepted_install(connection, "notes", "test", 1) is None, (
+            "a rollback was offered across the retirement"
+        )
+        assert retirement(connection, "notes", "test") is None
+        assert read_installed_authority(connection, "notes").previous == restored
+    with gateway(ledger) as client:
+        assert client.get("/apps/notes/").status_code == 403
+    assert served(ledger, monkeypatch)["navigation"].count("notes") == 1
+
+
+def test_registration_updates_apply_directly_while_retired(ledger):
+    retire(ledger)
+    with ledger.database.connect() as connection:
+        registration = registration_for(connection, "notes")
+    changed = settings_change(registration)
+    assert update_registration(ledger.database, changed) == "updated"
+    with ledger.database.connect() as connection:
+        assert registration_for(connection, "notes").bindings.settings
+        assert (
+            connection.execute(
+                "SELECT count(*) FROM app_registration_proposals"
+            ).fetchone()[0]
+            == 0
+        )
+
+
+def test_one_retirement_leaves_other_apps_served_and_their_history_untouched(
+    ledger, monkeypatch, tmp_path
+):
+    current = install(ledger)
+    peer = managed("habits", "/apps/habits", state=str(tmp_path / "habits-state"))
+    ledger.registry.register(document(peer))
+    habits_operation = uuid4()
+    with ledger.database.connect() as connection:
+        registration = registration_for(connection, "habits")
+        habits = current.model_copy(
+            update={
+                "operation_id": habits_operation,
+                "registration": registration,
+                "selection": current.selection.model_copy(
+                    update={
+                        "app_id": "habits",
+                        "registration_sha256": fingerprint(registration),
+                    }
+                ),
+            }
+        )
+        connection.execute(
+            "INSERT INTO app_operations(operation_id,request_id,app_id,environment,"
+            "kind,state,operation_json) VALUES "
+            "(?,?,'habits','test','deploy','succeeded','{}')",
+            (str(habits_operation), str(uuid4())),
+        )
+        connection.execute(
+            "INSERT INTO app_installed_history VALUES (?,'habits','test',1,?)",
+            (str(habits_operation), habits.model_dump_json()),
+        )
+
+    def habits_rows():
+        with ledger.database.connect() as connection:
+            return connection.execute(
+                "SELECT * FROM app_installed_history WHERE app_id = 'habits'"
+            ).fetchall()
+
+    before = habits_rows()
+    assert ledger.registry._accepted_installs() == {"notes", "habits"}
+    operation = retire_request(ledger, current)
+    switch_request(ledger, operation)
+    publish(
+        ledger.spool / "receipts" / f"{operation.operation_id}.json",
+        retired_receipt(operation, current).model_dump_json().encode(),
+    )
+    ledger.service.reconcile()
+    assert ledger.registry._accepted_installs() == {"habits"}
+    assert habits_rows() == before
+    assert ledger.registry.retirement("habits") is None
+    keys = served(ledger, monkeypatch)["navigation"]
+    assert "habits" in keys and "notes" not in keys
+    with ledger.database.connect() as connection:
+        assert accepted_install(connection, "habits", "test") == habits
+
+
+def test_retired_credential_is_refused_as_retired_not_as_missing(ledger):
+    identity = AppIdentity(
+        AccountStore(ledger.database),
+        ledger.registry,
+        AppPlatformSettings(
+            InstanceFacts("test", "http://127.0.0.1:1/api/apps/v1", "UTC"), b"c" * 32
+        ),
+    )
+    credential = ledger.registry.active_credential("notes")
+    bearer = "Bearer " + credential.file_path.read_text().strip()
+    current = install(ledger)
+    assert identity.verify(bearer, None) == Refusal(
+        401, "Missing or invalid user context"
+    )
+    retire(ledger, current)
+    assert identity.verify(bearer, None) == Refusal(403, "Application is retired")
+    assert identity.verify("Bearer " + "0" * 64, None).status == 401

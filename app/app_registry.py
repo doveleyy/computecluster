@@ -21,7 +21,7 @@ from app.app_contracts import (
     host_path,
     parse_document,
 )
-from app.app_deployment_contracts import fingerprint
+from app.app_deployment_contracts import SWITCHING_KINDS, RetiredSnapshot, fingerprint
 from app.config import InstanceFacts
 from app.database import Database
 from app.platform_apps import (
@@ -218,17 +218,20 @@ class AppRegistry:
 
     def admission_refusal(self, app_id: str, *, require_installed: bool) -> str | None:
         """Why the gateway holds requests for this app, or None to admit them."""
-        from app.app_deployments import installed
+        from app.app_deployments import installed, retirement
 
         facts = self.instance()
+        kinds = sorted(SWITCHING_KINDS)
         with self.database.connect() as connection:
             if connection.execute(
-                "SELECT 1 FROM app_operations WHERE app_id = ? "
-                "AND kind IN ('deploy', 'rollback', 'recover') "
-                "AND state IN ('switching', 'blocked')",
-                (app_id,),
+                "SELECT 1 FROM app_operations WHERE app_id = ? AND kind IN ("
+                + ",".join("?" * len(kinds))
+                + ") AND state IN ('switching', 'blocked')",
+                (app_id, *kinds),
             ).fetchone():
                 return "Application installation is pending"
+            if facts is not None and retirement(connection, app_id, facts.environment):
+                return "Application is retired"
             if require_installed and (
                 facts is None
                 or installed(connection, app_id, facts.environment) is None
@@ -237,6 +240,15 @@ class AppRegistry:
                     "Application is not installed; approve a release from the Apps page"
                 )
         return None
+
+    def retirement(self, app_id: str) -> RetiredSnapshot | None:
+        from app.app_deployments import retirement
+
+        facts = self.instance()
+        if facts is None:
+            return None
+        with self.database.connect() as connection:
+            return retirement(connection, app_id, facts.environment)
 
     def publish_instance(self, facts: InstanceFacts) -> None:
         with self.database.connect() as connection:
@@ -523,8 +535,10 @@ class AppRegistry:
             return frozenset()
         with self.database.connect() as connection:
             rows = connection.execute(
-                "SELECT DISTINCT app_id FROM app_installed_history "
-                "WHERE environment = ?",
+                "SELECT app_id FROM app_installed_history AS latest "
+                "WHERE environment = ? AND kind = 'installed' AND generation = "
+                "(SELECT max(generation) FROM app_installed_history WHERE app_id = "
+                "latest.app_id AND environment = latest.environment)",
                 (facts.environment,),
             ).fetchall()
         return frozenset(row[0] for row in rows)

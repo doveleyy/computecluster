@@ -21,14 +21,19 @@ from app.app_contracts import (
     parse_document,
 )
 from app.app_deployment_contracts import (
+    KINDS,
+    AcceptedSnapshot,
     Approval,
     InstalledSnapshot,
     Kind,
     Operation,
     OperationHint,
     Receipt,
+    RetiredSnapshot,
     Selection,
+    decode_accepted,
     fingerprint,
+    running_of,
 )
 from app.app_previews import CHECKS, PreviewResult
 from app.app_publication import VerifiedPublication, verify_package
@@ -47,14 +52,15 @@ class Authority(Contract):
     credential_verifier: str
     archive_base64: str
     artifact_id: int
-    previous: InstalledSnapshot | None
+    previous: AcceptedSnapshot | None
     app_api_url: str
     timezone: str
 
 
-def installed(
+def accepted(
     connection: sqlite3.Connection, app_id: str, environment: str, offset: int = 0
-) -> InstalledSnapshot | None:
+) -> AcceptedSnapshot | None:
+    """The latest accepted generation, running or retired."""
     row = connection.execute(
         (
             "SELECT snapshot_json FROM app_installed_history WHERE app_id"
@@ -63,7 +69,28 @@ def installed(
         ),
         (app_id, environment, offset),
     ).fetchone()
-    return parse_document(InstalledSnapshot, row[0].encode()) if row else None
+    return decode_accepted(row[0].encode()) if row else None
+
+
+def installed(
+    connection: sqlite3.Connection, app_id: str, environment: str, offset: int = 0
+) -> InstalledSnapshot | None:
+    """The running installation, or with ``offset`` 1 its rollback target.
+
+    None while retired. A retirement between the running generation and an
+    older one is not a rollback target either: its container is gone.
+    """
+    latest = running_of(accepted(connection, app_id, environment))
+    if offset == 0 or latest is None:
+        return latest
+    return running_of(accepted(connection, app_id, environment, offset))
+
+
+def retirement(
+    connection: sqlite3.Connection, app_id: str, environment: str
+) -> RetiredSnapshot | None:
+    current = accepted(connection, app_id, environment)
+    return current if isinstance(current, RetiredSnapshot) else None
 
 
 def environment_of(connection: sqlite3.Connection) -> str | None:
@@ -222,11 +249,18 @@ def approved_registration(
         if blocked_operation(connection, app_id) is None:
             raise ContractError("Recovery target changed")
         return registration
-    if kind == "rollback":
+    if kind in {"rollback", "retire"}:
         environment = environment_of(connection)
-        target = installed(connection, app_id, environment, 1) if environment else None
+        offset = 1 if kind == "rollback" else 0
+        target = (
+            installed(connection, app_id, environment, offset) if environment else None
+        )
         if target is None:
-            raise ContractError("Rollback target changed")
+            raise ContractError(
+                "Rollback target changed"
+                if kind == "rollback"
+                else "Nothing is installed to retire"
+            )
         return target.registration
     return proposed_registration(connection, app_id)
 
@@ -260,7 +294,7 @@ def shown_change(connection: sqlite3.Connection, selection: Selection) -> str | 
         "AND environment = ? AND generation = ?",
         (selection.app_id, selection.environment, selection.generation),
     ).fetchone()
-    base = parse_document(InstalledSnapshot, row[0].encode()).registration
+    base = decode_accepted(row[0].encode()).registration
     return (
         None
         if fingerprint(base) == selection.registration_sha256
@@ -312,6 +346,15 @@ def selection_for(
         or credential["environment"] != instance["environment"]
     ):
         raise ContractError("Active application credentials are required")
+    if kind == "retire":
+        current = installed(connection, app_id, instance["environment"])
+        if current is None:
+            raise ContractError("Nothing is installed to retire")
+        if (
+            digest != current.selection.manifest_sha256
+            or preview_id != current.selection.preview_id
+        ):
+            raise ContractError("Retire target changed")
     if kind in {"rehearse", "deploy"}:
         if connection.execute(
             "SELECT 1 FROM app_rejections WHERE app_id = ? AND manifest_sha256 = ?",
@@ -336,7 +379,7 @@ def selection_for(
             or not all(preview.checks.values())
         ):
             raise ContractError("Preview does not match the selected release")
-    previous = installed(connection, app_id, instance["environment"])
+    previous = accepted(connection, app_id, instance["environment"])
     return Selection(
         app_id=app_id,
         environment=instance["environment"],
@@ -398,7 +441,7 @@ def read_authority(
             or parse_document(Receipt, rehearsal[0].encode()).selection != selected
         ):
             raise ContractError("Compatibility rehearsal changed")
-    previous = installed(connection, selected.app_id, selected.environment)
+    previous = accepted(connection, selected.app_id, selected.environment)
     if operation.kind == "rollback":
         target = installed(connection, selected.app_id, selected.environment, 1)
         if (
@@ -435,6 +478,20 @@ def read_authority(
     )
 
 
+def retire_blocker(connection: sqlite3.Connection, app_id: str) -> str | None:
+    """Why the app cannot retire now, or None."""
+    (active,) = connection.execute(
+        "SELECT count(*) FROM app_runs AS run WHERE app_id = ? AND EXISTS "
+        "(SELECT 1 FROM jobs WHERE group_id = run.group_id "
+        "AND status IN ('QUEUED', 'RUNNING'))",
+        (app_id,),
+    ).fetchone()
+    if active:
+        plural = "" if active == 1 else "s"
+        return f"{active} compute run{plural} still queued or running"
+    return None
+
+
 def blocked_operation(connection: sqlite3.Connection, app_id: str) -> Operation | None:
     row = connection.execute(
         "SELECT operation_json FROM app_operations WHERE app_id = ? "
@@ -458,8 +515,49 @@ def snapshot_of(operation: Operation, receipt: Receipt) -> InstalledSnapshot:
     return snapshot
 
 
+def retired_of(
+    connection: sqlite3.Connection, operation: Operation, receipt: Receipt
+) -> RetiredSnapshot:
+    """Root's retirement, accepted only if it retires the row core holds current."""
+    retired = receipt.retired
+    selected = receipt.selection
+    if (
+        retired is None
+        or receipt.rehearsal is not None
+        or retired.operation_id != operation.operation_id
+        or retired.selection != selected
+        or retired.generation != selected.generation + 1
+        or retired.last_installed
+        != installed(connection, selected.app_id, selected.environment)
+        or fingerprint(retired.registration) != selected.registration_sha256
+    ):
+        raise ContractError("Installer retirement is incomplete")
+    return retired
+
+
+def accepted_row(
+    connection: sqlite3.Connection, operation: Operation, receipt: Receipt
+) -> AcceptedSnapshot | None:
+    """What a succeeded receipt appends to the installed history, if anything."""
+    if operation.kind == "rehearse" or (
+        operation.kind == "recover" and receipt.installed is None
+    ):
+        return None
+    if operation.kind == "retire":
+        return retired_of(connection, operation, receipt)
+    return snapshot_of(operation, receipt)
+
+
 class ReconciliationPending(ContractError):
     pass
+
+
+class ApplicationRetired(ReconciliationPending):
+    """A retired app has no boot authority.
+
+    Shares the deferred exit status so a unit that outlived the retirement
+    stops as a success and stays stopped, instead of restarting every 5 s.
+    """
 
 
 def read_installed_authority(connection: sqlite3.Connection, app_id: str) -> Authority:
@@ -470,8 +568,10 @@ def read_installed_authority(connection: sqlite3.Connection, app_id: str) -> Aut
     ).fetchone():
         raise ReconciliationPending("Installation requires reconciliation")
     instance = connection.execute("SELECT * FROM platform_instance").fetchone()
-    current = installed(connection, app_id, instance["environment"])
+    current = running_of(accepted(connection, app_id, instance["environment"]))
     if current is None:
+        if retirement(connection, app_id, instance["environment"]) is not None:
+            raise ApplicationRetired("Application is retired")
         raise ContractError("Application has no accepted installation")
     registration = registration_for(connection, app_id)
     if registration != current.registration:
@@ -539,7 +639,7 @@ class AppsService:
         in ``registration_sha256``, or None when the card showed no change, so
         a change replaced after the page loaded is never approved unseen.
         """
-        if kind not in {"rehearse", "deploy", "rollback", "recover"}:
+        if kind not in KINDS:
             raise ContractError("Unknown operation")
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -591,6 +691,8 @@ class AppsService:
                 preview_id = blocked.approval.selection.preview_id
             if preview_id is None:
                 raise ContractError("A selected preview is required")
+            if kind == "retire" and (blocker := retire_blocker(connection, app_id)):
+                raise ContractError(blocker)
             selected = selection_for(
                 connection,
                 app_id,
@@ -781,6 +883,7 @@ class AppsService:
                     ),
                     receipt.selection.manifest_sha256,
                 )
+                appended = accepted_row(connection, operation, receipt)
             if operation.kind == "rehearse":
                 rehearsal = receipt.rehearsal
                 if (
@@ -790,9 +893,11 @@ class AppsService:
                     or receipt.installed is not None
                 ):
                     raise ContractError("Installer rehearsal is incomplete")
-            elif receipt.installed is not None or operation.kind != "recover":
-                if snapshot_of(operation, receipt).image != release.manifest.image:
-                    raise ContractError("Installer snapshot is incomplete")
+            elif (
+                isinstance(appended, InstalledSnapshot)
+                and appended.image != release.manifest.image
+            ):
+                raise ContractError("Installer snapshot is incomplete")
         if (
             receipt.state == "succeeded"
             and operation.kind != "rehearse"
@@ -857,28 +962,29 @@ class AppsService:
                         state="failed",
                         error="authority_changed",
                     )
-            if (
-                receipt.state == "succeeded"
-                and operation.kind != "rehearse"
-                and (receipt.installed is not None or operation.kind != "recover")
-            ):
-                snapshot = snapshot_of(operation, receipt)
+            appended = (
+                accepted_row(connection, operation, receipt)
+                if receipt.state == "succeeded"
+                else None
+            )
+            if appended is not None:
                 connection.execute(
-                    "INSERT INTO app_installed_history VALUES (?,?,?,?,?)",
+                    "INSERT INTO app_installed_history(operation_id, app_id, "
+                    "environment, generation, snapshot_json) VALUES (?,?,?,?,?)",
                     (
-                        str(snapshot.operation_id),
+                        str(appended.operation_id),
                         receipt.selection.app_id,
                         receipt.selection.environment,
-                        snapshot.generation,
-                        snapshot.model_dump_json(),
+                        appended.generation,
+                        appended.model_dump_json(),
                     ),
                 )
                 # The registration row is the installed boot authority, so it
                 # follows each accepted snapshot in the same transaction.
-                if registered(connection, snapshot.registration.app_id) != (
-                    snapshot.registration
-                ):
-                    replace_registration(connection, snapshot.registration)
+                if isinstance(appended, InstalledSnapshot) and registered(
+                    connection, appended.registration.app_id
+                ) != (appended.registration):
+                    replace_registration(connection, appended.registration)
             if operation.kind == "recover":
                 blocked = blocked_operation(connection, receipt.selection.app_id)
                 if blocked is None or blocked.operation_id != operation.recovers:
@@ -1017,7 +1123,7 @@ def require_unaccepted(connection: sqlite3.Connection, app_id: str) -> str:
     if environment is None:
         raise ContractError("Application instance is not configured")
     require_idle(connection, app_id)
-    if installed(connection, app_id, environment) is not None:
+    if accepted(connection, app_id, environment) is not None:
         raise ContractError("Accepted installation history refuses a legacy cutover")
     return environment
 
