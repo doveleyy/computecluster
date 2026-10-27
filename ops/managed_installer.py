@@ -951,14 +951,19 @@ class Installer:
             scratch = Path(tempfile.mkdtemp(prefix="input-", dir=self.policy.scratch))
             try:
                 backup = None
+                archive = (
+                    current.archive if isinstance(current, RetiredSnapshot) else None
+                )
                 if state is not None and (
-                    current is not None or self.existing_state(app)
+                    running is not None
+                    or archive is not None
+                    or self.existing_state(app)
                 ):
                     backup = scratch / "input.sqlite"
-                    if isinstance(current, RetiredSnapshot):
-                        self.restore_input(app, state.sqlite_file, current, backup)
-                    else:
+                    if archive is None:
                         self.backup(app, state.sqlite_file, backup)
+                    else:
+                        self.restore_input(app, state.sqlite_file, archive, backup)
                 rehearsal = self.rehearse(authority, app, release, image_id, backup)
             finally:
                 shutil.rmtree(scratch)
@@ -993,7 +998,7 @@ class Installer:
                     state is not None
                     and not switched
                     and (
-                        current is not None
+                        running is not None
                         or backup is not None
                         or self.existing_state(app)
                     )
@@ -1082,7 +1087,7 @@ class Installer:
         self.lifecycle(app, False)
 
     def restore_input(
-        self, app: HostApp, sqlite_file: str, retired: RetiredSnapshot, backup: Path
+        self, app: HostApp, sqlite_file: str, archive: ArchiveRecord, backup: Path
     ) -> None:
         """Copy the kept state for rehearsal, refusing data the archive did not record.
 
@@ -1091,10 +1096,7 @@ class Installer:
         if not self.existing_state(app):
             raise StateMissing()
         facts = self.backup(app, sqlite_file, backup)
-        if (
-            retired.archive is not None
-            and facts.content_sha256 != retired.archive.content_sha256
-        ):
+        if facts.content_sha256 != archive.content_sha256:
             raise StateChanged()
 
     def retire(

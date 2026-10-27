@@ -354,7 +354,8 @@ def retired_pair(pair, monkeypatch, kind="deploy", archive_content="c" * 64):
     retired = retired_of(
         previous,
         approved(operation, "retire", 1),
-        ArchiveRecord(
+        archive_content
+        and ArchiveRecord(
             file_name=f"retired-g2-{uuid4()}.sqlite",
             sha256="f" * 64,
             content_sha256=archive_content,
@@ -459,6 +460,29 @@ def test_restore_refuses_missing_or_changed_state_before_switching(
     assert not (installer.journal / f"{operation.operation_id}.switch.json").exists()
     assert "remove" not in events and "stop_timers" not in events
     assert installer.current(app) == retired
+
+
+@pytest.mark.parametrize("kept", [False, True])
+def test_restore_of_an_app_retired_without_an_archive_follows_its_existing_state(
+    pair, monkeypatch, kept
+):
+    """Catches a restore refused as state_missing, or its pre-switch backup
+    failing, because the policy now declares a state file that an app retired
+    without one never had."""
+    installer, operation, *_, events, _ = retired_pair(
+        pair, monkeypatch, archive_content=None
+    )
+    monkeypatch.setattr(installer, "existing_state", lambda *_: kept)
+    monkeypatch.setattr(installer, "owned", lambda *_: None)
+    installer.execute(operation.operation_id)
+    receipt = receipt_of(installer, operation)
+    assert (receipt.state, receipt.error) == ("succeeded", None)
+    backups = [event[1] for event in events if event[0] == "backup"]
+    assert backups == (
+        ["input.sqlite", f"pre-switch-g3-{operation.operation_id}.sqlite"]
+        if kept
+        else []
+    )
 
 
 def test_boot_and_daily_backup_refuse_a_retired_app(pair, monkeypatch):

@@ -493,13 +493,15 @@ a release, either the last installed one or a newer one, checks compatibility,
 and chooses Approve and restore. The rehearsal copies the kept live database,
 not the archive. It uses the last installed release's image as the previous
 image, because that image last wrote the data, so a newer release must still
-leave its records readable by that image. Before each rehearsal of an app in
-retirement, root checks the kept state against the archive. A missing database
-fails with `state_missing`. A database whose SQL content digest differs from the
-archive's fails with `state_changed`. Both fail before the switch marker, so
-nothing on the host changes. Root never copies the archive over the live
-database. A successful restore lands at generation N+2 and returns the app to
-the launcher, navigation and monitoring.
+leave its records readable by that image. Before each rehearsal of an app whose
+retirement recorded an archive, root checks the kept state against it. A missing
+database fails with `state_missing`. A database whose SQL content digest differs
+from the archive's fails with `state_changed`. Both fail before the switch
+marker, so nothing on the host changes. An app whose retirement has no archive
+rehearses against its state file only if one exists, as a first install does.
+Root never copies the archive over the live database. A successful restore
+lands at generation N+2 and returns the app to the launcher, navigation and
+monitoring.
 
 A restore that fails after the switch marker returns the app to retirement
 rather than starting any release. Root stops the timers, removes its own
