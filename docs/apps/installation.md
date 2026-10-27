@@ -472,7 +472,9 @@ retires without an archive.
 
 Retirement keeps the live database and the rest of the state directory, the
 routine and pre-switch backups, the registration, the host policy entry, the app
-account, its credential and secret files, and each user's pin. While the latest
+account, its credential and secret files, and each user's pin. Core refuses a
+registration update during retirement, because a restore binds the
+registration the data was kept under; restore the app first. While the latest
 accepted generation is a retirement, core treats the app as not installed. The
 launcher, the shared navigation, health and monitoring leave it out. The gateway
 answers its route with 503, and the app API refuses its still-active credential

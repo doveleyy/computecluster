@@ -1063,7 +1063,8 @@ def update_registration(
 
     The installed registration is the root helper's boot authority, so a change
     to an installed app waits as a proposal until a deploy carrying it is
-    accepted.
+    accepted. A retired app keeps the registration its data was archived
+    under, which a restore binds, so it refuses any change.
     """
     proposed = parse_document(Registration, payload)
     with database.connect() as connection:
@@ -1073,6 +1074,9 @@ def update_registration(
             raise ContractError(
                 "Route and installation changes require host reprovisioning"
             )
+        environment = environment_of(connection)
+        if environment and retirement(connection, old.app_id, environment):
+            raise ContractError("Restore the app before changing its registration")
         values = {item.name: item for item in old.bindings.settings}
         values.update({item.name: item for item in proposed.bindings.settings})
         merged = proposed.model_copy(
@@ -1082,7 +1086,6 @@ def update_registration(
                 )
             }
         )
-        environment = environment_of(connection)
         current = (
             installed(connection, old.app_id, environment) if environment else None
         )

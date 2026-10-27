@@ -2079,20 +2079,29 @@ def test_restore_deploy_selects_the_retired_generation_and_lands_at_n_plus_two(
     assert served(ledger, monkeypatch)["navigation"].count("notes") == 1
 
 
-def test_registration_updates_apply_directly_while_retired(ledger):
-    retire(ledger)
+@pytest.mark.parametrize(
+    "edits", [{}, {"bindings__state_directory": "/private/other-state"}]
+)
+def test_registration_is_kept_while_retired_so_a_restore_binds_the_kept_data(
+    ledger, edits
+):
+    """Catches a registry update replacing a retired app's registration, which
+    skips the installed-identity guard, lets a restore bind a state directory
+    other than the kept one, and makes the retired card's restore, which shows
+    no settings change, fail as a replaced change."""
+    current, _ = retire(ledger)
+    changed = settings_change(current.registration, **edits)
+    with pytest.raises(ContractError, match="Restore the app before changing"):
+        update_registration(ledger.database, changed)
     with ledger.database.connect() as connection:
-        registration = registration_for(connection, "notes")
-    changed = settings_change(registration)
-    assert update_registration(ledger.database, changed) == "updated"
-    with ledger.database.connect() as connection:
-        assert registration_for(connection, "notes").bindings.settings
-        assert (
-            connection.execute(
-                "SELECT count(*) FROM app_registration_proposals"
-            ).fetchone()[0]
-            == 0
-        )
+        assert registration_for(connection, "notes") == current.registration
+        assert not connection.execute(
+            "SELECT 1 FROM app_registration_proposals"
+        ).fetchone()
+    rehearsal = request(ledger)
+    assert rehearsal.approval.selection.registration_sha256 == fingerprint(
+        current.registration
+    )
 
 
 def test_one_retirement_leaves_other_apps_served_and_their_history_untouched(
