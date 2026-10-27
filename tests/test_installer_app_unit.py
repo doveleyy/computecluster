@@ -201,6 +201,9 @@ def test_run_maps_a_deferred_boot_to_the_unit_success_status(tmp_path, monkeypat
         def sweep_markers(self):
             pass
 
+        def advertise(self):
+            pass
+
         def boot(self, app_id):
             raise ReconciliationPending("Installation requires reconciliation")
 

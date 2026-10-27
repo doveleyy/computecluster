@@ -16,7 +16,7 @@ from collections.abc import Iterable
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal
+from typing import Literal, get_args
 from uuid import UUID, uuid4
 
 import httpx
@@ -30,6 +30,8 @@ from app.app_contracts import (
 )
 from app.app_deployment_contracts import (
     InstalledSnapshot,
+    InstallerCapabilities,
+    Kind,
     Operation,
     OperationHint,
     Receipt,
@@ -1198,6 +1200,13 @@ class Installer:
     def retain_assets(self, release: HostRelease) -> None:
         publish(self.journal / (release.archive_sha256 + ".zip"), release.archive)
 
+    def advertise(self) -> None:
+        """Publish the kinds this runtime answers, so core queues no other."""
+        replace_file(
+            Path(self.policy.spool) / "receipts" / "installer.json",
+            InstallerCapabilities(kinds=get_args(Kind)).model_dump_json().encode(),
+        )
+
     def sweep_scratch(self) -> None:
         for path in Path(self.policy.scratch).iterdir():
             if SCRATCH_ENTRY.fullmatch(path.name) and stat.S_ISDIR(
@@ -1503,6 +1512,7 @@ def main() -> None:
         fcntl.flock(lock, fcntl.LOCK_EX)
         installer.sweep_scratch()
         installer.sweep_markers()
+        installer.advertise()
         if args.run:
             try:
                 installer.boot(args.run)

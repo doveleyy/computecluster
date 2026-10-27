@@ -8,6 +8,7 @@ import sys
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import get_args
 from uuid import uuid4
 
 import pytest
@@ -17,8 +18,11 @@ from test_app_deployments import request
 
 from app.app_contracts import ContractError, Maintenance, SecretFile
 from app.app_deployment_contracts import (
+    KINDS,
     Approval,
     InstalledSnapshot,
+    InstallerCapabilities,
+    Kind,
     Operation,
     Receipt,
     Rehearsal,
@@ -1375,3 +1379,17 @@ def test_replayed_success_receipt_restores_the_current_record_then_the_spool_cop
     spool_copy.unlink()
     installer.execute(snapshot.operation_id)
     assert installer.current(app) == newer, "a stale replay moved the record back"
+
+
+def test_spool_pass_advertises_exactly_the_runtime_kinds(helper, ledger):
+    installer, *_ = helper
+    capabilities = Path(installer.policy.spool) / "receipts" / "installer.json"
+    assert ledger.service.installer_kinds() == frozenset()
+    for _ in range(2):
+        installer.advertise()
+        published = InstallerCapabilities.model_validate_json(
+            read_owned(capabilities, os.geteuid())
+        )
+        assert published.kinds == get_args(Kind)
+        assert stat.S_IMODE(capabilities.stat().st_mode) == 0o644
+    assert ledger.service.installer_kinds() == KINDS

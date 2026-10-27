@@ -19,6 +19,7 @@ from app.app_deployment_contracts import (
     KINDS,
     SWITCHING_KINDS,
     InstalledSnapshot,
+    InstallerCapabilities,
     Kind,
     Receipt,
     Rehearsal,
@@ -419,3 +420,25 @@ def test_a_receipt_carries_one_outcome_and_a_retirement_follows_its_generation(
         )
     assert set(get_args(Kind)) == KINDS
     assert KINDS - {"rehearse"} == SWITCHING_KINDS
+
+
+def test_retire_request_needs_the_installer_runtime_to_advertise_the_kind(ledger):
+    with pytest.raises(ContractError, match="rebuilt before it can retire"):
+        request(ledger, "retire")
+    capabilities = ledger.spool / "receipts" / "installer.json"
+    publish(
+        capabilities,
+        InstallerCapabilities(kinds=("rehearse", "deploy")).model_dump_json().encode(),
+    )
+    with pytest.raises(ContractError, match="rebuilt before it can retire"):
+        request(ledger, "retire")
+    assert not list((ledger.spool / "requests").iterdir())
+    capabilities.unlink()
+    publish(
+        capabilities,
+        InstallerCapabilities(kinds=tuple(KINDS)).model_dump_json().encode(),
+    )
+    with pytest.raises(ContractError, match="Nothing is installed to retire"):
+        request(ledger, "retire")
+    with pytest.raises(ContractError, match="Unknown operation"):
+        request(ledger, "decommission")

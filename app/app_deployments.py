@@ -25,6 +25,7 @@ from app.app_deployment_contracts import (
     AcceptedSnapshot,
     Approval,
     InstalledSnapshot,
+    InstallerCapabilities,
     Kind,
     Operation,
     OperationHint,
@@ -43,6 +44,7 @@ from app.app_workloads import WorkloadStore
 from app.database import Database
 
 logger = logging.getLogger(__name__)
+RUNTIME_LACKS_RETIRE = "The host installer runtime must be rebuilt before it can retire"
 
 
 class Authority(Contract):
@@ -641,6 +643,8 @@ class AppsService:
         """
         if kind not in KINDS:
             raise ContractError("Unknown operation")
+        if kind == "retire" and kind not in self.installer_kinds():
+            raise ContractError(RUNTIME_LACKS_RETIRE)
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             prior = connection.execute(
@@ -738,6 +742,16 @@ class AppsService:
             )
         self.reconcile()
         return operation
+
+    def installer_kinds(self) -> frozenset[str]:
+        """The operation kinds the host installer runtime last advertised."""
+        try:
+            payload = read_owned(
+                self.spool / "receipts" / "installer.json", self.receipt_uid
+            )
+            return frozenset(parse_document(InstallerCapabilities, payload).kinds)
+        except (OSError, ContractError):
+            return frozenset()
 
     def reject(
         self,
