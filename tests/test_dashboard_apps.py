@@ -883,9 +883,9 @@ def test_recover_waits_for_the_policy_registration_to_be_reverted(browser, ledge
     assert (card["recover_notice"], card["restart_notice"]) == (None, None)
     page = client.get("/dashboard/apps").text
     assert (
-        "button(secondary,'Recover','recover',blocked,Boolean(app.recover_notice))"
-        in (page)
-    )
+        "button(secondary,'Recover','recover',blockedOperation,"
+        "Boolean(app.recover_notice)||sending!==undefined"
+    ) in page
 
 
 def test_a_policy_entry_listing_bindings_in_another_order_is_told_to_reorder(
@@ -1376,3 +1376,16 @@ def test_one_apps_operation_leaves_other_cards_unchanged(browser, ledger, tmp_pa
     assert after["pad"] == before["pad"]
     assert after["notes"]["activity"]["active"] is True
     assert client.get("/dashboard/api/apps/activity").json()["pad"] is None
+
+
+def test_apps_page_reports_actions_on_the_card_not_the_page_status(browser):
+    """Catches action results written to the page-level status line, which
+    sends the administrator scrolling to the top to see them."""
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+    page = client.get("/dashboard/apps").text
+    assert "Refresh to see the result" not in page
+    assert page.count("status.textContent") == 1
+    assert "function live(" in page.split("status.textContent")[0].rsplit("\n", 1)[1]
+    assert "line.setAttribute('role','status');secondary.append(line)" in page
+    assert "/dashboard/api/apps/activity" in page
