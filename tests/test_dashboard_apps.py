@@ -1704,6 +1704,33 @@ def test_retired_card_offers_a_newer_release_ahead_of_the_retired_one(
     assert (pending["digest"], pending["step"]) == (newer, "preview")
 
 
+def test_a_failed_restore_check_leaves_a_newer_release_ahead_on_a_retired_card(
+    browser, ledger, monkeypatch
+):
+    """Catches a failed compatibility check of the retired release, such as
+    one refused because the kept state changed, holding the card over a newer
+    release as if the restore had been checked."""
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+    retire(ledger)
+    rehearsal = request(ledger)
+    publish(
+        ledger.spool / "receipts" / f"{rehearsal.operation_id}.json",
+        Receipt(
+            operation_id=rehearsal.operation_id,
+            selection=rehearsal.approval.selection,
+            state="failed",
+            error="state_changed",
+        )
+        .model_dump_json()
+        .encode(),
+    )
+    ledger.service.reconcile()
+    newer = push(ledger, monkeypatch, source_commit="c" * 40)
+    pending = overview(client)[1]["pending"]
+    assert (pending["digest"], pending["step"]) == (newer, "preview")
+
+
 def test_no_rollback_is_offered_while_retired(browser, ledger, monkeypatch, tmp_path):
     """Catches Rollback on a retired card, which would start the release before
     the retired one without the preview and rehearsal a restore needs."""
