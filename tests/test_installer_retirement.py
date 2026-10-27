@@ -370,6 +370,97 @@ def retired_pair(pair, monkeypatch, kind="deploy", archive_content="c" * 64):
     return installer, operation, authority, app, release, events, retired
 
 
+def test_restore_rehearses_against_the_kept_state_with_the_retired_image(
+    pair, monkeypatch, tmp_path
+):
+    installer, _, authority, app, release, _, retired = retired_pair(pair, monkeypatch)
+    monkeypatch.setattr(managed_installer.os, "chown", lambda *_: None)
+    monkeypatch.setattr(managed_installer.os, "fchown", lambda *_: None)
+    pulled = []
+    monkeypatch.setattr(
+        installer, "image", lambda image, **_: pulled.append(image) or IMAGE_ID
+    )
+    probed = []
+    monkeypatch.setattr(
+        installer,
+        "semantic_state",
+        lambda _a, _app, probed_release, *_: probed.append(probed_release.image)
+        or "records",
+    )
+    monkeypatch.setattr(installer, "rehearsal_ready", lambda *_: None)
+    backup = tmp_path / "input.sqlite"
+    backup.write_bytes(b"kept data")
+    rehearsal = Installer.rehearse(installer, authority, app, release, IMAGE_ID, backup)
+    assert pulled == [retired.last_installed.image], (
+        "the rehearsal did not read the data with the image that last wrote it"
+    )
+    assert probed == [release.image, release.image, release.image]
+    assert rehearsal.previous_image_id == IMAGE_ID
+    assert rehearsal.checks["previous_reads_current"] is True
+    assert rehearsal.passed()
+    assert rehearsal.backup_sha256 == hashlib.sha256(b"kept data").hexdigest()
+
+
+def test_container_present_while_retired_blocks_the_restore(pair, monkeypatch):
+    installer, operation, _, app, _, events, retired = retired_pair(pair, monkeypatch)
+    monkeypatch.setattr(
+        installer, "owned", lambda *_: container(retired.last_installed)
+    )
+    installer.execute(operation.operation_id)
+    receipt = receipt_of(installer, operation)
+    assert (receipt.state, receipt.error) == ("blocked", "recovery_required")
+    assert "remove" not in events
+    assert not any(isinstance(e, tuple) and e[0] == "start" for e in events)
+    assert not (installer.journal / f"{operation.operation_id}.switch.json").exists()
+    assert installer.current(app) == retired
+
+
+def test_failed_restore_recovers_to_retired_with_data_intact(pair, monkeypatch):
+    installer, operation, _, app, _, events, retired = retired_pair(pair, monkeypatch)
+    monkeypatch.setattr(installer, "owned", lambda *_: None)
+
+    def probe(*_):
+        raise ContractError("new image failed readiness")
+
+    monkeypatch.setattr(installer, "probe", probe)
+    state = Path(app.registration.bindings.state_directory) / ".notes.db"
+    before = state.read_bytes()
+    installer.execute(operation.operation_id)
+    receipt = receipt_of(installer, operation)
+    assert (receipt.state, receipt.error) == ("recovered", "installation_failed")
+    assert receipt.installed is None and receipt.retired is None
+    assert installer.current(app) == retired, "a failed restore moved the journal"
+    assert state.read_bytes() == before
+    marker = events.index(("backup", f"pre-switch-g3-{operation.operation_id}.sqlite"))
+    assert events[marker + 1 :] == [
+        "stop_timers",
+        "stop_supervisor",
+        "remove",
+        ("start", None),
+        "stop_timers",
+        "remove",
+        ("lifecycle", False),
+    ], "the fallback must tear down, never restart the retired release"
+    assert ("start", retired.last_installed.operation_id) not in events
+
+
+@pytest.mark.parametrize("defect", ["missing", "changed"])
+def test_restore_refuses_missing_or_changed_state_before_switching(
+    pair, monkeypatch, defect
+):
+    installer, operation, _, app, _, events, retired = retired_pair(
+        pair, monkeypatch, archive_content="d" * 64 if defect == "changed" else "c" * 64
+    )
+    if defect == "missing":
+        monkeypatch.setattr(installer, "existing_state", lambda *_: False)
+    installer.execute(operation.operation_id)
+    receipt = receipt_of(installer, operation)
+    assert (receipt.state, receipt.error) == ("failed", "state_" + defect)
+    assert not (installer.journal / f"{operation.operation_id}.switch.json").exists()
+    assert "remove" not in events and "stop_timers" not in events
+    assert installer.current(app) == retired
+
+
 def test_boot_and_daily_backup_refuse_a_retired_app(pair, monkeypatch):
     installer, _, authority, app, _, events, _ = retired_pair(pair, monkeypatch)
     monkeypatch.setattr(managed_installer, "load_policy", lambda _: installer.policy)

@@ -111,6 +111,20 @@ class RetirementBackupFailed(SwitchRefused):
         super().__init__("Final archive could not be taken or verified")
 
 
+class StateMissing(SwitchRefused):
+    error = "state_missing"
+
+    def __init__(self) -> None:
+        super().__init__("Retired application state is missing")
+
+
+class StateChanged(SwitchRefused):
+    error = "state_changed"
+
+    def __init__(self) -> None:
+        super().__init__("Retired application state differs from its archive")
+
+
 @dataclass(frozen=True)
 class BackupFacts:
     """What backup() verified about the copy it published."""
@@ -941,7 +955,10 @@ class Installer:
                     current is not None or self.existing_state(app)
                 ):
                     backup = scratch / "input.sqlite"
-                    self.backup(app, state.sqlite_file, backup)
+                    if isinstance(current, RetiredSnapshot):
+                        self.restore_input(app, state.sqlite_file, current, backup)
+                    else:
+                        self.backup(app, state.sqlite_file, backup)
                 rehearsal = self.rehearse(authority, app, release, image_id, backup)
             finally:
                 shutil.rmtree(scratch)
@@ -1063,6 +1080,22 @@ class Installer:
         self.stop_timers(app)
         self.remove("hp-app-" + app.registration.app_id, app.registration.app_id)
         self.lifecycle(app, False)
+
+    def restore_input(
+        self, app: HostApp, sqlite_file: str, retired: RetiredSnapshot, backup: Path
+    ) -> None:
+        """Copy the kept state for rehearsal, refusing data the archive did not record.
+
+        The archive itself is never copied back over the live database.
+        """
+        if not self.existing_state(app):
+            raise StateMissing()
+        facts = self.backup(app, sqlite_file, backup)
+        if (
+            retired.archive is not None
+            and facts.content_sha256 != retired.archive.content_sha256
+        ):
+            raise StateChanged()
 
     def retire(
         self,
