@@ -87,6 +87,12 @@ installer restarts the previous version against the current data.
 restores the previous image against the current data, so no records are lost.
 A settings change follows the same approval path as a new release.
 
+**Retire and restore.** Retire stops an installed app, takes a verified final
+archive of its database, and removes its container and units. The app's data
+stays in place. The app leaves the launcher and navigation until a later
+release is previewed, checked against the kept data, and approved, which
+restores it.
+
 ## What each side owns
 
 | Owner | Responsibility |
@@ -94,8 +100,8 @@ A settings change follows the same approval path as a new release.
 | App author | Code, tests, the workflow, the image, and the manifest |
 | GitHub Actions | Building, publishing, and recording proof of the build |
 | Core platform | Verification, previews, compatibility, approval records |
-| Administrator | The decision to deploy, roll back, or reject |
-| Installer | The only host change: pull, back up, switch, probe |
+| Administrator | The decision to deploy, roll back, retire, or reject |
+| Installer | The only host change: pull, back up, switch, probe, retire |
 
 ## Further reading
 

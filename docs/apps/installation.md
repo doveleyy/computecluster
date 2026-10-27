@@ -6,7 +6,8 @@ Approval records the publication archive, preview, registration, host policy,
 credential generation, administrator session version and installed generation.
 A later publication cannot replace the selected image. Rejection records the
 selected candidate. Rollback selects the previous verified installation and
-uses current credentials and current application data.
+uses current credentials and current application data. Retirement stops an
+installed app and keeps its data, and a later approved deployment restores it.
 
 ## Authority and host effects
 
@@ -278,7 +279,7 @@ Failed compatible upgrades restart the previous image against the current
 database. They never restore an older live database automatically. The previous
 operation label is restored with its image, so later operations can reconcile
 ownership. If current authority is revoked or recovery fails, the route stays
-closed. Reject, failure and rollback retain application data.
+closed. Reject, failure, rollback and retirement retain application data.
 
 Every Apps route requires a current administrator session. Mutations also
 require an exact configured origin and session-bound CSRF token. Browser
@@ -299,17 +300,17 @@ after boot and every five minutes, so a request left pending by a helper timeout
 or a core acknowledgement that arrived late is retried without a manual step.
 The operator runs the command once by hand after installing the policy to
 create the trigger. `--backup APP_ID` uses the same lock for an installed
-app's routine
-backup. Generated app services invoke `--run APP_ID`, which reconciles the
-installed generation under the lock and then supervises its exact container
-ID after releasing the lock. Stopping or restarting the unit signals only that
-helper (`KillMode=mixed`), which stops the container with `docker stop` and
-exits 0, so the next boot creates a new container. `TimeoutStopSec=30` leaves
-room for Docker's 10-second stop grace. Only an installation, recovery or
-rollback writes app units, so a core upgrade leaves installed units unchanged
-until one of those runs. The interpreter must have the core `app`, `ops`
-and `contracts` packages installed outside the web checkout, along with their
-dependencies.
+app's routine backup. It refuses an app in retirement and exits nonzero
+without taking a copy. Generated app services invoke `--run APP_ID`, which
+reconciles the installed generation under the lock and then supervises its
+exact container ID after releasing the lock. Stopping or restarting the unit
+signals only that helper (`KillMode=mixed`), which stops the container with
+`docker stop` and exits 0, so the next boot creates a new container.
+`TimeoutStopSec=30` leaves room for Docker's 10-second stop grace. Only an
+installation, recovery, rollback or retirement changes app units, so a core
+upgrade leaves installed units unchanged until one of those runs. The
+interpreter must have the core `app`, `ops` and `contracts` packages installed
+outside the web checkout, along with their dependencies.
 The host also supplies Docker, systemd and `nsenter`.
 
 The core reads the policy named by `HOME_PLATFORM_INSTALLER_POLICY` to discover
@@ -337,6 +338,21 @@ the core cannot reconcile shows its last reconciliation error and time on the
 card.
 Actions for one app run one at a time in the web process, so a double-click
 cannot start two staging previews.
+
+Each card has its own activity line beside its buttons. A click disables that
+card's buttons and names the request there, and a refused request leaves its
+error there. The server derives the line from the app's operation and preview
+records: the operation in progress, a blocked operation that needs recovery, or
+the last failed operation and whether the previous release was restored. While
+any card has unfinished activity or a request is open, the page polls a feed of
+these lines, every 2 seconds for the first 10 seconds and every 5 seconds
+after, with no timer while the tab is hidden. The feed reads operation and
+preview rows only, so polling never repeats the release package verification
+that the overview performs for each card. When an operation settles, the page
+fetches the overview once and replaces only the cards that changed, keeping
+open technical details and focus. A reload during an operation resumes polling.
+The line at the top of the page reports only page-level failures, such as a
+lost session.
 
 ## Settings changes to an installed app
 
@@ -412,3 +428,84 @@ the entry's maintenance commands, state file or schedules, revert those after
 Recover succeeds, or the next host restart refuses to start the app. The
 pending change survives recovery, so it can then be deployed again, replaced
 or withdrawn.
+
+## Retirement and restore
+
+Retirement takes an installed app out of service and keeps its data, so a later
+release can bring it back. The administrator chooses Retire on the app's card.
+The card expands an inline confirmation that names what stops and what is kept,
+with a button that names the app and a Cancel button. The card disables Retire
+and gives the reason while another operation on the app is unfinished, while the
+app has compute runs queued or running, and while the host installer runtime
+cannot retire. Core refuses the request in the same cases. Retire binds the
+installed registration, so, as with Recover, root refuses it with
+`policy_refused` while the policy entry differs from that registration.
+
+Root publishes the operation kinds it answers to `installer.json` in the receipt
+spool on every run, replacing the earlier file. Core refuses a retire request
+unless that file lists `retire`, and says that the host installer runtime must
+be rebuilt first. Without this check, a runtime older than core would never
+answer the request, and the app's one active-operation slot would stay taken.
+Core reads the kinds as plain strings, so a list from a newer runtime still
+parses.
+
+A retire request pins the installed release and preview. It passes through
+`switching` like a deploy, so the gateway holds the app's route while root
+works. After core admits the switch, root stops the app's maintenance timers and
+supervisor and removes its container. It then takes the final archive from the
+quiescent database and removes every owned unit, so a boot cannot recreate the
+container. Last, it rechecks authority and journals the retirement as the app's
+current generation. Core accepts the receipt only when the retirement names the
+installation that core holds current. It then appends the retirement to
+installed history as generation N+1.
+
+The final archive is a consistent online backup with the same integrity check
+and disposable restore as any other backup. Root writes it private to root in
+the app's backup directory, named by the retirement's generation and operation.
+The retirement records the archive's file name, file SHA-256, SQL content
+digest, tables and size. The daily and pre-switch pruning patterns never match
+that name, so the archive stays until the operator removes it. A retry at the
+same generation replaces an earlier copy. If root cannot take or verify the
+archive, it restarts the app and reports `recovered` with `backup_failed`. The
+live database is untouched. An app whose policy entry has no SQLite state file
+retires without an archive.
+
+Retirement keeps the live database and the rest of the state directory, the
+routine and pre-switch backups, the registration, the host policy entry, the app
+account, its credential and secret files, and each user's pin. While the latest
+accepted generation is a retirement, core treats the app as not installed. The
+launcher, the shared navigation, health and monitoring leave it out. The gateway
+answers its route with 503, and the app API refuses its still-active credential
+with 403. Both responses name the retirement in their detail. The daily backup
+refuses the app. Rollback is never offered across a retirement.
+
+An app unit that outlives the retirement cannot restart the app. Its boot
+reconciliation refuses an app in retirement with exit status 75, which the unit
+lists in `SuccessExitStatus`, so systemd records a clean stop instead of
+restarting the unit every five seconds.
+
+A card in retirement names that state in its headline, and its technical details
+list the archive's file name and digests, never a host path. Restore is an
+ordinary deploy against the retirement's generation. The administrator previews
+a release, either the last installed one or a newer one, checks compatibility,
+and chooses Approve and restore. The rehearsal copies the kept live database,
+not the archive. It uses the last installed release's image as the previous
+image, because that image last wrote the data, so a newer release must still
+leave its records readable by that image. Before each rehearsal of an app in
+retirement, root checks the kept state against the archive. A missing database
+fails with `state_missing`. A database whose SQL content digest differs from the
+archive's fails with `state_changed`. Both fail before the switch marker, so
+nothing on the host changes. Root never copies the archive over the live
+database. A successful restore lands at generation N+2 and returns the app to
+the launcher, navigation and monitoring.
+
+A restore that fails after the switch marker returns the app to retirement
+rather than starting any release. Root stops the timers, removes its own
+container and removes the units again, then reports `recovered`. It reports
+`blocked` only when that teardown fails, and `recover` then applies as for any
+blocked operation.
+
+Retirement uses the same switch marker and journal receipt as a deploy, so a run
+interrupted at any step repeats it on the next run. Stopping and removing do
+nothing a second time, the archive retry replaces its predecessor, and core's
+history still follows the journal receipt.

@@ -133,9 +133,10 @@ invalidate that approval. A later push cannot replace an approved selection.
 Members and publisher credentials cannot approve production installation.
 
 The visible workflow remains a pending update, its preview and checks, and
-Approve and deploy, Reject, or Rollback. Durable operation records distinguish
-pending work from successful installation without requiring users to manage
-internal phases.
+Approve and deploy, Reject, Rollback, or Retire. An app in retirement returns
+through the same preview and checks with Approve and restore. Durable operation
+records distinguish pending work from successful installation without requiring
+users to manage internal phases.
 
 ## Installation and recovery
 

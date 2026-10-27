@@ -24,7 +24,8 @@ Use these documents for different tasks.
 - [Release discovery and previews](releases.md) describes workflow proof,
   retained assets, pinned attempts, and guest isolation.
 - [Approval and installation](installation.md) describes exact approval,
-  the bounded host helper, migration checks and current-data recovery.
+  the bounded host helper, migration checks, current-data recovery, and
+  retirement and restore.
 - [Run a preview guest](preview-operator.md) describes synthetic guest setup
   and the operator commands for discovery, preview, and retirement.
 - [App compute API](compute-api.md) defines installed workloads, scoped data

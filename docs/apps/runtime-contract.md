@@ -141,6 +141,9 @@ issuance, and expiry. It expires after two minutes. The core checks current
 account status and identity linking on API calls, as well as the app credential
 and registration. Assertions can support several calls within their lifetime.
 They are not single-use credentials. Do not retain them for background work.
+An app in retirement keeps its credential active for a later restore, but the
+app API refuses that credential with 403, and the gateway answers the app's
+route with 503. Both responses name the retirement in their detail.
 
 The signing key stays in the core. A managed instance requires configured
 administrator authentication and a separate context-key file. Each database
@@ -241,13 +244,13 @@ Use these HTTP meanings at the platform boundary.
 |---|---|
 | `400` | Malformed request or unsupported contract fields. |
 | `401` | Missing, invalid, or expired app credential or user context. |
-| `403` | Disabled/unlinked identity, unavailable authority, or denied capability. |
+| `403` | Disabled/unlinked identity, unavailable authority, denied capability, or the credential of an app in retirement. |
 | `404` | Missing resource or a resource outside the caller's ownership. |
 | `409` | Conflicting submission key or input changed after selection. |
 | `413` | Input exceeds its documented size limit. |
 | `502` | App upstream failed or returned a forbidden cookie or data-clearing response. |
 | `504` | App upstream timed out. |
-| `503` | Identity/core dependency unavailable, required storage not provisioned, or the app not yet installed or mid-switch on a managed host. |
+| `503` | Identity/core dependency unavailable, required storage not provisioned, or the app not yet installed, mid-switch, or in retirement on a managed host. |
 
 Refuse actions when identity verification is unavailable. Keep a useful retry
 message and do not substitute an anonymous user. Polling, retries, and token

@@ -8,8 +8,10 @@ Navigation visibility does not authorize access to an application's routes.
 The launcher is the full library: it shows every installed app the viewer's
 role can open. The shared navigation shows the builtins and only the
 registered apps that the viewer pinned from the launcher. A pin is a
-preference, not a grant. An app that is no longer installed, or that the
-viewer's role cannot open, stays out of the navigation even when pinned.
+preference, not a grant. An app that is not installed, including an app in
+retirement, or that the viewer's role cannot open, stays out of the navigation
+even when pinned. Retirement keeps every pin, so a restored app returns to the
+navigation of the users who pinned it.
 A newly registered app starts unpinned for everyone, so it appears on the
 launcher at once and in a user's navigation only after that user pins it.
 
@@ -73,7 +75,11 @@ an installer policy is configured, the gateway serves a managed app only from
 an accepted installation, so the app joins the launcher and system health
 monitoring, and can be pinned to the shared navigation, with its first accepted
 install rather than showing a link the gateway refuses or a probe of a
-container that does not exist yet.
+container that does not exist yet. A retirement reverses that. While an app's
+latest accepted generation is a retirement, it leaves the launcher, the shared
+navigation, system health and routine monitoring, and the gateway answers its
+route with 503 and a detail that names the retirement. See
+[Retirement and restore](installation.md#retirement-and-restore).
 Previews have no installer policy and list their app at once.
 Existing script-managed installations retain their separate hosting path.
 
