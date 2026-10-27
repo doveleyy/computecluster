@@ -165,27 +165,47 @@ PROGRESSIVE = {
     "deploy": "Deploying",
     "rollback": "Rolling back",
     "recover": "Recovering",
+    "retire": "Retiring",
 }
 NOUN = {
     "rehearse": "compatibility check",
     "deploy": "deploy",
     "rollback": "rollback",
     "recover": "recovery",
+    "retire": "retirement",
+}
+FAILURES = {
+    "backup_failed": "the final archive could not be taken or verified",
+    "state_missing": "the kept database is missing",
+    "state_changed": "the kept database differs from its final archive",
 }
 
 
-def activity(operations: Sequence[OperationFacts], previewing: bool) -> Activity | None:
+def failure(error: str) -> str:
+    return FAILURES.get(error) or words(error)
+
+
+def activity(
+    operations: Sequence[OperationFacts], previewing: bool, retired: bool = False
+) -> Activity | None:
     """The status line for an app's operations, newest first.
 
     ``operations`` holds at least every queued, switching or blocked operation
     and the newest one. A running compatibility check and a running preview get
-    no text, because the card's update section already names that step.
+    no text, because the card's update section already names that step. While
+    ``retired``, a deploy is the restore.
     """
+
+    def named(kind: str) -> tuple[str, str]:
+        if retired and kind == "deploy":
+            return "Restoring", "restore"
+        return PROGRESSIVE[kind], NOUN[kind]
+
     running = next(
         (item for item in operations if item.state in ("queued", "switching")), None
     )
     if running is not None:
-        doing = PROGRESSIVE[running.kind]
+        doing = named(running.kind)[0]
         if running.reconcile_error:
             return Activity(
                 "failed",
@@ -205,18 +225,25 @@ def activity(operations: Sequence[OperationFacts], previewing: bool) -> Activity
     if blocked is not None:
         return Activity(
             "failed",
-            "Needs recovery" + (": " + words(blocked.error) if blocked.error else ""),
+            "Needs recovery" + (": " + failure(blocked.error) if blocked.error else ""),
             True,
             True,
         )
     last = operations[0] if operations else None
     if last is None or last.kind == "rehearse" or last.state == "succeeded":
         return None
+    recovered = (
+        " · still retired"
+        if retired
+        else " · app restarted"
+        if last.kind == "retire"
+        else " · previous release restored"
+    )
     return Activity(
         "failed",
-        f"Last {NOUN[last.kind]} failed"
-        + (": " + words(last.error) if last.error else "")
-        + (" · previous release restored" if last.state == "recovered" else ""),
+        f"Last {named(last.kind)[1]} failed"
+        + (": " + failure(last.error) if last.error else "")
+        + (recovered if last.state == "recovered" else ""),
         False,
         True,
     )
@@ -256,6 +283,16 @@ def activities(
             "SELECT app_id FROM app_preview_attempts WHERE state = 'installing'"
         )
     }
+    retired = {
+        row[0]
+        for row in connection.execute(
+            "SELECT h.app_id FROM app_installed_history AS h JOIN "
+            "platform_instance AS i ON h.environment = i.environment WHERE "
+            "h.kind = 'retired' AND h.generation = (SELECT max(generation) FROM "
+            "app_installed_history WHERE app_id = h.app_id AND environment = "
+            "h.environment)"
+        )
+    }
     found: dict[str, Activity | None] = {}
     for name in names:
         try:
@@ -273,6 +310,7 @@ def activities(
                     for row in operations.get(name, [])
                 ],
                 name in previewing,
+                name in retired,
             )
         except Exception as error:
             logger.warning("Application activity %s is unavailable: %s", name, error)

@@ -19,6 +19,7 @@ from test_installer_recovery import (
     deploy_request,
     install,
     propose_release_with_secret,
+    retire,
     switch_request,
 )
 
@@ -1251,6 +1252,101 @@ def test_activity_names_each_operation_state_and_when_polling_stops(
     assert (
         None if found is None else (found.tone, found.text, found.active, found.final)
     ) == expected
+
+
+@pytest.mark.parametrize(
+    ("operations", "retired", "expected"),
+    [
+        ([facts("retire", "queued")], False, ("progress", "Retiring…", True, False)),
+        (
+            [facts("retire", "switching")],
+            False,
+            ("progress", "Retiring · switching containers…", True, False),
+        ),
+        (
+            [facts("retire", "recovered", "backup_failed")],
+            False,
+            (
+                "failed",
+                "Last retirement failed: the final archive could not be taken "
+                "or verified · app restarted",
+                False,
+                True,
+            ),
+        ),
+        (
+            [facts("retire", "blocked", "installation_failed")],
+            False,
+            ("failed", "Needs recovery: installation failed", True, True),
+        ),
+        (
+            [facts("deploy", "switching")],
+            True,
+            ("progress", "Restoring · switching containers…", True, False),
+        ),
+        (
+            [facts("deploy", "failed", "state_missing")],
+            True,
+            (
+                "failed",
+                "Last restore failed: the kept database is missing",
+                False,
+                True,
+            ),
+        ),
+        (
+            [facts("deploy", "recovered", "state_changed")],
+            True,
+            (
+                "failed",
+                "Last restore failed: the kept database differs from its final "
+                "archive · still retired",
+                False,
+                True,
+            ),
+        ),
+    ],
+)
+def test_activity_names_retirement_and_restore_in_plain_words(
+    operations, retired, expected
+):
+    """Catches a failed restore told as "previous release restored" while the
+    app stays retired, a retirement that restarted the app told as nothing
+    changing, and receipt error codes shown to the operator raw."""
+    found = dashboard_apps.activity(operations, False, retired)
+    assert (
+        None if found is None else (found.tone, found.text, found.active, found.final)
+    ) == expected
+
+
+def test_activity_feed_calls_a_deploy_onto_a_retired_app_a_restore(browser, ledger):
+    """Catches the feed missing that the app is retired, which would call a
+    failed restore a deploy that restored a previous release."""
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+    retire(ledger)
+    rehearsal = request(ledger)
+    complete_rehearsal(ledger, rehearsal)
+    deploy = request(ledger, "deploy", rehearsal_id=rehearsal.operation_id)
+    switch_request(ledger, deploy)
+    feed = client.get("/dashboard/api/apps/activity").json()
+    assert feed["notes"]["text"] == "Restoring · switching containers…"
+    publish(
+        ledger.spool / "receipts" / f"{deploy.operation_id}.json",
+        Receipt(
+            operation_id=deploy.operation_id,
+            selection=deploy.approval.selection,
+            state="recovered",
+            error="state_changed",
+        )
+        .model_dump_json()
+        .encode(),
+    )
+    ledger.service.reconcile()
+    assert client.get("/dashboard/api/apps/activity").json()["notes"]["text"] == (
+        "Last restore failed: the kept database differs from its final archive "
+        "· still retired"
+    )
 
 
 def test_activity_words_cover_every_operation_kind():
