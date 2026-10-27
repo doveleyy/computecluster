@@ -1721,3 +1721,21 @@ def test_no_rollback_is_offered_while_retired(browser, ledger, monkeypatch, tmp_
     retire(ledger, second)
     card = overview(client)[1]
     assert (card["lifecycle"], card["rollback"]) == ("retired", None)
+
+
+def test_apps_page_confirms_retire_inside_the_card(browser):
+    """Catches a Retire button that posts on its first click, a confirmation
+    on a timer, or a retired card worded as a fresh deploy."""
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+    page = client.get("/dashboard/apps").text
+    retire = page.split("if(app.retire){", 1)[1].split("}", 1)[0]
+    assert "retire.onclick=()=>confirmRetire(app,!confirm)" in retire
+    assert "button(row,'Retire '+app.label,'retire',app.retire" in page
+    assert "button(row,'Cancel'" in page
+    assert (
+        "setTimeout" not in page.split("function confirmRetire", 1)[1].split("\n", 1)[0]
+    )
+    assert "'Approve and restore'" in page
+    assert "['RESTORE READY','yellow'" in page
+    assert "['RETIRED','muted'" in page
