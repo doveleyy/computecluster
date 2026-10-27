@@ -23,6 +23,7 @@ from app.app_contracts import (
 from app.app_deployment_contracts import (
     Approval,
     InstalledSnapshot,
+    Kind,
     Operation,
     OperationHint,
     Receipt,
@@ -37,7 +38,6 @@ from app.app_workloads import WorkloadStore
 from app.database import Database
 
 logger = logging.getLogger(__name__)
-Kind = Literal["rehearse", "deploy", "rollback", "recover"]
 
 
 class Authority(Contract):

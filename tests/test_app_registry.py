@@ -234,7 +234,7 @@ def test_fresh_bootstrap_preserves_registrations_added_after_historical_seeds(
         )
 
     monkeypatch.setattr(
-        migrations, "MIGRATIONS", (*migrations.MIGRATIONS, (26, register_explicit_app))
+        migrations, "MIGRATIONS", (*migrations.MIGRATIONS, (27, register_explicit_app))
     )
     database = Database(tmp_path / "explicit-migration.db")
     database.initialize()

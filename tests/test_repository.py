@@ -348,7 +348,7 @@ def test_existing_database_is_migrated_without_losing_job(tmp_path: Path) -> Non
     assert preserved.name is None
     assert preserved.attempt == 0
     assert preserved.max_attempts == 3
-    assert versions == set(range(1, 26))
+    assert versions == set(range(1, 27))
     assert preserved.target_worker_id is None
     assert preserved.failure_kind is None
     assert preserved.cancellation_requested is False

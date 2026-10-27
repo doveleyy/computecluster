@@ -2,6 +2,7 @@ import json
 import os
 import re
 from types import SimpleNamespace
+from typing import get_args
 from uuid import UUID, uuid4
 
 import pytest
@@ -11,12 +12,19 @@ from test_app_discovery import package
 from test_app_platform import managed
 from test_app_registry import document
 
+from app import migrations
 from app.accounts import AccountStore
 from app.app_contracts import ContractError
 from app.app_deployment_contracts import (
+    KINDS,
+    SWITCHING_KINDS,
+    InstalledSnapshot,
+    Kind,
     Receipt,
     Rehearsal,
+    RetiredSnapshot,
     Selection,
+    decode_accepted,
     fingerprint,
     rehearsal_checks,
 )
@@ -30,8 +38,7 @@ from app.database import Database
 from app.identity import ADMIN_USER_ID
 
 
-@pytest.fixture
-def ledger(tmp_path):
+def ledger_fixture(tmp_path):
     database = Database(tmp_path / "core.sqlite")
     database.initialize()
     registry = AppRegistry(database)
@@ -85,6 +92,9 @@ def ledger(tmp_path):
         spool=spool,
     )
     database.close()
+
+
+ledger = pytest.fixture(ledger_fixture)
 
 
 def request(ledger, kind="rehearse", **changes):
@@ -321,3 +331,91 @@ def test_one_corrupt_operation_does_not_stall_other_apps(ledger, tmp_path):
     state, error = rows[str(corrupt)]
     assert state == "queued"
     assert error is not None and error.startswith("Invalid JSON contract document")
+
+
+def legacy_snapshot_json(ledger):
+    """A history row as core wrote it before retirement existed: no kind key."""
+    operation = request(ledger)
+    with ledger.database.connect() as connection:
+        authority = read_authority(connection, operation.operation_id, "a" * 64)
+    snapshot = {
+        "operation_id": str(operation.operation_id),
+        "generation": 1,
+        "selection": operation.approval.selection.model_dump(mode="json"),
+        "registration": authority.registration.model_dump(mode="json"),
+        "image": "ghcr.io/example/notes@sha256:" + "b" * 64,
+        "image_id": "sha256:" + "b" * 64,
+    }
+    return operation, json.dumps(snapshot)
+
+
+def test_history_kind_column_reads_pre_change_rows_as_installed(tmp_path, monkeypatch):
+    with monkeypatch.context() as before:
+        before.setattr(migrations, "MIGRATIONS", migrations.MIGRATIONS[:25])
+        ledger = next(ledger_fixture(tmp_path))
+    operation, legacy = legacy_snapshot_json(ledger)
+    retired = json.loads(legacy)
+    retired.update(kind="retired", generation=2, last_installed=json.loads(legacy))
+    for key in ("image", "image_id"):
+        del retired[key]
+    retired["archive"] = None
+    rows = {"legacy": legacy, "retired": json.dumps(retired), "garbage": "{"}
+    with ledger.database.connect() as connection:
+        for generation, (name, payload) in enumerate(rows.items(), start=1):
+            connection.execute(
+                "INSERT INTO app_operations(operation_id,request_id,app_id,"
+                "environment,kind,state,operation_json) VALUES "
+                "(?,?,'notes','test','deploy','succeeded','{}')",
+                (name, str(uuid4())),
+            )
+            connection.execute(
+                "INSERT INTO app_installed_history VALUES (?,'notes','test',?,?)",
+                (name, generation, payload),
+            )
+    ledger.database.initialize()
+    with ledger.database.connect() as connection:
+        kinds = dict(
+            connection.execute(
+                "SELECT operation_id, kind FROM app_installed_history"
+            ).fetchall()
+        )
+        assert kinds == {"legacy": "installed", "retired": "retired", "garbage": None}
+        stored = connection.execute(
+            "SELECT snapshot_json FROM app_installed_history WHERE operation_id = ?",
+            ("legacy",),
+        ).fetchone()[0]
+    assert stored == legacy, "the migration rewrote a stored row"
+    parsed = decode_accepted(legacy.encode())
+    assert isinstance(parsed, InstalledSnapshot)
+    assert parsed.operation_id == operation.operation_id
+    assert isinstance(decode_accepted(json.dumps(retired).encode()), RetiredSnapshot)
+    with pytest.raises(ContractError):
+        decode_accepted(b"{")
+
+
+def test_a_receipt_carries_one_outcome_and_a_retirement_follows_its_generation(
+    ledger,
+):
+    operation, legacy = legacy_snapshot_json(ledger)
+    installed = InstalledSnapshot.model_validate_json(legacy)
+    selection = operation.approval.selection
+    retired = dict(
+        operation_id=operation.operation_id,
+        generation=2,
+        selection=selection,
+        registration=installed.registration,
+        last_installed=installed,
+        archive=None,
+    )
+    with pytest.raises(ValidationError, match="follows the generation"):
+        RetiredSnapshot(**{**retired, "generation": 3})
+    with pytest.raises(ValidationError, match="one outcome"):
+        Receipt(
+            operation_id=operation.operation_id,
+            selection=selection,
+            state="succeeded",
+            installed=installed,
+            retired=RetiredSnapshot(**retired),
+        )
+    assert set(get_args(Kind)) == KINDS
+    assert KINDS - {"rehearse"} == SWITCHING_KINDS

@@ -843,6 +843,18 @@ def add_app_pins(connection: sqlite3.Connection) -> None:
     )
 
 
+def add_installed_history_kind(connection: sqlite3.Connection) -> None:
+    # A VIRTUAL column derived from the row itself, so SQL readers and the
+    # snapshot parser cannot disagree. Rows written before retirement existed
+    # carry no kind and read as installed; a row SQL cannot parse reads as
+    # neither, so a corrupt snapshot never serves or retires an app.
+    connection.execute(
+        "ALTER TABLE app_installed_history ADD COLUMN kind TEXT GENERATED ALWAYS "
+        "AS (CASE WHEN json_valid(snapshot_json) THEN "
+        "coalesce(json_extract(snapshot_json, '$.kind'), 'installed') END) VIRTUAL"
+    )
+
+
 MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (1, create_jobs_table),
     (2, add_execution_columns),
@@ -869,4 +881,5 @@ MIGRATIONS: tuple[tuple[int, Migration], ...] = (
     (23, add_release_commit_facts),
     (24, add_registration_proposals),
     (25, add_app_pins),
+    (26, add_installed_history_kind),
 )

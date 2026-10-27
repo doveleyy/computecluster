@@ -8,6 +8,7 @@ from pydantic import (
     ConfigDict,
     Field,
     StringConstraints,
+    TypeAdapter,
     ValidationError,
     field_validator,
     model_validator,
@@ -353,7 +354,7 @@ class ReleaseManifest(Contract):
         return self
 
 
-def parse_document[C: Contract](model: type[C], payload: bytes) -> C:
+def parse_document[C: Contract](model: type[C] | TypeAdapter[C], payload: bytes) -> C:
     if len(payload) > MAX_DOCUMENT_BYTES:
         raise ContractError("JSON document exceeds 65536 bytes")
 
@@ -370,6 +371,8 @@ def parse_document[C: Contract](model: type[C], payload: bytes) -> C:
 
     try:
         json.loads(payload, object_pairs_hook=pairs, parse_constant=nonfinite)
+        if isinstance(model, TypeAdapter):
+            return model.validate_json(payload)
         return model.model_validate_json(payload)
     except ValidationError as error:
         details = []
