@@ -4,10 +4,10 @@ import hmac
 import logging
 import os
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Literal
+from typing import Literal, NamedTuple
 from uuid import UUID
 
 import httpx
@@ -137,6 +137,157 @@ class Release:
     version: str | None
 
 
+@dataclass(frozen=True)
+class Activity:
+    """One card's status line, shown beside its buttons.
+
+    ``active`` means an operation holds the app, so its actions are locked.
+    ``final`` means nothing changes until the administrator acts, so the page
+    stops polling for it.
+    """
+
+    tone: Literal["progress", "failed"]
+    text: str
+    active: bool
+    final: bool
+
+
+class OperationFacts(NamedTuple):
+    kind: str
+    state: str
+    error: str | None
+    reconcile_error: str | None
+    reconcile_failed_at: str | None
+
+
+PROGRESSIVE = {
+    "rehearse": "Checking compatibility",
+    "deploy": "Deploying",
+    "rollback": "Rolling back",
+    "recover": "Recovering",
+}
+NOUN = {
+    "rehearse": "compatibility check",
+    "deploy": "deploy",
+    "rollback": "rollback",
+    "recover": "recovery",
+}
+
+
+def activity(operations: Sequence[OperationFacts], previewing: bool) -> Activity | None:
+    """The status line for an app's operations, newest first.
+
+    ``operations`` holds at least every queued, switching or blocked operation
+    and the newest one. A running compatibility check and a running preview get
+    no text, because the card's update section already names that step.
+    """
+    running = next(
+        (item for item in operations if item.state in ("queued", "switching")), None
+    )
+    if running is not None:
+        doing = PROGRESSIVE[running.kind]
+        if running.reconcile_error:
+            return Activity(
+                "failed",
+                f"{doing} · not reconciled since {running.reconcile_failed_at}: "
+                f"{running.reconcile_error}",
+                True,
+                False,
+            )
+        if running.kind == "rehearse":
+            return Activity("progress", "", True, False)
+        if running.state == "switching":
+            return Activity("progress", doing + " · switching containers…", True, False)
+        return Activity("progress", doing + "…", True, False)
+    if previewing:
+        return Activity("progress", "", False, False)
+    blocked = next((item for item in operations if item.state == "blocked"), None)
+    if blocked is not None:
+        return Activity(
+            "failed",
+            "Needs recovery" + (": " + words(blocked.error) if blocked.error else ""),
+            True,
+            True,
+        )
+    last = operations[0] if operations else None
+    if last is None or last.kind == "rehearse" or last.state == "succeeded":
+        return None
+    return Activity(
+        "failed",
+        f"Last {NOUN[last.kind]} failed"
+        + (": " + words(last.error) if last.error else "")
+        + (" · previous release restored" if last.state == "recovered" else ""),
+        False,
+        True,
+    )
+
+
+def activities(
+    connection: sqlite3.Connection, app_id: str | None = None
+) -> dict[str, Activity | None]:
+    """Every registered app's activity, or only ``app_id``'s.
+
+    Reads operations and preview attempts only, so it is cheap enough to poll.
+    """
+    names = [
+        row[0]
+        for row in connection.execute(
+            "SELECT app_id FROM app_registrations WHERE ? IS NULL OR app_id = ? "
+            "ORDER BY app_id",
+            (app_id, app_id),
+        )
+    ]
+    operations: dict[str, list[sqlite3.Row]] = {}
+    for row in connection.execute(
+        (
+            "SELECT app_id, kind, state, receipt_json, reconcile_error, "
+            "reconcile_failed_at FROM app_operations AS o WHERE "
+            "(? IS NULL OR app_id = ?) AND (state IN ('queued', 'switching', "
+            "'blocked') OR rowid = (SELECT rowid FROM app_operations WHERE "
+            "app_id = o.app_id ORDER BY created_at DESC, rowid DESC LIMIT 1)) "
+            "ORDER BY created_at DESC, rowid DESC"
+        ),
+        (app_id, app_id),
+    ):
+        operations.setdefault(row[0], []).append(row)
+    previewing = {
+        row[0]
+        for row in connection.execute(
+            "SELECT app_id FROM app_preview_attempts WHERE state = 'installing'"
+        )
+    }
+    found: dict[str, Activity | None] = {}
+    for name in names:
+        try:
+            found[name] = activity(
+                [
+                    OperationFacts(
+                        row[1],
+                        row[2],
+                        parse_document(Receipt, row[3].encode()).error
+                        if row[3]
+                        else None,
+                        row[4],
+                        row[5],
+                    )
+                    for row in operations.get(name, [])
+                ],
+                name in previewing,
+            )
+        except Exception as error:
+            logger.warning("Application activity %s is unavailable: %s", name, error)
+            found[name] = None
+    return found
+
+
+@router.get("/dashboard/api/apps/activity")
+def activity_feed(
+    request: Request, identity: AdminSession
+) -> dict[str, Activity | None]:
+    with service(request).database.connect() as connection:
+        return activities(connection)
+
+
 @dataclass
 class Card:
     app_id: str
@@ -152,6 +303,7 @@ class Card:
     restart_notice: str | None = None
     recover_notice: str | None = None
     operations: list[dict[str, object]] = field(default_factory=list)
+    activity: Activity | None = None
 
 
 @router.get("/dashboard/api/apps")
@@ -609,6 +761,7 @@ def card(
             }
             for item in operations
         ],
+        activity=activities(connection, app_id)[app_id],
     )
 
 

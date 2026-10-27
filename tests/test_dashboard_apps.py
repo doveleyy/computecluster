@@ -3,6 +3,7 @@ import json
 import threading
 import time
 from types import SimpleNamespace
+from typing import get_args
 from uuid import UUID, uuid4
 
 import pytest
@@ -21,11 +22,12 @@ from test_installer_recovery import (
     switch_request,
 )
 
-from app import dashboard_apps
+from app import app_deployments, dashboard_apps
 from app.accounts import AccountStore, UserCreate, encode_session
 from app.app_contracts import ContractError
 from app.app_deployment_contracts import Receipt, fingerprint
 from app.app_deployments import (
+    Kind,
     proposed_registration,
     read_authority,
     registration_for,
@@ -1174,3 +1176,203 @@ def test_preview_evicts_the_oldest_idle_preview_when_staging_is_full(
         connection.execute("UPDATE app_operations SET state = 'failed'")
     assert staging.preview("other", digest) == {"state": "installing"}
     assert staging.retired == [ledger.preview.attempt_id]
+
+
+def facts(kind, state, error=None, reconcile_error=None):
+    failed_at = "2026-10-27 12:00:00" if reconcile_error else None
+    return dashboard_apps.OperationFacts(kind, state, error, reconcile_error, failed_at)
+
+
+@pytest.mark.parametrize(
+    ("operations", "previewing", "expected"),
+    [
+        ([], False, None),
+        ([facts("deploy", "succeeded")], False, None),
+        ([facts("rehearse", "failed", "records_changed")], False, None),
+        ([facts("deploy", "queued")], False, ("progress", "Deploying…", True, False)),
+        (
+            [facts("rollback", "switching")],
+            False,
+            ("progress", "Rolling back · switching containers…", True, False),
+        ),
+        ([facts("rehearse", "queued")], False, ("progress", "", True, False)),
+        (
+            [facts("deploy", "queued", reconcile_error="Receipt is unreadable")],
+            False,
+            (
+                "failed",
+                "Deploying · not reconciled since 2026-10-27 12:00:00: "
+                "Receipt is unreadable",
+                True,
+                False,
+            ),
+        ),
+        ([], True, ("progress", "", False, False)),
+        (
+            [
+                facts("recover", "queued"),
+                facts("deploy", "blocked", "recovery_required"),
+            ],
+            False,
+            ("progress", "Recovering…", True, False),
+        ),
+        (
+            [
+                facts("recover", "failed"),
+                facts("deploy", "blocked", "recovery_required"),
+            ],
+            False,
+            ("failed", "Needs recovery: recovery required", True, True),
+        ),
+        (
+            [facts("deploy", "failed", "policy_refused"), facts("deploy", "succeeded")],
+            False,
+            ("failed", "Last deploy failed: policy refused", False, True),
+        ),
+        (
+            [facts("deploy", "recovered", "installation_failed")],
+            False,
+            (
+                "failed",
+                "Last deploy failed: installation failed · previous release restored",
+                False,
+                True,
+            ),
+        ),
+        ([facts("deploy", "succeeded"), facts("deploy", "failed")], False, None),
+    ],
+)
+def test_activity_names_each_operation_state_and_when_polling_stops(
+    operations, previewing, expected
+):
+    """Catches a status rule that drifts from the old page, or a settled app the
+    page would keep polling (``final`` false with nothing running)."""
+    found = dashboard_apps.activity(operations, previewing)
+    assert (
+        None if found is None else (found.tone, found.text, found.active, found.final)
+    ) == expected
+
+
+def test_activity_words_cover_every_operation_kind():
+    """Catches a new operation kind whose card would raise KeyError mid-poll."""
+    kinds = set(get_args(Kind))
+    assert set(dashboard_apps.PROGRESSIVE) == kinds == set(dashboard_apps.NOUN)
+
+
+def test_activity_feed_follows_an_operation_until_it_settles(browser, ledger):
+    """Catches polling that never starts or never stops: the feed is non-final
+    while the installer works and final or empty once its receipt lands."""
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+
+    def feed():
+        response = client.get("/dashboard/api/apps/activity")
+        assert response.status_code == 200
+        return response.json()
+
+    assert feed() == {"notes": None}
+    rehearsal = request(ledger)
+    assert feed()["notes"] == {
+        "tone": "progress",
+        "text": "",
+        "active": True,
+        "final": False,
+    }
+    complete_rehearsal(ledger, rehearsal)
+    assert feed() == {"notes": None}
+    deploy = request(ledger, "deploy", rehearsal_id=rehearsal.operation_id)
+    assert feed()["notes"]["text"] == "Deploying…"
+    switch_request(ledger, deploy)
+    assert feed()["notes"] == {
+        "tone": "progress",
+        "text": "Deploying · switching containers…",
+        "active": True,
+        "final": False,
+    }
+    publish(
+        ledger.spool / "receipts" / f"{deploy.operation_id}.json",
+        Receipt(
+            operation_id=deploy.operation_id,
+            selection=deploy.approval.selection,
+            state="failed",
+            error="installation_failed",
+        )
+        .model_dump_json()
+        .encode(),
+    )
+    ledger.service.reconcile()
+    settled = {
+        "tone": "failed",
+        "text": "Last deploy failed: installation failed",
+        "active": False,
+        "final": True,
+    }
+    assert feed() == {"notes": settled}
+    assert client.get("/dashboard/api/apps").json()["apps"][0]["activity"] == settled
+
+
+def test_activity_feed_reports_a_running_preview_for_polling(browser, ledger):
+    """Catches a reload during a preview that would never refresh the card."""
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+    with ledger.database.connect() as connection:
+        connection.execute("UPDATE app_preview_attempts SET state = 'installing'")
+    assert client.get("/dashboard/api/apps/activity").json()["notes"] == {
+        "tone": "progress",
+        "text": "",
+        "active": False,
+        "final": False,
+    }
+
+
+def test_activity_feed_never_verifies_release_packages(browser, ledger, monkeypatch):
+    """Catches a poll that re-verifies every release package each few seconds,
+    the cost the full overview pays per card."""
+    request(ledger)
+    calls = []
+    original = app_deployments.verify_package
+
+    def counted(*args):
+        calls.append(args)
+        return original(*args)
+
+    monkeypatch.setattr(app_deployments, "verify_package", counted)
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+    response = client.get("/dashboard/api/apps/activity")
+    assert response.status_code == 200
+    assert response.json()["notes"]["active"] is True
+    assert calls == []
+    client.get("/dashboard/api/apps")
+    assert calls, "the overview verifies packages, so the counter must see it"
+
+
+def test_activity_feed_needs_an_administrator_session(browser):
+    client, accounts = browser
+    assert client.get("/dashboard/api/apps/activity").status_code == 401
+    member = accounts.create(
+        UserCreate(username="reader", password="long fixture password")
+    )
+    login(client, member)
+    assert client.get("/dashboard/api/apps/activity").status_code == 403
+
+
+def test_one_apps_operation_leaves_other_cards_unchanged(browser, ledger, tmp_path):
+    """Catches an action on one card that changes another card's document, which
+    the page would then re-render, closing its details and dropping focus."""
+    ledger.registry.register(
+        document(managed("pad", "/apps/pad", state=str(tmp_path / "pad-state")))
+    )
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+
+    def cards():
+        apps = client.get("/dashboard/api/apps").json()["apps"]
+        return {item["app_id"]: item for item in apps}
+
+    before = cards()
+    request(ledger)
+    after = cards()
+    assert after["pad"] == before["pad"]
+    assert after["notes"]["activity"]["active"] is True
+    assert client.get("/dashboard/api/apps/activity").json()["pad"] is None
