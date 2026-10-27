@@ -1,5 +1,6 @@
 import asyncio
 import json
+import sqlite3
 import threading
 import time
 from types import SimpleNamespace
@@ -16,17 +17,20 @@ from test_app_platform import managed
 from test_app_registry import document
 from test_installer_recovery import (
     accept,
+    advertise,
     deploy_request,
     install,
     propose_release_with_secret,
     retire,
+    retire_request,
+    retired_receipt,
     switch_request,
 )
 
 from app import app_deployments, dashboard_apps
 from app.accounts import AccountStore, UserCreate, encode_session
 from app.app_contracts import ContractError
-from app.app_deployment_contracts import Receipt, fingerprint
+from app.app_deployment_contracts import ArchiveRecord, Receipt, fingerprint
 from app.app_deployments import (
     Kind,
     proposed_registration,
@@ -105,6 +109,27 @@ def test_apps_mutations_require_origin_and_session_bound_csrf(browser, ledger):
     assert result.json() == {"state": "rejected"}
 
 
+ARCHIVE = ArchiveRecord(
+    file_name=f"retired-g2-{uuid4()}.sqlite",
+    sha256="c" * 64,
+    content_sha256="d" * 64,
+    tables=("notes", "tags"),
+    size_bytes=24576,
+)
+
+
+def retire_with_archive(ledger, current):
+    operation = retire_request(ledger, current)
+    switch_request(ledger, operation)
+    receipt = retired_receipt(operation, current, archive=ARCHIVE)
+    publish(
+        ledger.spool / "receipts" / f"{operation.operation_id}.json",
+        receipt.model_dump_json().encode(),
+    )
+    ledger.service.reconcile()
+    return operation
+
+
 def test_apps_overview_shows_host_paths_only_in_a_pending_change_to_a_live_session(
     browser, ledger
 ):
@@ -121,6 +146,11 @@ def test_apps_overview_shows_host_paths_only_in_a_pending_change_to_a_live_sessi
     card = client.get("/dashboard/api/apps").json()["apps"][0]
     assert "/private/rotated-key" in json.dumps(card.pop("pending"))
     assert "/private/" not in json.dumps(card)
+    retire_with_archive(ledger, first)
+    card = client.get("/dashboard/api/apps").json()["apps"][0]
+    assert card["retired"]["archive"]["file_name"] == ARCHIVE.file_name
+    assert "/private/" not in json.dumps(card)
+    assert str(ledger.database.path.parent) not in json.dumps(card)
     with ledger.database.connect() as connection:
         connection.execute("UPDATE users SET session_version = 2 WHERE role = 'ADMIN'")
     assert client.get("/dashboard/api/apps").status_code == 401
@@ -1485,3 +1515,193 @@ def test_apps_page_reports_actions_on_the_card_not_the_page_status(browser):
     assert "function live(" in page.split("status.textContent")[0].rsplit("\n", 1)[1]
     assert "line.setAttribute('role','status');secondary.append(line)" in page
     assert "/dashboard/api/apps/activity" in page
+
+
+def overview(client):
+    data = client.get("/dashboard/api/apps").json()
+    return data["csrf"], data["apps"][0]
+
+
+def test_retire_is_offered_only_for_an_idle_running_app(browser, ledger):
+    """Catches Retire on an app with nothing to retire, or beside an operation
+    already holding the app, where core would refuse the click."""
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+    advertise(ledger)
+    card = overview(client)[1]
+    assert (card["lifecycle"], card["retire"]) == ("not_installed", None)
+    current = install(ledger)
+    card = overview(client)[1]
+    assert card["lifecycle"] == "running"
+    assert card["retire"] == {
+        "digest": current.selection.manifest_sha256,
+        "preview_id": str(current.selection.preview_id),
+        "notice": None,
+    }
+    rehearsal = request(ledger)
+    assert overview(client)[1]["retire"] is None
+    complete_rehearsal(ledger, rehearsal)
+    assert overview(client)[1]["retire"] is not None
+    retire(ledger, current)
+    card = overview(client)[1]
+    assert (card["lifecycle"], card["retire"]) == ("retired", None)
+
+
+def queue_compute_run(ledger):
+    raw = sqlite3.connect(ledger.database.path)
+    with raw:
+        raw.execute(
+            "INSERT INTO jobs(id,type,parameters_json,status,created_at,"
+            "updated_at,group_id,owner_user_id) VALUES "
+            "('job-1','app','{}','QUEUED','t','t','group-1',?)",
+            (ADMIN_USER_ID,),
+        )
+        raw.execute(
+            "INSERT INTO app_runs(group_id,app_id,owner_user_id,installation_id,"
+            "submission_key,payload_sha256,inputs_json) VALUES "
+            "('group-1','notes','owner','workload','key-1','p','[]')"
+        )
+    raw.close()
+
+
+def test_retire_names_why_it_cannot_run_yet(browser, ledger):
+    """Catches an enabled Retire that core or root refuses: a host runtime
+    that cannot retire, compute runs still using the app, or a host policy
+    entry that no longer matches the installed registration."""
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+    current = install(ledger)
+    unable = "The host installer runtime must be rebuilt before it can retire."
+    assert overview(client)[1]["retire"]["notice"] == unable
+    advertise(ledger, kinds=("rehearse", "deploy", "rollback", "recover"))
+    assert overview(client)[1]["retire"]["notice"] == unable
+    (ledger.spool / "receipts" / "installer.json").unlink()
+    advertise(ledger)
+    assert overview(client)[1]["retire"]["notice"] is None
+    queue_compute_run(ledger)
+    assert overview(client)[1]["retire"]["notice"] == (
+        "Retire waits for 1 compute run still queued or running."
+    )
+    raw = sqlite3.connect(ledger.database.path)
+    with raw:
+        raw.execute("UPDATE jobs SET status = 'COMPLETED'")
+    raw.close()
+    moved = current.registration.model_copy(update={"route": "/apps/elsewhere"})
+    ledger.service.policy_registration = lambda _: moved
+    assert overview(client)[1]["retire"]["notice"] == (
+        "Retire needs this app's host policy entry to match the installed "
+        "registration first."
+    )
+
+
+def test_retire_posts_the_installed_digest_and_queues_a_retirement(
+    browser, ledger, monkeypatch
+):
+    """Catches a Retire button that sends a release other than the running one,
+    which core refuses, or an action route that never queues the retirement."""
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+    current = install(ledger)
+    newer = push(ledger, monkeypatch, source_commit="c" * 40)
+    advertise(ledger)
+    csrf, card = overview(client)
+    headers = {"Origin": "https://platform.test", "X-CSRF-Token": csrf}
+    offer = card["retire"]
+
+    def post(digest):
+        return client.post(
+            "/dashboard/api/apps/retire",
+            json=dict(
+                app_id="notes",
+                digest=digest,
+                preview_id=offer["preview_id"],
+                request_id=str(uuid4()),
+            ),
+            headers=headers,
+        )
+
+    refused = post(newer)
+    assert (refused.status_code, refused.json()["detail"]) == (
+        409,
+        "Retire target changed",
+    )
+    result = post(offer["digest"])
+    assert result.status_code == 200
+    assert result.json()["state"] == "queued"
+    with ledger.database.connect() as connection:
+        kind, operation_json = connection.execute(
+            "SELECT kind, operation_json FROM app_operations WHERE operation_id = ?",
+            (result.json()["operation_id"],),
+        ).fetchone()
+    selected = json.loads(operation_json)["approval"]["selection"]
+    assert kind == "retire"
+    assert selected["manifest_sha256"] == current.selection.manifest_sha256
+    assert overview(client)[1]["activity"]["text"] == "Retiring…"
+
+
+def test_retired_card_shows_what_last_ran_and_its_final_archive(browser, ledger):
+    """Catches a retired card that reads as never installed, or loses the
+    archive digests an off-host copy is checked against."""
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+    current = install(ledger)
+    operation = retire_with_archive(ledger, current)
+    card = overview(client)[1]
+    assert (card["lifecycle"], card["installed"], card["running"]) == (
+        "retired",
+        None,
+        None,
+    )
+    retired = card["retired"]
+    assert retired["release"]["digest"] == current.selection.manifest_sha256
+    assert retired["archive"] == json.loads(ARCHIVE.model_dump_json())
+    with ledger.database.connect() as connection:
+        (created,) = connection.execute(
+            "SELECT created_at FROM app_operations WHERE operation_id = ?",
+            (str(operation.operation_id),),
+        ).fetchone()
+    assert retired["retired_at"] == created.replace(" ", "T") + "Z"
+
+
+def test_retired_card_offers_restore_through_preview_and_rehearsal(
+    browser, ledger, monkeypatch
+):
+    """Catches a retired app with no way back: its own release is offered for
+    restore and a newer one ahead of it, each through compatibility first."""
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+    current = install(ledger)
+    retire(ledger, current)
+    pending = overview(client)[1]["pending"]
+    assert pending["digest"] == current.selection.manifest_sha256
+    assert pending["step"] == "check_compatibility"
+    assert pending["added_capabilities"] == []
+    rehearsal = request(ledger)
+    complete_rehearsal(ledger, rehearsal)
+    pending = overview(client)[1]["pending"]
+    assert (pending["step"], pending["rehearsal_id"]) == (
+        "approve",
+        str(rehearsal.operation_id),
+    )
+    newer = push(ledger, monkeypatch, source_commit="c" * 40)
+    pending = overview(client)[1]["pending"]
+    assert (pending["digest"], pending["step"]) == (newer, "preview")
+
+
+def test_no_rollback_is_offered_while_retired(browser, ledger, monkeypatch, tmp_path):
+    """Catches Rollback on a retired card, which would start the release before
+    the retired one without the preview and rehearsal a restore needs."""
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+    first = install(ledger)
+    second = accept(
+        ledger,
+        propose_release_with_secret(
+            ledger, monkeypatch, first.registration, tmp_path / "extra/key"
+        ),
+        2,
+    )
+    assert overview(client)[1]["rollback"] is not None
+    retire(ledger, second)
+    card = overview(client)[1]
+    assert (card["lifecycle"], card["rollback"]) == ("retired", None)

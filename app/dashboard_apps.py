@@ -27,15 +27,19 @@ from app.app_contracts import (
 )
 from app.app_deployment_contracts import (
     InstalledSnapshot,
+    Kind,
     Operation,
     Receipt,
+    RetiredSnapshot,
     fingerprint,
 )
 from app.app_deployments import (
+    RUNTIME_LACKS_RETIRE,
     AppsService,
     RegistrationProposal,
     blocked_operation,
     eligible,
+    idle,
     installed,
     managed,
     pending_change,
@@ -43,6 +47,8 @@ from app.app_deployments import (
     proposed_registration,
     redacted_error,
     require_idle,
+    retire_blocker,
+    retirement,
     selection_for,
 )
 from app.app_discovery import ReleaseDiscovery
@@ -332,12 +338,15 @@ class Card:
     label: str
     settings: list[str]
     error: str | None = None
+    lifecycle: Literal["running", "retired", "not_installed"] = "not_installed"
     installed: str | None = None
     running: Release | None = None
+    retired: dict[str, object] | None = None
     installed_capabilities: list[str] = field(default_factory=list)
     installed_secrets: list[str] = field(default_factory=list)
     pending: dict[str, object] | None = None
     rollback: dict[str, object] | None = None
+    retire: dict[str, object] | None = None
     restart_notice: str | None = None
     recover_notice: str | None = None
     operations: list[dict[str, object]] = field(default_factory=list)
@@ -595,13 +604,27 @@ def card(
         if current and installed_digest
         else None
     )
+    retired = retirement(connection, app_id, environment) if current is None else None
+    last_ran = (
+        eligible(
+            connection,
+            retired.last_installed.registration,
+            retired.last_installed.selection.manifest_sha256,
+        )
+        if retired
+        else None
+    )
+    baseline = running or last_ran
+    # The retired release's preview is the one it was installed from, not a
+    # restore in progress, so it must not hold the card over a newer release.
     releases = connection.execute(
         (
             "WITH offered AS (SELECT manifest_sha256, release_id, EXISTS "
             "(SELECT 1 FROM app_preview_attempts WHERE app_id = "
             "app_eligible_releases.app_id AND manifest_sha256 = "
             "app_eligible_releases.manifest_sha256 AND state != 'retired') "
-            "AS previewed FROM app_eligible_releases WHERE app_id = ? AND "
+            "AND manifest_sha256 IS NOT ? AS previewed FROM "
+            "app_eligible_releases WHERE app_id = ? AND "
             "NOT EXISTS (SELECT 1 FROM app_rejections WHERE app_id = "
             "app_eligible_releases.app_id AND manifest_sha256 = "
             "app_eligible_releases.manifest_sha256)) "
@@ -610,7 +633,12 @@ def card(
             "app_eligible_releases WHERE app_id = ? AND manifest_sha256 = ?), "
             "-1) ORDER BY previewed DESC, release_id DESC"
         ),
-        (app_id, app_id, installed_digest),
+        (
+            last_ran.publication.manifest_sha256 if last_ran else None,
+            app_id,
+            app_id,
+            installed_digest,
+        ),
     ).fetchall()
     change = pending_change(connection, app_id, environment) if current else None
     proposed = change.registration if change else registration
@@ -724,10 +752,11 @@ def card(
             "secrets": list(manifest.secrets),
             "added_capabilities": sorted(
                 set(manifest.capabilities)
-                - set(running.manifest.capabilities if running else ())
+                - set(baseline.manifest.capabilities if baseline else ())
             ),
             "added_secrets": sorted(
-                set(manifest.secrets) - set(running.manifest.secrets if running else ())
+                set(manifest.secrets)
+                - set(baseline.manifest.secrets if baseline else ())
             ),
             "preview_id": preview[0] if preview else None,
             "preview_state": preview[1] if preview else None,
@@ -759,6 +788,7 @@ def card(
     ).fetchall()
     return Card(
         *heading(registration),
+        lifecycle="running" if current else "retired" if retired else "not_installed",
         installed=installed_digest,
         running=describe(
             connection,
@@ -768,10 +798,16 @@ def card(
         )
         if current and running
         else None,
+        retired=retired_view(connection, registration, retired, last_ran)
+        if retired and last_ran
+        else None,
         installed_capabilities=list(running.manifest.capabilities) if running else [],
         installed_secrets=list(running.manifest.secrets) if running else [],
         pending=pending,
         rollback=rollback_offer(previous, policy) if previous else None,
+        retire=retire_offer(connection, apps, current, policy)
+        if current and idle(connection, app_id)
+        else None,
         restart_notice=restart_notice(current, change, policy, blocked)
         if current
         else None,
@@ -856,6 +892,58 @@ def rollback_offer(
         "preview_id": str(target.selection.preview_id),
         "policy_mismatch": notice is not None,
         "notice": notice,
+    }
+
+
+def retire_offer(
+    connection: sqlite3.Connection,
+    apps: AppsService,
+    current: InstalledSnapshot,
+    policy: Registration | None,
+) -> dict[str, object]:
+    """Retire pins the running release; ``notice`` says why it cannot run yet."""
+    blocker = retire_blocker(connection, current.selection.app_id)
+    notice = (
+        RUNTIME_LACKS_RETIRE + "."
+        if "retire" not in apps.installer_kinds()
+        else f"Retire waits for {blocker}."
+        if blocker
+        else policy_notice(
+            policy,
+            current.registration,
+            "Retire needs this app's host policy entry to match the installed "
+            "registration first.",
+        )
+    )
+    return {
+        "digest": current.selection.manifest_sha256,
+        "preview_id": str(current.selection.preview_id),
+        "notice": notice,
+    }
+
+
+def retired_view(
+    connection: sqlite3.Connection,
+    registration: Registration,
+    retired: RetiredSnapshot,
+    release: VerifiedPublication,
+) -> dict[str, object]:
+    """When it was retired, what last ran, and the final archive's facts."""
+    (retired_at,) = connection.execute(
+        "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', created_at) FROM app_operations "
+        "WHERE operation_id = ?",
+        (str(retired.operation_id),),
+    ).fetchone()
+    last = retired.last_installed
+    return {
+        "retired_at": retired_at,
+        "release": describe(
+            connection,
+            registration,
+            release,
+            previewed_version(connection, last.selection.preview_id),
+        ),
+        "archive": retired.archive,
     }
 
 
@@ -959,13 +1047,15 @@ async def perform(
             if result.state != "ready":
                 return {"state": result.state}
             preview_id = result.attempt_id
-        kind: Literal["rehearse", "deploy", "rollback", "recover"] = "rehearse"
+        kind: Kind = "rehearse"
     elif action == "deploy":
         kind = "deploy"
     elif action == "rollback":
         kind = "rollback"
     elif action == "recover":
         kind = "recover"
+    elif action == "retire":
+        kind = "retire"
     else:
         raise HTTPException(404, "Unknown action")
     operation = apps.request(
