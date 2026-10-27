@@ -16,7 +16,7 @@ from collections.abc import Iterable
 from contextlib import suppress
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Literal, get_args
+from typing import ClassVar, Literal, get_args
 from uuid import UUID, uuid4
 
 import httpx
@@ -29,15 +29,21 @@ from app.app_contracts import (
     parse_document,
 )
 from app.app_deployment_contracts import (
+    AcceptedSnapshot,
+    ArchiveRecord,
     InstalledSnapshot,
     InstallerCapabilities,
     Kind,
     Operation,
     OperationHint,
     Receipt,
+    ReceiptError,
     Rehearsal,
+    RetiredSnapshot,
+    decode_accepted,
     fingerprint,
     rehearsal_checks,
+    running_of,
 )
 from app.app_deployments import Authority, ReconciliationPending
 from app.app_publication import VerifiedPublication, verify_package
@@ -76,9 +82,43 @@ class HostOperationFailed(ContractError):
         self.returncode = returncode
 
 
-class RecordsChanged(ContractError):
+class SwitchRefused(ContractError):
+    """A refusal whose receipt names its own error instead of a generic failure."""
+
+    error: ClassVar[ReceiptError] = "installation_failed"
+
+
+class RecordsChanged(SwitchRefused):
+    error = "records_changed"
+
     def __init__(self) -> None:
         super().__init__("Migration changes semantic application records")
+
+
+class Contradictory(SwitchRefused):
+    """A container root does not recognise; nothing is touched until recovery."""
+
+    error = "recovery_required"
+
+    def __init__(self) -> None:
+        super().__init__("Container contradicts installation history")
+
+
+class RetirementBackupFailed(SwitchRefused):
+    error = "backup_failed"
+
+    def __init__(self) -> None:
+        super().__init__("Final archive could not be taken or verified")
+
+
+@dataclass(frozen=True)
+class BackupFacts:
+    """What backup() verified about the copy it published."""
+
+    sha256: str
+    content_sha256: str
+    tables: tuple[str, ...]
+    size_bytes: int
 
 
 @dataclass(frozen=True)
@@ -234,6 +274,12 @@ def application_ready(client: httpx.Client, url: str, readiness: Readiness) -> b
             return response_json(client, url).get("status") == "ready"
 
 
+def started_by(actual: Container, image_id: str, operation_id: UUID) -> bool:
+    return actual.image == image_id and actual.config.labels.get(
+        "home-platform.operation"
+    ) == str(operation_id)
+
+
 def as_installed(app: HostApp, snapshot: InstalledSnapshot) -> HostApp:
     """The policy entry with the registration accepted for ``snapshot``.
 
@@ -301,12 +347,16 @@ class Installer:
             )
         return narrow(release)
 
-    def current(self, app: HostApp) -> InstalledSnapshot | None:
+    def current(self, app: HostApp) -> AcceptedSnapshot | None:
+        """The accepted generation this journal holds, running or retired."""
         try:
             recorded = read_owned(self.current_path(app), 0)
         except FileNotFoundError:
             return None
-        return parse_document(InstalledSnapshot, recorded)
+        return decode_accepted(recorded)
+
+    def running(self, app: HostApp) -> InstalledSnapshot | None:
+        return running_of(self.current(app))
 
     def current_path(self, app: HostApp) -> Path:
         return self.journal / (app.registration.app_id + ".current.json")
@@ -423,7 +473,7 @@ class Installer:
         destination: Path,
         *,
         source: Path | None = None,
-    ) -> str:
+    ) -> BackupFacts:
         scratch = Path(tempfile.mkdtemp(prefix="backup-", dir=self.policy.scratch))
         os.chown(scratch, app.uid, app.gid)
         os.chmod(scratch, 0o700)
@@ -466,7 +516,12 @@ class Installer:
                 != digest
             ):
                 raise ContractError("Disposable restore failed")
-            return digest
+            return BackupFacts(
+                digest,
+                str(result["content_sha256"]),
+                tuple(str(name) for name in result["tables"]),
+                len(payload),
+            )
         finally:
             shutil.rmtree(scratch)
 
@@ -778,7 +833,13 @@ class Installer:
                 backup_digest = hashlib.sha256(payload).hexdigest()
                 write_private(directory / state.sqlite_file, payload, app.uid, app.gid)
             previous = self.current(app)
-            old = self.retained_release(app, previous) if previous else None
+            # A restore rehearses against the image that last wrote the data.
+            last = (
+                previous.last_installed
+                if isinstance(previous, RetiredSnapshot)
+                else previous
+            )
+            old = self.retained_release(app, last) if last else None
             previous_id = self.image(old.image) if old else None
             before = None
             if old is not None:
@@ -856,14 +917,19 @@ class Installer:
             return
         selected = authority.operation.approval.selection
         current = self.current(app)
+        running = running_of(current)
         target = (current.generation if current else 0) + 1
-        contradictory = False
         try:
             self.limits()
             if operation.kind == "recover":
                 if not self.admitted(operation_id):
                     return
                 self.commit(self.recover(operation, authority, app, release))
+                return
+            if operation.kind == "retire":
+                if not self.admitted(operation_id):
+                    return
+                self.commit(self.retire(operation, authority, app, running, marker))
                 return
             image_id = self.image(release.image)
             self.retain_assets(release)
@@ -894,28 +960,18 @@ class Installer:
                     return
                 self.authority(operation)
                 name = "hp-app-" + selected.app_id
-                try:
-                    actual = self.owned(name, selected.app_id)
-                except ContractError:
-                    contradictory = True
-                    raise
-                switched = (
-                    actual is not None
-                    and actual.image == image_id
-                    and actual.config.labels.get("home-platform.operation")
-                    == str(operation_id)
+                actual = self.recognised(name, selected.app_id)
+                switched = actual is not None and started_by(
+                    actual, image_id, operation_id
                 )
                 if actual is not None and not (
                     switched
                     or (
-                        current is not None
-                        and actual.image == current.image_id
-                        and actual.config.labels.get("home-platform.operation")
-                        == str(current.operation_id)
+                        running is not None
+                        and started_by(actual, running.image_id, running.operation_id)
                     )
                 ):
-                    contradictory = True
-                    raise ContractError("Container contradicts installation history")
+                    raise Contradictory()
                 if (
                     state is not None
                     and not switched
@@ -958,33 +1014,140 @@ class Installer:
             state_: Literal["failed", "blocked", "recovered"] = "failed"
             if operation.kind == "recover":
                 pass
-            elif contradictory:
+            elif isinstance(err, Contradictory):
                 state_ = "blocked"
             elif marker.exists():
-                state_ = "blocked"
-                if current is not None:
-                    try:
-                        fresh, _, _ = self.authority(operation)
-                        self.restore_previous(fresh, app)
-                        state_ = "recovered"
-                    except (
-                        ContractError,
-                        OSError,
-                        subprocess.SubprocessError,
-                        ValueError,
-                    ):
-                        pass
+                fell_back = self.fell_back(operation, app, current)
+                state_ = "recovered" if fell_back else "blocked"
             receipt = Receipt(
                 operation_id=operation_id,
                 selection=selected,
                 state=state_,
                 error="recovery_required"
                 if state_ == "blocked" or operation.kind == "recover"
-                else "records_changed"
-                if isinstance(err, RecordsChanged)
+                else err.error
+                if isinstance(err, SwitchRefused)
                 else "installation_failed",
             )
         self.commit(receipt)
+
+    def recognised(self, name: str, app_id: str) -> Container | None:
+        """The app's container, or None; one of unknown ownership blocks."""
+        try:
+            return self.owned(name, app_id)
+        except ContractError:
+            raise Contradictory() from None
+
+    def fell_back(
+        self, operation: Operation, app: HostApp, current: AcceptedSnapshot | None
+    ) -> bool:
+        """Return the host to ``current`` after a failed switch, if it can.
+
+        A running generation restarts. A retired one is torn down again, so a
+        failed restore never starts the release it replaced. A first install
+        has nothing to fall back to and stays blocked.
+        """
+        if current is None:
+            return False
+        try:
+            if isinstance(current, RetiredSnapshot):
+                self.tear_down(app)
+            else:
+                fresh, _, _ = self.authority(operation)
+                self.restore_previous(fresh, app)
+        except (ContractError, OSError, subprocess.SubprocessError, ValueError):
+            return False
+        return True
+
+    def tear_down(self, app: HostApp) -> None:
+        self.stop_timers(app)
+        self.remove("hp-app-" + app.registration.app_id, app.registration.app_id)
+        self.lifecycle(app, False)
+
+    def retire(
+        self,
+        operation: Operation,
+        authority: Authority,
+        app: HostApp,
+        running: InstalledSnapshot | None,
+        marker: Path,
+    ) -> Receipt:
+        """Stop the app, archive its final state, remove its units.
+
+        The archive is taken after the container is gone so it is the final
+        state. The units go before the receipt, since a leftover unit is the
+        one way a retired app could come back on its own.
+        """
+        selected = authority.operation.approval.selection
+        if running is None:
+            raise ContractError("Nothing is installed to retire")
+        app_id = app.registration.app_id
+        name = "hp-app-" + app_id
+        actual = self.recognised(name, app_id)
+        if actual is not None and not started_by(
+            actual, running.image_id, running.operation_id
+        ):
+            raise Contradictory()
+        publish(marker, b"{}")
+        self.stop_timers(app)
+        self.stop_supervisor(app)
+        self.remove(name, app_id)
+        archive = None
+        if app.state is not None:
+            try:
+                archive = self.retirement_archive(
+                    app, app.state.sqlite_file, selected.generation + 1, operation
+                )
+            except (
+                ContractError,
+                OSError,
+                subprocess.SubprocessError,
+                ValueError,
+            ) as err:
+                raise RetirementBackupFailed() from err
+        self.lifecycle(app, False)
+        self.authority(operation)
+        return Receipt(
+            operation_id=operation.operation_id,
+            selection=selected,
+            state="succeeded",
+            retired=RetiredSnapshot(
+                operation_id=operation.operation_id,
+                generation=selected.generation + 1,
+                selection=selected,
+                registration=app.registration,
+                last_installed=running,
+                archive=archive,
+            ),
+            authorization_committed=True,
+        )
+
+    def retirement_archive(
+        self, app: HostApp, sqlite_file: str, generation: int, operation: Operation
+    ) -> ArchiveRecord:
+        directory = Path(str(app.registration.bindings.backup_directory))
+        # A retry at the same generation supersedes an earlier copy, as a
+        # pre-switch backup does; the one kept is of the final quiescent state.
+        for path in directory.glob(f"retired-g{generation}-*.sqlite"):
+            if re.fullmatch(r"retired-g\d+-[0-9a-f-]{36}\.sqlite", path.name):
+                read_owned(path, 0, 1024**3)
+                path.unlink()
+        file_name = f"retired-g{generation}-{operation.operation_id}.sqlite"
+        facts = self.backup(app, sqlite_file, directory / file_name)
+        return ArchiveRecord(
+            file_name=file_name,
+            sha256=facts.sha256,
+            content_sha256=facts.content_sha256,
+            tables=facts.tables,
+            size_bytes=facts.size_bytes,
+        )
+
+    def advertise(self) -> None:
+        """Publish the kinds this runtime answers, so core queues no other."""
+        replace_file(
+            Path(self.policy.spool) / "receipts" / "installer.json",
+            InstallerCapabilities(kinds=get_args(Kind)).model_dump_json().encode(),
+        )
 
     def commit(self, receipt: Receipt) -> None:
         # The journal receipt is the commit point. The current-installation
@@ -996,13 +1159,13 @@ class Installer:
         receipt_path = self.journal / (name + ".receipt.json")
         if not receipt_path.exists():
             publish(receipt_path, payload)
-        installed = receipt.installed
-        if receipt.state == "succeeded" and installed is not None:
-            app = self.policy.app(installed.selection.app_id)
+        accepted = receipt.installed or receipt.retired
+        if receipt.state == "succeeded" and accepted is not None:
+            app = self.policy.app(accepted.selection.app_id)
             current = self.current(app)
-            if installed.generation == (current.generation if current else 0) + 1:
+            if accepted.generation == (current.generation if current else 0) + 1:
                 replace_file(
-                    self.current_path(app), installed.model_dump_json().encode()
+                    self.current_path(app), accepted.model_dump_json().encode()
                 )
         publish(Path(self.policy.spool) / "receipts" / (name + ".json"), payload)
         # A replay commits from the journal receipt, so the journal marker has no
@@ -1069,9 +1232,9 @@ class Installer:
         return release
 
     def restore_previous(self, authority: Authority, app: HostApp) -> None:
-        previous = self.current(app)
+        previous = self.running(app)
         if previous is None:
-            raise ContractError("Application has no accepted installation")
+            raise ContractError("Application has no running installation")
         app = as_installed(app, previous)
         old = self.retained_release(app, previous)
         if self.local_image(old.image) != previous.image_id:
@@ -1114,8 +1277,9 @@ class Installer:
         actual = self.owned(name, app_id)
         label = actual.config.labels.get("home-platform.operation") if actual else None
         running = actual is not None and actual.state.running
-        previous = self.current(app)
+        previous = self.running(app)
         installed = None
+        accepted = self.current(app)
         if (
             running
             and actual is not None
@@ -1127,7 +1291,7 @@ class Installer:
             self.lifecycle(app, True)
             installed = InstalledSnapshot(
                 operation_id=operation.recovers,
-                generation=(previous.generation if previous else 0) + 1,
+                generation=(accepted.generation if accepted else 0) + 1,
                 selection=selected,
                 registration=app.registration,
                 image=release.image,
@@ -1152,9 +1316,7 @@ class Installer:
             else:
                 self.restore_previous(authority, app)
         else:
-            self.stop_timers(app)
-            self.remove(name, app_id)
-            self.lifecycle(app, False)
+            self.tear_down(app)
         self.authority(operation)
         if installed is not None:
             self.prune_backups(app, installed.generation)
@@ -1199,13 +1361,6 @@ class Installer:
 
     def retain_assets(self, release: HostRelease) -> None:
         publish(self.journal / (release.archive_sha256 + ".zip"), release.archive)
-
-    def advertise(self) -> None:
-        """Publish the kinds this runtime answers, so core queues no other."""
-        replace_file(
-            Path(self.policy.spool) / "receipts" / "installer.json",
-            InstallerCapabilities(kinds=get_args(Kind)).model_dump_json().encode(),
-        )
 
     def sweep_scratch(self) -> None:
         for path in Path(self.policy.scratch).iterdir():
@@ -1450,7 +1605,10 @@ class Installer:
             raise ContractError("Application has no accepted installation")
         if authority.previous != current:
             raise ContractError("Core installation history differs from root journal")
-        return current
+        running = running_of(current)
+        if running is None:
+            raise ContractError("Application is retired")
+        return running
 
     def daily_backup(self, app_id: str) -> None:
         app = self.policy.app(app_id)

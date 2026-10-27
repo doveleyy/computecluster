@@ -6,6 +6,7 @@ narrowed release is all root holds, and finished switch markers are removed.
 """
 
 import contextlib
+import hashlib
 import io
 import json
 import os
@@ -58,7 +59,7 @@ def test_backup_copies_of_a_wal_database_open_from_a_read_only_mount(
     live = wal_database(tmp_path / "live" / "notes.db")
     (tmp_path / "backups").mkdir()
     destination = tmp_path / "backups" / "pre-switch-g2-test.sqlite"
-    digest = installer.backup(app, "notes.db", destination, source=live)
+    facts = installer.backup(app, "notes.db", destination, source=live)
     payload = destination.read_bytes()
     mount = tmp_path / "mount"
     mount.mkdir()
@@ -86,7 +87,9 @@ def test_backup_copies_of_a_wal_database_open_from_a_read_only_mount(
     assert payload[18:20] == b"\x01\x01", "copy still carries the WAL header"
     assert sorted(p.name for p in destination.parent.iterdir()) == [destination.name]
     assert not list(Path(installer.policy.scratch).iterdir())
-    assert len(digest) == 64
+    assert facts.sha256 == hashlib.sha256(payload).hexdigest()
+    assert facts.size_bytes == len(payload)
+    assert "entries" in facts.tables
 
 
 def test_capture_waits_in_slices_that_fit_an_epoll_timeout(monkeypatch):

@@ -606,7 +606,7 @@ def test_restore_previous_runs_only_the_root_retained_image(helper, monkeypatch)
     monkeypatch.setattr(
         installer, "start", lambda *args, **kwargs: started.append(args[3])
     )
-    with pytest.raises(ContractError, match="no accepted installation"):
+    with pytest.raises(ContractError, match="no running installation"):
         installer.restore_previous(authority, app)
     installed_by_root(installer, core_snapshot(operation, app, EVIL_IMAGE))
     with pytest.raises(ContractError, match="retained release"):
