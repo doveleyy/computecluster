@@ -480,6 +480,14 @@ def read_authority(
     )
 
 
+def operation_state(connection: sqlite3.Connection, operation_id: UUID) -> str:
+    (state,) = connection.execute(
+        "SELECT state FROM app_operations WHERE operation_id = ?",
+        (str(operation_id),),
+    ).fetchone()
+    return str(state)
+
+
 def retire_blocker(connection: sqlite3.Connection, app_id: str) -> str | None:
     """Why the app cannot retire now, or None."""
     (active,) = connection.execute(
@@ -886,6 +894,15 @@ class AppsService:
             raise ContractError("Installer receipt does not match operation")
         if receipt.state == "succeeded":
             with self.database.connect() as connection:
+                # One read snapshot, so a reconciler that lost the race sees the
+                # operation settled rather than checking the receipt against
+                # the history its winner already appended.
+                connection.execute("BEGIN")
+                if operation_state(connection, operation.operation_id) not in {
+                    "queued",
+                    "switching",
+                }:
+                    return
                 if operation.kind != "rehearse" and not receipt.authorization_committed:
                     raise ContractError("Installer authorization is incomplete")
                 release = eligible(
@@ -950,16 +967,13 @@ class AppsService:
                     )
         with self.database.connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            current = connection.execute(
-                "SELECT state FROM app_operations WHERE operation_id = ?",
-                (str(operation.operation_id),),
-            ).fetchone()
-            if current[0] not in {"queued", "switching"}:
+            state = operation_state(connection, operation.operation_id)
+            if state not in {"queued", "switching"}:
                 return
             if (
                 receipt.state == "succeeded"
                 and operation.kind != "rehearse"
-                and current[0] != "switching"
+                and state != "switching"
             ):
                 raise ContractError("Installation was not admitted for switching")
             if receipt.state == "succeeded" and operation.kind == "rehearse":

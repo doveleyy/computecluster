@@ -2024,6 +2024,40 @@ def test_retire_receipt_appends_a_retired_generation_and_installed_becomes_none(
         retire_request(ledger, current)
 
 
+def test_a_reconciler_that_loses_the_race_to_accept_a_retirement_records_no_error(
+    ledger, monkeypatch
+):
+    """Catches the losing reconciler checking the consumed retire receipt
+    against live installed state, which the winner's retirement already
+    removed, and stamping a permanent reconcile error on the succeeded
+    retirement."""
+    current = install(ledger)
+    operation = retire_request(ledger, current)
+    switch_request(ledger, operation)
+    publish(
+        ledger.spool / "receipts" / f"{operation.operation_id}.json",
+        retired_receipt(operation, current).model_dump_json().encode(),
+    )
+    service = ledger.service
+    unraced = service.reconcile_operation
+
+    def lose_the_race(stale):
+        monkeypatch.setattr(service, "reconcile_operation", unraced)
+        service.reconcile()
+        unraced(stale)
+
+    monkeypatch.setattr(service, "reconcile_operation", lose_the_race)
+    service.reconcile()
+    with ledger.database.connect() as connection:
+        assert tuple(
+            connection.execute(
+                "SELECT state, reconcile_error FROM app_operations "
+                "WHERE kind = 'retire'"
+            ).fetchone()
+        ) == ("succeeded", None)
+        assert isinstance(accepted(connection, "notes", "test"), RetiredSnapshot)
+
+
 def test_retired_receipt_must_name_the_row_it_retires(ledger):
     current = install(ledger)
     operation = retire_request(ledger, current)
