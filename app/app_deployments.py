@@ -179,18 +179,18 @@ def pending_change(
 PREVIEW_SLOTS = 2
 
 
-def previews_to_retire(
+def previews_to_evict(
     connection: sqlite3.Connection, app_id: str, digest: str
 ) -> list[UUID]:
-    """The previews to retire so staging can admit ``digest`` for ``app_id``.
+    """The previews to evict so staging can admit ``digest`` for ``app_id``.
 
-    Staging holds two previews, and any preview can run again. So retire those
+    Staging holds two previews, and any preview can run again. So evict those
     no card can still offer (a rejected release, or the installed one with no
     settings change pending), the app's own failed or other-release attempt,
     and then the oldest previews of idle apps while staging would stay full.
     """
     environment = environment_of(connection)
-    retire = []
+    evict = []
     others = []
     for attempt_id, owner, release, state, rejected in connection.execute(
         "SELECT attempt_id, app_id, manifest_sha256, state, EXISTS (SELECT 1 "
@@ -209,18 +209,18 @@ def previews_to_retire(
                 and pending_change(connection, owner, environment) is None
             )
         ):
-            retire.append(UUID(attempt_id))
+            evict.append(UUID(attempt_id))
         elif owner != app_id:
             others.append((UUID(attempt_id), owner, state))
     excess = len(others) - (PREVIEW_SLOTS - 1)
     for attempt, owner, state in others:
         if excess <= 0:
             break
-        # Staging refuses to retire an installation still in progress.
+        # Staging refuses to evict an installation still in progress.
         if state != "installing" and idle(connection, owner):
-            retire.append(attempt)
+            evict.append(attempt)
             excess -= 1
-    return retire
+    return evict
 
 
 def idle(connection: sqlite3.Connection, app_id: str) -> bool:

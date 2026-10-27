@@ -156,7 +156,7 @@ def main() -> int:
                     elif args.command == "preview-status":
                         response = await previews.status(args.attempt_id)
                     else:
-                        response = await previews.retire(args.attempt_id)
+                        response = await previews.evict(args.attempt_id)
                     return response.model_dump(mode="json")
 
             result = asyncio.run(request_preview())

@@ -112,7 +112,7 @@ class PreviewService:
     async def status(self, attempt: UUID) -> PreviewResult:
         return await self._exchange(attempt, "GET")
 
-    async def retire(self, attempt: UUID) -> PreviewResult:
+    async def evict(self, attempt: UUID) -> PreviewResult:
         return await self._exchange(attempt, "DELETE")
 
     async def _exchange(self, attempt: UUID, method: str) -> PreviewResult:

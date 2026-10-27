@@ -198,17 +198,17 @@ def test_apps_overview_survives_a_rehearsal_whose_authority_went_stale(browser, 
     )
 
 
-def test_preview_checks_eligibility_and_idleness_before_retiring(
+def test_preview_checks_eligibility_and_idleness_before_evicting(
     browser, ledger, monkeypatch, tmp_path
 ):
-    retired = []
+    evicted = []
 
     class FakePreviews:
         def __init__(self, database, *_):
             self.database = database
 
-        async def retire(self, attempt):
-            retired.append(attempt)
+        async def evict(self, attempt):
+            evicted.append(attempt)
 
         async def preview(self, app_id, digest):
             return SimpleNamespace(state="installing")
@@ -234,7 +234,7 @@ def test_preview_checks_eligibility_and_idleness_before_retiring(
     newer = push(ledger, monkeypatch, source_commit="c" * 40)
     deploy = deploy_request(ledger)
     assert preview(newer) == 409
-    assert retired == []
+    assert evicted == []
     with ledger.database.connect() as connection:
         assert read_authority(connection, deploy.operation_id, "a" * 64)
 
@@ -510,7 +510,7 @@ def test_preview_requests_for_one_app_never_overlap(
         def __init__(self, database, *_):
             pass
 
-        async def retire(self, attempt):
+        async def evict(self, attempt):
             pass
 
         async def preview(self, app_id, digest):
@@ -1034,7 +1034,7 @@ def test_a_stale_preview_the_registration_no_longer_admits_is_skipped(
         def __init__(self, *_):
             pass
 
-        async def retire(self, attempt):
+        async def evict(self, attempt):
             raise AssertionError("the stale preview is the one requested")
 
         async def preview(self, app_id, digest):
@@ -1081,15 +1081,15 @@ def test_a_stale_preview_the_registration_no_longer_admits_is_skipped(
 
 @pytest.fixture
 def staging(browser, monkeypatch, tmp_path):
-    """Preview through a staging stand-in that records what core retires."""
-    retired = []
+    """Preview through a staging stand-in that records what core evicts."""
+    evicted = []
 
     class Previews:
         def __init__(self, *_):
             pass
 
-        async def retire(self, attempt):
-            retired.append(attempt)
+        async def evict(self, attempt):
+            evicted.append(attempt)
 
         async def preview(self, app_id, digest):
             return SimpleNamespace(state="installing")
@@ -1113,7 +1113,7 @@ def staging(browser, monkeypatch, tmp_path):
             headers=headers,
         ).json()
 
-    return SimpleNamespace(preview=preview, retired=retired)
+    return SimpleNamespace(preview=preview, evicted=evicted)
 
 
 def other_app(ledger, monkeypatch, tmp_path):
@@ -1129,10 +1129,10 @@ def test_preview_frees_the_staging_slot_of_an_installed_release(
 ):
     digest = other_app(ledger, monkeypatch, tmp_path)
     assert staging.preview("other", digest) == {"state": "installing"}
-    assert staging.retired == []
+    assert staging.evicted == []
     install(ledger)
     assert staging.preview("other", digest) == {"state": "installing"}
-    assert staging.retired == [ledger.preview.attempt_id]
+    assert staging.evicted == [ledger.preview.attempt_id]
 
 
 def test_preview_frees_the_staging_slot_of_a_rejected_release(
@@ -1141,14 +1141,14 @@ def test_preview_frees_the_staging_slot_of_a_rejected_release(
     digest = other_app(ledger, monkeypatch, tmp_path)
     ledger.service.reject("notes", ledger.digest, UUID(ADMIN_USER_ID), 1)
     assert staging.preview("other", digest) == {"state": "installing"}
-    assert staging.retired == [ledger.preview.attempt_id]
+    assert staging.evicted == [ledger.preview.attempt_id]
 
 
 def test_preview_again_replaces_a_failed_attempt(staging, ledger):
     with ledger.database.connect() as connection:
         connection.execute("UPDATE app_preview_attempts SET state = 'failed'")
     assert staging.preview("notes", ledger.digest) == {"state": "installing"}
-    assert staging.retired == [ledger.preview.attempt_id]
+    assert staging.evicted == [ledger.preview.attempt_id]
 
 
 def test_preview_evicts_the_oldest_idle_preview_when_staging_is_full(
@@ -1171,12 +1171,12 @@ def test_preview_evicts_the_oldest_idle_preview_when_staging_is_full(
         )
     request(ledger)
     assert staging.preview("other", digest) == {"state": "installing"}
-    assert staging.retired == [third]
-    staging.retired.clear()
+    assert staging.evicted == [third]
+    staging.evicted.clear()
     with ledger.database.connect() as connection:
         connection.execute("UPDATE app_operations SET state = 'failed'")
     assert staging.preview("other", digest) == {"state": "installing"}
-    assert staging.retired == [ledger.preview.attempt_id]
+    assert staging.evicted == [ledger.preview.attempt_id]
 
 
 def facts(kind, state, error=None, reconcile_error=None):

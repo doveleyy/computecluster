@@ -472,7 +472,7 @@ def test_core_preserves_uncertain_attempt_and_checks_every_response_key(tmp_path
                 ).fetchone()[0]
             assert parse_document(PreviewResult, stored.encode()).version == "1.4.0"
             response_mode = "retired"
-            assert (await previews.retire(ready.attempt_id)).state == "retired"
+            assert (await previews.evict(ready.attempt_id)).state == "retired"
             response_mode = "installing"
             replacement = await previews.preview("notes", digest)
             assert replacement.attempt_id != ready.attempt_id
@@ -860,7 +860,7 @@ def test_core_retires_attempt_that_staging_never_admitted(tmp_path):
                 attempt = connection.execute(
                     "SELECT attempt_id FROM app_preview_attempts"
                 ).fetchone()[0]
-            retired = await previews.retire(UUID(attempt))
+            retired = await previews.evict(UUID(attempt))
             assert retired.state == "retired" and retired.manifest_sha256 == digest
             with pytest.raises(ContractError, match="Staging is busy"):
                 await previews.preview("notes", digest)
@@ -913,7 +913,7 @@ def test_core_refuses_to_retire_confirmed_attempt_on_404(tmp_path):
             ready = await previews.preview("notes", digest)
             assert ready.state == "ready"
             with pytest.raises(ContractError, match="did not confirm"):
-                await previews.retire(ready.attempt_id)
+                await previews.evict(ready.attempt_id)
         with database.connect() as connection:
             row = connection.execute(
                 "SELECT state, result_json FROM app_preview_attempts "
