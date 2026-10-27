@@ -1,6 +1,8 @@
 import contextlib
 import hashlib
+import os
 import subprocess
+import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,6 +20,7 @@ from contracts.models import (
 from worker.container_runner import (
     BatchCancellationError,
     BatchExecutionFailure,
+    _run_container,
     materialize_script,
     remove_orphaned_containers,
     run_python_batch,
@@ -34,6 +37,53 @@ class ResponseStream:
 
     def __exit__(self, *_: object) -> None:
         self.response.close()
+
+
+class FakeDockerProcess:
+    """A docker CLI child whose outcome a test handler decides. A handler that
+    raises TimeoutExpired models a container that runs until killed."""
+
+    def __init__(self, handler, command: list[str]) -> None:
+        out_read, out_write = os.pipe()
+        err_read, err_write = os.pipe()
+        self.stdout = os.fdopen(out_read, "rb")
+        self.stderr = os.fdopen(err_read, "rb")
+        self.returncode: int | None = None
+        killed = threading.Event()
+        self.kill = killed.set
+
+        def run() -> None:
+            try:
+                result = handler(command)
+                os.write(out_write, result.stdout.encode())
+                os.write(err_write, result.stderr.encode())
+                self.returncode = result.returncode
+            except subprocess.TimeoutExpired:
+                killed.wait()
+                self.returncode = -9
+            finally:
+                os.close(out_write)
+                os.close(err_write)
+
+        self.thread = threading.Thread(target=run, daemon=True)
+        self.thread.start()
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def wait(self, timeout: float | None = None) -> int | None:
+        self.thread.join(timeout)
+        if self.thread.is_alive():
+            raise subprocess.TimeoutExpired("docker", timeout or 0)
+        return self.returncode
+
+
+def fake_docker(monkeypatch: pytest.MonkeyPatch, handler) -> None:
+    monkeypatch.setattr("worker.container_runner.subprocess.run", handler)
+    monkeypatch.setattr(
+        "worker.container_runner.subprocess.Popen",
+        lambda command, **_kwargs: FakeDockerProcess(handler, command),
+    )
 
 
 def batch_parameters(script: bytes, dataset: bytes) -> PythonBatchParameters:
@@ -96,7 +146,7 @@ def test_python_batch_uses_isolated_limited_container(
         commands.append(command)
         return Completed()
 
-    monkeypatch.setattr("worker.container_runner.subprocess.run", run)
+    fake_docker(monkeypatch, run)
     job_id = uuid4()
     result = run_python_batch(
         job_id, "windows-primary", parameters, workspace(tmp_path)
@@ -162,7 +212,7 @@ def test_output_listing_refuses_links_out_of_the_output_directory(
             (output_directory / "nested").mkdir()
         return Completed()
 
-    monkeypatch.setattr("worker.container_runner.subprocess.run", run)
+    fake_docker(monkeypatch, run)
     result = run_python_batch(
         job_id, "windows-primary", parameters, workspace(tmp_path)
     )
@@ -175,7 +225,9 @@ def test_python_batch_timeout_force_removes_only_its_container(
 ) -> None:
     script = b"while True: pass\n"
     dataset = b"x\n1\n"
-    parameters = batch_parameters(script, dataset)
+    parameters = batch_parameters(script, dataset).model_copy(
+        update={"timeout_seconds": 1}
+    )
     source_script = tmp_path / "source.py"
     source_dataset = tmp_path / "source.csv"
     source_script.write_bytes(script)
@@ -194,12 +246,12 @@ def test_python_batch_timeout_force_removes_only_its_container(
     def run(command: list[str], **_kwargs: object) -> object:
         commands.append(command)
         if command[1] == "run":
-            raise subprocess.TimeoutExpired(command, 30)
+            raise subprocess.TimeoutExpired(command, 1)
         return object()
 
-    monkeypatch.setattr("worker.container_runner.subprocess.run", run)
+    fake_docker(monkeypatch, run)
 
-    with pytest.raises(TimeoutError, match="30 second timeout"):
+    with pytest.raises(TimeoutError, match="1 second timeout"):
         run_python_batch(uuid4(), "windows-primary", parameters, workspace(tmp_path))
 
     container_name = commands[0][commands[0].index("--name") + 1]
@@ -240,7 +292,7 @@ def test_python_batch_cancellation_force_removes_its_container(
             removed.set()
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("worker.container_runner.subprocess.run", run)
+    fake_docker(monkeypatch, run)
 
     def request_cancellation() -> None:
         assert running.wait(2)
@@ -291,7 +343,7 @@ def test_python_batch_reports_memory_limit_separately(
             return SimpleNamespace(returncode=0, stdout='{"OOMKilled":true}', stderr="")
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("worker.container_runner.subprocess.run", run)
+    fake_docker(monkeypatch, run)
 
     with pytest.raises(BatchExecutionFailure) as raised:
         run_python_batch(uuid4(), "windows-primary", parameters, workspace(tmp_path))
@@ -345,7 +397,7 @@ def test_thread_pools_are_matched_to_the_cpu_quota(tmp_path: Path, monkeypatch) 
         recorded.append(command)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("worker.container_runner.subprocess.run", capture)
+    fake_docker(monkeypatch, capture)
     monkeypatch.setattr(
         "worker.container_runner.materialize_dataset", lambda *a: tmp_path / "d.csv"
     )
@@ -394,7 +446,7 @@ def test_fractional_cpu_limits_still_get_one_thread(
         recorded.append(command)
         return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr("worker.container_runner.subprocess.run", capture)
+    fake_docker(monkeypatch, capture)
     monkeypatch.setattr(
         "worker.container_runner.materialize_dataset", lambda *a: tmp_path / "d.csv"
     )
@@ -465,3 +517,17 @@ def test_startup_sweep_is_quiet_when_nothing_is_orphaned(
     remove_orphaned_containers(None)
 
     assert [command[1] for command in commands] == ["ps"]
+
+
+@pytest.mark.parametrize("cancellation", [None, threading.Event()])
+def test_job_output_is_held_as_a_bounded_tail(cancellation) -> None:
+    script = (
+        "import sys; sys.stdout.write('x' * 4194304 + 'end');"
+        "sys.stderr.write('e' * 4194304)"
+    )
+    completed = _run_container(
+        [sys.executable, "-c", script], 30, cancellation, "docker", "unused"
+    )
+    assert completed.returncode == 0
+    assert completed.stdout == "x" * 7997 + "end"
+    assert completed.stderr == "e" * 8000

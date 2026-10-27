@@ -9,6 +9,7 @@ import stat
 import subprocess
 import threading
 import time
+from contextlib import suppress
 from pathlib import Path
 from typing import BinaryIO
 from uuid import UUID, uuid4
@@ -31,6 +32,8 @@ from worker.data_plane import (
     prune_cache,
     record_cache_use,
 )
+
+OUTPUT_TAIL_CHARACTERS = 8000
 
 
 class BatchExecutionFailure(RuntimeError):
@@ -201,8 +204,8 @@ def run_batch(
             f"container runtime failed to execute the job: {error}",
         ) from error
 
-    stdout = completed.stdout[-8000:]
-    stderr = completed.stderr[-8000:]
+    stdout = completed.stdout
+    stderr = completed.stderr
     try:
         if completed.returncode != 0:
             if _container_was_oom_killed(workspace.docker_executable, container_name):
@@ -378,8 +381,8 @@ def run_python_batch(
             f"container runtime failed to execute the job: {error}",
         ) from error
 
-    stdout = completed.stdout[-8000:]
-    stderr = completed.stderr[-8000:]
+    stdout = completed.stdout
+    stderr = completed.stderr
     try:
         if completed.returncode != 0:
             if _container_was_oom_killed(workspace.docker_executable, container_name):
@@ -454,54 +457,52 @@ def _run_container(
     executable: str,
     container_name: str,
 ) -> subprocess.CompletedProcess[str]:
-    if cancellation_event is None:
-        return subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=timeout_seconds,
-            check=False,
-        )
-
-    result: list[subprocess.CompletedProcess[str]] = []
-    errors: list[BaseException] = []
-
-    def wait_for_container() -> None:
-        try:
-            result.append(
-                subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                )
-            )
-        except BaseException as error:
-            errors.append(error)
-
-    thread = threading.Thread(target=wait_for_container, daemon=True)
-    thread.start()
+    """Run the container, keeping only a bounded tail of each output stream:
+    the job controls its output, and the container's memory limit does not
+    cover this process."""
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    tails = (bytearray(), bytearray())
+    readers = [
+        threading.Thread(target=_drain, args=(stream, tail), daemon=True)
+        for stream, tail in zip((process.stdout, process.stderr), tails, strict=True)
+    ]
+    for reader in readers:
+        reader.start()
     deadline = time.monotonic() + timeout_seconds
-    while thread.is_alive():
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            _remove_container(executable, container_name)
-            thread.join(timeout=15)
-            raise subprocess.TimeoutExpired(command, timeout_seconds)
-        if cancellation_event.wait(min(0.25, remaining)):
-            _remove_container(executable, container_name)
-            thread.join(timeout=15)
-            raise BatchCancellationError(
-                FailureKind.CANCELLED_BY_USER, "container cancelled by user"
-            )
-    if errors:
-        error = errors[0]
-        if isinstance(error, Exception):
-            raise error
-        raise RuntimeError("container runner terminated unexpectedly")
-    if not result:
-        raise RuntimeError("container runner returned no result")
-    return result[0]
+    try:
+        while process.poll() is None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _remove_container(executable, container_name)
+                raise subprocess.TimeoutExpired(command, timeout_seconds)
+            if cancellation_event is not None and cancellation_event.is_set():
+                _remove_container(executable, container_name)
+                raise BatchCancellationError(
+                    FailureKind.CANCELLED_BY_USER, "container cancelled by user"
+                )
+            with suppress(subprocess.TimeoutExpired):
+                process.wait(min(0.25, remaining))
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        drained = time.monotonic() + 15
+        for reader in readers:
+            reader.join(max(0.0, drained - time.monotonic()))
+    stdout, stderr = (
+        tail.decode("utf-8", errors="replace")[-OUTPUT_TAIL_CHARACTERS:]
+        for tail in tails
+    )
+    return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
+
+
+def _drain(stream: BinaryIO, tail: bytearray) -> None:
+    """Closes its own pipe: a descendant of the docker CLI may hold the write
+    end open past the join, and closing it from outside blocks on this read."""
+    with stream:
+        while chunk := os.read(stream.fileno(), 65536):
+            tail += chunk
+            del tail[: -4 * OUTPUT_TAIL_CHARACTERS]
 
 
 def _container_was_oom_killed(executable: str, container_name: str) -> bool:
