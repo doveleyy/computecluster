@@ -615,16 +615,22 @@ def card(
         else None
     )
     baseline = running or last_ran
-    # The retired release's preview is the one it was installed from, not a
-    # restore in progress, so it must not hold the card over a newer release.
+    # The retired release's preview is the one it was installed from, so it
+    # holds the card over a newer release only once a restore of it has been
+    # checked against the retired generation.
     releases = connection.execute(
         (
             "WITH offered AS (SELECT manifest_sha256, release_id, EXISTS "
             "(SELECT 1 FROM app_preview_attempts WHERE app_id = "
             "app_eligible_releases.app_id AND manifest_sha256 = "
             "app_eligible_releases.manifest_sha256 AND state != 'retired') "
-            "AND manifest_sha256 IS NOT ? AS previewed FROM "
-            "app_eligible_releases WHERE app_id = ? AND "
+            "AND (manifest_sha256 IS NOT ? OR EXISTS (SELECT 1 FROM "
+            "app_operations WHERE app_id = app_eligible_releases.app_id AND "
+            "kind = 'rehearse' AND json_extract(operation_json, "
+            "'$.approval.selection.manifest_sha256') = "
+            "app_eligible_releases.manifest_sha256 AND json_extract("
+            "operation_json, '$.approval.selection.generation') = ?)) "
+            "AS previewed FROM app_eligible_releases WHERE app_id = ? AND "
             "NOT EXISTS (SELECT 1 FROM app_rejections WHERE app_id = "
             "app_eligible_releases.app_id AND manifest_sha256 = "
             "app_eligible_releases.manifest_sha256)) "
@@ -635,6 +641,7 @@ def card(
         ),
         (
             last_ran.publication.manifest_sha256 if last_ran else None,
+            retired.generation if retired else None,
             app_id,
             app_id,
             installed_digest,

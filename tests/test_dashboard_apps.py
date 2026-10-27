@@ -1683,6 +1683,22 @@ def test_retired_card_offers_restore_through_preview_and_rehearsal(
         "approve",
         str(rehearsal.operation_id),
     )
+    push(ledger, monkeypatch, source_commit="c" * 40)
+    pending = overview(client)[1]["pending"]
+    assert (pending["digest"], pending["step"]) == (
+        current.selection.manifest_sha256,
+        "approve",
+    ), "a newer push took the card from a restore already checked"
+
+
+def test_retired_card_offers_a_newer_release_ahead_of_the_retired_one(
+    browser, ledger, monkeypatch
+):
+    """Catches the preview a retired release was installed from holding the
+    card, so a newer release could never be restored without rejecting it."""
+    client, accounts = browser
+    login(client, accounts.get_identity(UUID(ADMIN_USER_ID), 1))
+    retire(ledger)
     newer = push(ledger, monkeypatch, source_commit="c" * 40)
     pending = overview(client)[1]["pending"]
     assert (pending["digest"], pending["step"]) == (newer, "preview")
