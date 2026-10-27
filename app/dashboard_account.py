@@ -67,6 +67,7 @@ def login(
             account_store.session_version(identity.id),
         ),
         httponly=True,
+        secure=request.url.scheme == "https",
         samesite="strict",
         max_age=30 * 24 * 60 * 60,
         path="/",

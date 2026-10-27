@@ -22,6 +22,7 @@ from app.dashboard import create_dashboard_router
 from app.database import Database
 from app.http_errors import install_error_handlers
 from app.repository import JobRepository
+from app.request_guards import RequestGuard
 from app.service import JobService
 from app.version import VERSION
 
@@ -141,6 +142,7 @@ def create_app(database_path: Path | None = None) -> FastAPI:
     application.state.anonymous_session = token_urlsafe(32)
     install_error_handlers(application)
     application.add_middleware(AppGateway)
+    application.add_middleware(RequestGuard)
     application.include_router(create_router())
     application.include_router(create_dashboard_router())
     application.include_router(create_app_router())

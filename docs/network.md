@@ -70,6 +70,13 @@ Apps sharing the core's browser origin are trusted code. A separate container,
 process account, or API credential does not protect the browser from malicious
 scripts on that same origin.
 
+Other HTTPS hosts in the same tailnet share one browser site, because `ts.net`
+is a public suffix. A `SameSite` cookie and the Tailscale identity header
+therefore both reach the core from those hosts' pages. The core refuses any
+write whose `Origin` names another origin, before a route or app sees it.
+Uploads also need a platform credential and stay within their route's byte
+limit before the core parses them.
+
 ## Workers initiate connections
 
 Workers poll the core to claim work, renew leases, report status, and publish

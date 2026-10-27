@@ -45,7 +45,7 @@ is never mounted into an app.
 | `HOME_PLATFORM_APP_API_URL` | `http://host.docker.internal:8000/api/apps/v1` | Core API address reachable from managed containers |
 | `HOME_PLATFORM_APP_TIMEZONE` | `UTC` | Valid timezone supplied as `TZ` to managed apps |
 | `HOME_PLATFORM_INSTALLER_POLICY` | unset | Root-owned installer policy file. Enables operation publication and receipt reconciliation when configured |
-| `HOME_PLATFORM_APPS_ORIGIN` | unset | Exact browser origin permitted for administrator Apps mutations and launcher pin changes, including scheme and optional port |
+| `HOME_PLATFORM_APPS_ORIGIN` | unset | Exact browser origin, including scheme and optional port. Administrator Apps mutations and launcher pin changes require it. Every other browser write must name it or the request's own origin |
 
 The database pins its environment, app API URL, and timezone on first managed
 startup. A later mismatch refuses startup. Use a separate database, key,
