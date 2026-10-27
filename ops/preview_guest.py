@@ -377,17 +377,24 @@ def create_guest(config: GuestConfig) -> FastAPI:
                 )
             except ContractError:
                 raise HTTPException(503, "Preview ingress is unavailable") from None
-            response = await client.request(
+            async with client.stream(
                 request.method,
                 endpoint + path,
                 params=params,
                 headers=headers,
                 content=bytes(payload),
                 timeout=30,
-            )
+            ) as response:
+                body = bytearray()
+                async for chunk in response.aiter_bytes():
+                    body.extend(chunk)
+                    if len(body) > MAX_PACKAGE_BYTES:
+                        raise HTTPException(
+                            502, "Preview response exceeds the byte limit"
+                        )
         # httpx has decoded the body, so keep the Content-Length Starlette
         # computed from it rather than the upstream's, which counts encoded bytes.
-        result = Response(response.content, response.status_code)
+        result = Response(bytes(body), response.status_code)
         result.raw_headers += [
             (name, value)
             for name, value in response.headers.raw

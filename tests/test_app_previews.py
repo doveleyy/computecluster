@@ -24,7 +24,7 @@ from app.app_contracts import ContractError, parse_document
 from app.app_discovery import ReleaseDiscovery
 from app.app_github import GitHubPublications
 from app.app_previews import CHECKS, PreviewResult, PreviewService
-from app.app_publication import sha256
+from app.app_publication import MAX_PACKAGE_BYTES, sha256
 from app.app_registry import AppRegistry, RegistrationConflict
 from app.database import Database
 from app.repository import JobRepository
@@ -1061,6 +1061,41 @@ def test_preview_ingress_decodes_app_response_regardless_of_browser_accept_encod
     assert response.headers.get_list("content-length") == [str(len(body))]
     assert "content-encoding" not in response.headers
     assert response.headers.get_list("set-cookie") == ["first=1", "second=2"]
+
+
+def test_preview_ingress_refuses_an_app_response_beyond_the_package_limit(
+    tmp_path, monkeypatch
+):
+    app = create_guest(guest_config(tmp_path))
+    request, archive = initial()
+    app.state.journal.admit(request, archive)
+    app.state.journal.save(request.model_copy(update={"state": "ready"}))
+    core = app.state.runtime.root / str(request.attempt_id) / "core"
+    core.mkdir(parents=True)
+    (core / "bridge-token").write_text("synthetic-bridge")
+    bomb = gzip.compress(b"\0" * (MAX_PACKAGE_BYTES + 1))
+
+    def respond(_request):
+        return httpx.Response(200, headers={"Content-Encoding": "gzip"}, content=bomb)
+
+    transport = httpx.MockTransport(respond)
+    client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "ops.preview_guest.httpx.AsyncClient",
+        lambda **kwargs: client(**kwargs, transport=transport),
+    )
+    monkeypatch.setattr(app.state.runtime, "owned_attempts", set)
+    monkeypatch.setattr(app.state.runtime, "verify", lambda result, *args: result)
+    monkeypatch.setattr(
+        app.state.runtime, "endpoint", lambda *_args: "http://preview-core.invalid"
+    )
+    with TestClient(app, base_url="https://preview.example") as browser:
+        response = browser.get(
+            f"/previews/{request.attempt_id}/notes/page",
+            headers={"Tailscale-User-Login": "preview@example.test"},
+        )
+    assert response.status_code == 502
+    assert len(response.content) < 1024
 
 
 def test_preview_core_ingress_sends_decoded_body_with_its_own_length(
