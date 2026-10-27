@@ -225,8 +225,6 @@ def activity(
         if running.state == "switching":
             return Activity("progress", doing + " · switching containers…", True, False)
         return Activity("progress", doing + "…", True, False)
-    if previewing:
-        return Activity("progress", "", False, False)
     blocked = next((item for item in operations if item.state == "blocked"), None)
     if blocked is not None:
         return Activity(
@@ -235,6 +233,8 @@ def activity(
             True,
             True,
         )
+    if previewing:
+        return Activity("progress", "", False, False)
     last = operations[0] if operations else None
     if last is None or last.kind == "rehearse" or last.state == "succeeded":
         return None

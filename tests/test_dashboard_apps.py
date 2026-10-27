@@ -1284,6 +1284,18 @@ def test_activity_names_each_operation_state_and_when_polling_stops(
     ) == expected
 
 
+def test_a_preview_still_installing_does_not_hide_a_blocked_operation():
+    """Catches a preview attempt stuck installing answering for the card ahead
+    of a blocked operation, which reads as nothing to do and drops Recover: the
+    page offers it only for an active, final activity."""
+    found = dashboard_apps.activity(
+        [facts("deploy", "blocked", "recovery_required")], True
+    )
+    assert found == dashboard_apps.Activity(
+        "failed", "Needs recovery: recovery required", True, True
+    )
+
+
 @pytest.mark.parametrize(
     ("operations", "retired", "expected"),
     [
