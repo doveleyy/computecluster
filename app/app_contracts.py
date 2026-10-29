@@ -137,14 +137,13 @@ def require_unique(values: tuple[object, ...]) -> None:
         raise ValueError("Duplicate entries")
 
 
+REPOSITORY_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$"
+
+
 class PublishedSource(Contract):
     kind: Literal["published"]
     repository: Annotated[
-        str,
-        StringConstraints(
-            pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$",
-            max_length=256,
-        ),
+        str, StringConstraints(pattern=REPOSITORY_PATTERN, max_length=256)
     ]
     branch: RelativePath
     workflow: RelativePath

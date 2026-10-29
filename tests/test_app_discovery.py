@@ -62,16 +62,15 @@ def test_publication_carries_public_schema_and_identical_checker():
         ).read_bytes()
 
 
-def package():
+def package(repository="example/notes"):
     value = manifest()
     value["workloads"] = []
+    value["image"] = f"ghcr.io/{repository}@sha256:" + "b" * 64
     payload = document(value)
     proof = {
         "publication_version": 1,
-        **{
-            key: registration()["source"][key]
-            for key in ("repository", "branch", "workflow")
-        },
+        **{key: registration()["source"][key] for key in ("branch", "workflow")},
+        "repository": repository,
         "source_commit": value["source_commit"],
         "run_id": 42,
         "run_attempt": 1,
@@ -87,8 +86,12 @@ def package():
 
 
 class GitHubFixture:
-    def __init__(self):
-        self.files, self.archive, self.proof = package()
+    def __init__(self, repository="example/notes", release_id=7):
+        self.repository = repository
+        self.full_name = repository
+        self.repository_id = 1001
+        self.release_id = release_id
+        self.files, self.archive, self.proof = package(repository)
         self.pending = False
         self.cached = False
         self.outage = False
@@ -101,9 +104,12 @@ class GitHubFixture:
         if self.outage:
             return httpx.Response(503)
         path = request.url.path
-        base = "/repos/example/notes"
+        base = f"/repos/{self.repository}"
+        identity = {"id": self.repository_id, "full_name": self.full_name}
+        if path == base:
+            return httpx.Response(200, json=identity)
         release = {
-            "id": 7,
+            "id": self.release_id,
             "draft": False,
             "prerelease": False,
             "assets": [
@@ -116,6 +122,8 @@ class GitHubFixture:
                 304 if self.cached else 200, headers={"etag": '"one"'}, json=[release]
             )
         if path == base + "/releases/7":
+            return httpx.Response(200, json={**release, "id": 7})
+        if path == base + f"/releases/{self.release_id}":
             return httpx.Response(200, json=release)
         if path.startswith(base + "/releases/assets/"):
             return httpx.Response(
@@ -127,8 +135,8 @@ class GitHubFixture:
                 json={
                     "id": 42,
                     "run_attempt": 1,
-                    "repository": {"full_name": "example/notes"},
-                    "head_repository": {"full_name": "example/notes"},
+                    "repository": identity,
+                    "head_repository": identity,
                     "event": "push",
                     "head_branch": "main",
                     "path": ".github/workflows/publish.yml",

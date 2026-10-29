@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import httpx
 
 from app.app_contracts import ContractError, PublishedSource
+from app.app_deployments import environment_of, pending_change
 from app.app_github import GitHubPublications, ProviderUnavailable, PublicationPending
 from app.app_publication import MAX_STORE_BYTES, VerifiedPublication
 from app.app_registry import AppRegistry, decode_registration
@@ -55,6 +56,15 @@ class ReleaseDiscovery:
             registration = decode_registration(
                 app_id, row["route"], row["definition_json"]
             )
+            environment = environment_of(connection)
+            change = (
+                pending_change(connection, app_id, environment) if environment else None
+            )
+            if change is not None:
+                # A proposed rename is found under the name it proposes.
+                registration = registration.model_copy(
+                    update={"source": change.registration.source}
+                )
             if not isinstance(registration.source, PublishedSource):
                 raise ContractError("Application has no published source")
             connection.execute(

@@ -21,6 +21,8 @@ from app.app_contracts import (
     parse_document,
 )
 from app.app_deployments import (
+    installed_release,
+    propose_source_rename,
     provision_legacy,
     restore_unaccepted_legacy,
     update_registration,
@@ -46,6 +48,23 @@ def schema_version(database: Database) -> int:
             "SELECT coalesce(max(version), 0) FROM schema_migrations"
         ).fetchone()[0]
     return version
+
+
+async def rename_source(
+    database: Database,
+    github: GitHubPublications,
+    app_id: str,
+    repository: str,
+    image_repository: str | None = None,
+) -> dict[str, object]:
+    """Prove ``repository`` is the installed source renamed, then propose it."""
+    release_id, publication = installed_release(database, app_id)
+    proof = await github.prove_rename(release_id, publication, repository)
+    return {
+        "outcome": propose_source_rename(database, app_id, proof, image_repository),
+        "repository": proof.repository,
+        "repository_id": proof.repository_id,
+    }
 
 
 def main() -> int:
@@ -92,6 +111,14 @@ def main() -> int:
     )
     discover.add_argument("app_id", nargs="?")
     discover.add_argument("--token-file", type=Path)
+    rename = commands.add_parser(
+        "rename-source",
+        help="propose an installed app's source under its renamed GitHub repository",
+    )
+    rename.add_argument("--app-id", required=True)
+    rename.add_argument("--repository", required=True)
+    rename.add_argument("--image-repository")
+    rename.add_argument("--token-file", type=Path)
     preview = commands.add_parser(
         "preview", help="select or retry an exact verified release"
     )
@@ -173,6 +200,20 @@ def main() -> int:
                     return [asdict(item) for item in await discovery.all()]
 
             result = asyncio.run(check_updates())
+        elif args.command == "rename-source":
+
+            async def renamed() -> object:
+                token = args.token_file.read_text().strip() if args.token_file else None
+                async with httpx.AsyncClient(trust_env=False) as client:
+                    return await rename_source(
+                        database,
+                        GitHubPublications(client, token),
+                        args.app_id,
+                        args.repository,
+                        args.image_repository,
+                    )
+
+            result = asyncio.run(renamed())
         elif args.command == "update-registration":
             result = {
                 "outcome": update_registration(database, read_document(args.definition))

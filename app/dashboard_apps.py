@@ -498,6 +498,15 @@ def settings_change(before: Registration, after: Registration) -> list[str]:
             f"moves backups {old.backup_directory or 'none'} → "
             f"{new.backup_directory or 'none'}"
         )
+    old_source, new_source = before.source, after.source
+    if (
+        isinstance(old_source, PublishedSource)
+        and isinstance(new_source, PublishedSource)
+        and old_source.repository != new_source.repository
+    ):
+        lines.append(
+            f"moves its source {old_source.repository} → {new_source.repository}"
+        )
     if before.presentation.label != after.presentation.label:
         lines.append(f"renames to {after.presentation.label}")
     if before.presentation.model_copy(update={"label": after.presentation.label}) != (
@@ -657,7 +666,11 @@ def card(
             for (digest,) in releases
             if digest != installed_digest and admits(connection, proposed, digest)
         ),
-        installed_digest if change else None,
+        installed_digest
+        if change
+        and installed_digest
+        and admits(connection, proposed, installed_digest)
+        else None,
     )
     pending: dict[str, object] | None = None
     if candidate is not None:

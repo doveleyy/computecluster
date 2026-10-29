@@ -36,8 +36,9 @@ from app.app_deployment_contracts import (
     fingerprint,
     running_of,
 )
+from app.app_github import RenamedRepository
 from app.app_previews import CHECKS, PreviewResult
-from app.app_publication import VerifiedPublication, verify_package
+from app.app_publication import Publication, VerifiedPublication, verify_package
 from app.app_registry import AppRegistry, decode_registration
 from app.app_spool import publish, read_owned
 from app.app_workloads import WorkloadStore
@@ -1122,6 +1123,79 @@ def update_registration(
             (old.app_id, environment, current.generation, definition_of(merged)),
         )
         return "proposed" if merged != current.registration else "withdrawn"
+
+
+def installed_release(database: Database, app_id: str) -> tuple[int, Publication]:
+    """The installed release's GitHub release id and publication proof."""
+    with database.connect() as connection:
+        registration_for(connection, app_id)
+        environment = environment_of(connection)
+        current = installed(connection, app_id, environment) if environment else None
+        if current is None:
+            raise ContractError(
+                "Only an installed app's source is renamed; change an uninstalled "
+                "app's source with update-registration"
+            )
+        digest = current.selection.manifest_sha256
+        release = eligible(connection, current.registration, digest)
+        (release_id,) = connection.execute(
+            "SELECT release_id FROM app_eligible_releases WHERE app_id = ? "
+            "AND manifest_sha256 = ?",
+            (app_id, digest),
+        ).fetchone()
+    return int(release_id), release.publication
+
+
+def propose_source_rename(
+    database: Database,
+    app_id: str,
+    proof: RenamedRepository,
+    image_repository: str | None = None,
+) -> Literal["proposed", "unchanged"]:
+    """Propose the installed app's source under its proven new repository name.
+
+    The proposal differs from the pending change, or else the installed
+    registration, only in ``source.repository`` and ``source.image_repository``,
+    and like any change it binds nothing until a deploy carrying it is accepted.
+    """
+    with database.connect() as connection:
+        connection.execute("BEGIN IMMEDIATE")
+        registration_for(connection, app_id)
+        environment = environment_of(connection)
+        if environment and retirement(connection, app_id, environment):
+            raise ContractError("Restore the app before changing its registration")
+        current = installed(connection, app_id, environment) if environment else None
+        if environment is None or current is None:
+            raise ContractError(
+                "Only an installed app's source is renamed; change an uninstalled "
+                "app's source with update-registration"
+            )
+        if current.selection.manifest_sha256 != proof.manifest_sha256:
+            raise ContractError("The installed release changed after the proof")
+        require_idle(connection, app_id)
+        source = current.registration.source
+        assert isinstance(source, PublishedSource)
+        renamed = PublishedSource.model_validate(
+            {
+                **source.model_dump(),
+                "repository": proof.repository,
+                "image_repository": image_repository
+                or "ghcr.io/" + proof.repository.lower(),
+            }
+        )
+        if renamed.repository == source.repository:
+            raise ContractError(f"The installed source is already {source.repository}")
+        change = pending_change(connection, app_id, environment)
+        base = change.registration if change else current.registration
+        proposed = base.model_copy(update={"source": renamed})
+        if proposed == base:
+            return "unchanged"
+        connection.execute(
+            "INSERT INTO app_registration_proposals(app_id, environment, "
+            "base_generation, definition_json) VALUES (?,?,?,?)",
+            (app_id, environment, current.generation, definition_of(proposed)),
+        )
+        return "proposed"
 
 
 def definition_of(registration: Registration) -> str:

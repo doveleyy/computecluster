@@ -7,7 +7,12 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from app.app_contracts import ContractError, PublishedSource, parse_document
+from app.app_contracts import (
+    REPOSITORY_PATTERN,
+    ContractError,
+    PublishedSource,
+    parse_document,
+)
 from app.app_publication import (
     ARTIFACT_NAME,
     MAX_PACKAGE_BYTES,
@@ -54,6 +59,18 @@ def committed_at(run: dict[str, Any]) -> str | None:
     if moment.tzinfo is None:
         return None
     return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+@dataclass(frozen=True)
+class RenamedRepository:
+    """GitHub's proof that ``repository`` is the installed release's repository.
+
+    ``manifest_sha256`` names the installed release the proof was made from.
+    """
+
+    manifest_sha256: str
+    repository: str
+    repository_id: int
 
 
 @dataclass(frozen=True)
@@ -234,6 +251,61 @@ class GitHubPublications:
             if isinstance(error, ContractError):
                 raise
             raise ContractError("Invalid GitHub publication evidence") from None
+
+    async def prove_rename(
+        self, release_id: int, installed: Publication, repository: str
+    ) -> RenamedRepository:
+        """Prove ``repository`` is the renamed repository of an installed release.
+
+        GitHub keeps a repository's numeric id across a rename and serves its
+        releases and workflow runs under the new name, so the installed
+        release and the run that published it must both be found there, in a
+        repository whose id the run also names. Redirects are refused, so the
+        old name never proves itself.
+        """
+        if len(repository) > 256 or not re.fullmatch(REPOSITORY_PATTERN, repository):
+            raise ContractError("Invalid GitHub repository name")
+        base = f"/repos/{repository}"
+        try:
+            found = await self._json(base)
+            release = await self._json(f"{base}/releases/{release_id}")
+            run = await self._json(
+                f"{base}/actions/runs/{installed.run_id}"
+                f"/attempts/{installed.run_attempt}"
+            )
+        except ProviderUnavailable:
+            raise
+        except ContractError:
+            raise ContractError(
+                f"GitHub does not serve the installed release under {repository}"
+            ) from None
+        try:
+            repository_id = found["id"]
+            canonical = found["full_name"]
+            if (
+                type(repository_id) is not int
+                or not isinstance(canonical, str)
+                or canonical.casefold() != repository.casefold()
+            ):
+                raise ContractError(f"GitHub names another repository at {repository}")
+            if release["id"] != release_id:
+                raise ContractError(
+                    f"The installed release is not a release of {canonical}"
+                )
+            if (
+                run["id"] != installed.run_id
+                or run["run_attempt"] != installed.run_attempt
+                or run["repository"]["id"] != repository_id
+                or run["head_repository"]["id"] != repository_id
+                or run["repository"]["full_name"] != canonical
+                or run["head_sha"] != installed.source_commit
+            ):
+                raise ContractError(
+                    f"The installed release's workflow run is not in {canonical}"
+                )
+        except (KeyError, TypeError):
+            raise ContractError("Invalid GitHub repository evidence") from None
+        return RenamedRepository(installed.manifest_sha256, canonical, repository_id)
 
     async def _asset(self, base: str, asset: dict[str, Any]) -> bytes:
         if (
