@@ -375,7 +375,16 @@ class Installer:
     def current_path(self, app: HostApp) -> Path:
         return self.journal / (app.registration.app_id + ".current.json")
 
-    def authority(self, operation: Operation) -> tuple[Authority, HostApp, HostRelease]:
+    def authority(
+        self, operation: Operation
+    ) -> tuple[Authority, HostApp, HostRelease | None]:
+        """Core's authority for ``operation``, checked against the host policy.
+
+        The release is None only for a recovery whose blocked release the
+        policy entry does not admit, as after a source rename. Such a recovery
+        can only restore the installed generation, which root verifies from
+        its own journal.
+        """
         self.current_policy()
         app_id = operation.approval.selection.app_id
         authority = Authority.model_validate_json(
@@ -412,12 +421,17 @@ class Installer:
         credential = read_owned(Path(app.credential_file), self.policy.core_uid).strip()
         if hashlib.sha256(credential).hexdigest() != authority.credential_verifier:
             raise ContractError("Credential file changed")
-        release = self.release(
-            app,
-            base64.b64decode(authority.archive_base64, validate=True),
-            authority.artifact_id,
-            selected.archive_sha256,
-        )
+        try:
+            release = self.release(
+                app,
+                base64.b64decode(authority.archive_base64, validate=True),
+                authority.artifact_id,
+                selected.archive_sha256,
+            )
+        except ContractError:
+            if operation.kind != "recover":
+                raise
+            return authority, app, None
         if release.manifest_sha256 != selected.manifest_sha256:
             raise ContractError("Pinned release changed")
         return authority, app, release
@@ -853,7 +867,7 @@ class Installer:
                 if isinstance(previous, RetiredSnapshot)
                 else previous
             )
-            old = self.retained_release(app, last) if last else None
+            old = self.retained_release(as_installed(app, last), last) if last else None
             previous_id = self.image(old.image) if old else None
             before = None
             if old is not None:
@@ -945,6 +959,8 @@ class Installer:
                     return
                 self.commit(self.retire(operation, authority, app, running, marker))
                 return
+            if release is None:
+                raise ContractError("Pinned release changed")
             image_id = self.image(release.image)
             self.retain_assets(release)
             state = app.state
@@ -1293,7 +1309,7 @@ class Installer:
         operation: Operation,
         authority: Authority,
         app: HostApp,
-        release: HostRelease,
+        release: HostRelease | None,
     ) -> Receipt:
         selected = authority.operation.approval.selection
         assert operation.recovers is not None
@@ -1318,6 +1334,7 @@ class Installer:
         if (
             running
             and actual is not None
+            and release is not None
             and label == str(operation.recovers)
             and blocked.selection == selected
             and actual.image == self.local_image(release.image)

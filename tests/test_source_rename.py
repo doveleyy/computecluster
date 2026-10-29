@@ -1,4 +1,5 @@
 import asyncio
+import os
 from uuid import UUID, uuid4
 
 import httpx
@@ -10,18 +11,22 @@ from test_dashboard_apps import browser as browser_fixture
 from test_dashboard_apps import login, overview
 from test_installer_recovery import (
     accept,
+    block,
     boot_view,
+    container,
     install,
     settings_change,
 )
+from test_managed_installer import forged_authority, installed_by_root, retain
 from test_managed_installer import helper as helper_fixture
 
 from app.app_contracts import ContractError
-from app.app_deployment_contracts import fingerprint
+from app.app_deployment_contracts import InstalledSnapshot, fingerprint
 from app.app_deployments import (
     eligible,
     pending_change,
     proposed_registration,
+    read_authority,
     update_registration,
 )
 from app.app_discovery import ReleaseDiscovery
@@ -30,6 +35,7 @@ from app.app_previews import CHECKS, PreviewResult
 from app.app_publication import sha256
 from app.identity import ADMIN_USER_ID
 from ops.apps import rename_source
+from ops.managed_installer import Installer
 
 ledger = ledger_fixture
 helper = helper_fixture
@@ -303,3 +309,96 @@ def test_rename_deploys_a_new_name_release_and_rolls_back_across_it(ledger):
     row, authority, snapshot, *_ = boot_view(ledger)
     assert snapshot == third
     assert row == authority.registration == first.registration
+
+
+def test_rehearsal_checks_the_previous_release_under_its_installed_source(
+    helper, tmp_path, monkeypatch
+):
+    installer, operation, authority, app, release, _ = helper
+    previous = InstalledSnapshot(
+        operation_id=uuid4(),
+        generation=1,
+        selection=operation.approval.selection,
+        registration=app.registration,
+        image=release.image,
+        image_id="sha256:" + "b" * 64,
+    )
+    installed_by_root(installer, previous)
+    retain(installer, release)
+    policy = app.model_copy(update={"registration": renamed(app.registration)})
+    backup = tmp_path / "copy.sqlite"
+    backup.write_bytes(b"disposable fixture")
+    monkeypatch.setattr(os, "chown", lambda *_: None)
+    monkeypatch.setattr(os, "fchown", lambda *_: None)
+    monkeypatch.setattr(installer, "remove", lambda *_: None)
+    monkeypatch.setattr(installer, "start", lambda *args, **kwargs: "fixture")
+    monkeypatch.setattr(installer, "rehearsal_ready", lambda *_: None)
+    monkeypatch.setattr(installer, "backup", lambda *args, **kwargs: None)
+    monkeypatch.setattr(installer, "semantic_state", lambda *_: "records")
+    result = Installer.rehearse(
+        installer,
+        authority.model_copy(update={"previous": previous}),
+        policy,
+        release,
+        "sha256:" + "b" * 64,
+        backup,
+    )
+    assert result.checks["semantic_records"]
+    assert result.previous_image_id == "sha256:" + "b" * 64
+
+
+def test_blocked_rename_deploy_recovers_by_restoring_the_installed_release(
+    helper, ledger, monkeypatch
+):
+    installer, rehearsal, _, app, release, _ = helper
+    complete_rehearsal(ledger, rehearsal)
+    first = accept(
+        ledger, request(ledger, "deploy", rehearsal_id=rehearsal.operation_id), 1
+    )
+    installed_by_root(installer, first)
+    retain(installer, release)
+    prove(ledger, GitHubFixture(RENAMED))
+    digest, deploy = rename_deploy(ledger)
+    block(ledger, deploy, installer.journal)
+
+    recover = request(ledger, "recover", digest=digest, preview_id=None)
+    with ledger.database.connect() as connection:
+        authority = read_authority(connection, recover.operation_id, "a" * 64)
+    forged_authority(installer, authority, app, recover, monkeypatch)
+    real_child = installer.child
+    monkeypatch.setattr(
+        installer,
+        "child",
+        lambda *args: b"switching" if args[2] == "state" else real_child(*args),
+    )
+    monkeypatch.setattr(
+        installer,
+        "owned",
+        lambda *_: container(first, operation=str(deploy.operation_id)),
+    )
+    monkeypatch.setattr(installer, "local_image", lambda *_: first.image_id)
+    monkeypatch.setattr(installer, "stop_timers", lambda *_: None)
+    monkeypatch.setattr(installer, "remove", lambda *_: None)
+    started = []
+    monkeypatch.setattr(
+        installer,
+        "start",
+        lambda _a, started_app, *_, **kw: started.append(
+            (kw["installed_operation_id"], started_app.registration)
+        ),
+    )
+    monkeypatch.setattr(installer, "probe", lambda *_: None)
+    installer.execute(recover.operation_id)
+    ledger.service.reconcile()
+
+    assert started == [(first.operation_id, first.registration)]
+    with ledger.database.connect() as connection:
+        states = dict(
+            connection.execute("SELECT kind, state FROM app_operations").fetchall()
+        )
+        change = pending_change(connection, "notes", "test")
+    assert (states["recover"], states["deploy"]) == ("succeeded", "recovered")
+    row, authority, snapshot, *_ = boot_view(ledger)
+    assert snapshot == first == installer.current(app)
+    assert row == authority.registration == first.registration
+    assert change.registration == renamed(first.registration)
