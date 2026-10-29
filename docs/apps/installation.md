@@ -364,8 +364,10 @@ as they were. Proposing the installed registration again withdraws it. A change
 may alter operator bindings, meaning resources, settings, secret files, the
 backup directory and integration binding names, and presentation. It may not
 alter the application ID, route, source, installation, access, capability grants
-or state directory, and it must still admit the installed release. No change is
-accepted while an operation is pending.
+or state directory, and it must still admit the installed release. The one
+source change is a proven repository rename, described in
+[Rename an installed app's source](#rename-an-installed-apps-source). No change
+is accepted while an operation is pending.
 
 A change belongs to the installation it was proposed against. Every selection
 made while it is pending carries it, so its registration fingerprint is bound
@@ -428,6 +430,64 @@ the entry's maintenance commands, state file or schedules, revert those after
 Recover succeeds, or the next host restart refuses to start the app. The
 pending change survives recovery, so it can then be deployed again, replaced
 or withdrawn.
+
+## Rename an installed app's source
+
+When the owner renames an app's GitHub repository, releases published after the
+rename name the new repository and image repository, so the installed source no
+longer admits them. GitHub keeps the numeric repository ID across a rename and
+redirects the old name, but the core follows no API redirect. A rename is
+therefore an ordinary pending settings change whose only difference from the
+installed registration is `source.repository` and `source.image_repository`.
+The core proposes it only after GitHub proves that the new name is the same
+repository:
+
+- `GET /repos/NEW` answers without a redirect, under the name requested apart
+  from letter case. The core stores the exact name GitHub returns.
+- The installed release's GitHub release ID is a release of `NEW`.
+- The run attempt that published the installed release is found under `NEW`.
+  Its repository and head repository both carry the ID that `NEW` returned,
+  its repository name is that exact name, and its head commit is the
+  installed source commit.
+
+Any failure refuses the rename and records nothing. The branch and workflow
+path cannot change this way.
+
+To rename an installed app's source:
+
+1. Run `python -m ops.apps --database DATABASE rename-source --app-id APP
+   --repository OWNER/NEW`. Pass `--token-file` with the release read token
+   for a private repository. The image repository defaults to `ghcr.io/`
+   followed by the lowercase new name; pass `--image-repository` when the
+   releases name another one. The command prints the outcome, the stored name
+   and the proven numeric repository ID. It applies the rename on top of any
+   pending settings change. Make other settings changes first, because a later
+   `update-registration` that names the installed source replaces the pending
+   change and drops the rename; run `rename-source` again after it.
+2. Check for updates. Discovery reads the pending change's source, so it lists
+   and verifies releases under the new name. The card shows no pending item
+   until a release from the new repository is verified, and then lists the
+   source move with that release.
+3. Edit the root policy entry's `source.repository` and
+   `source.image_repository` to match the proposal exactly.
+4. Preview, check compatibility and approve a release from the new repository.
+   The rehearsal verifies the installed release under the source it was
+   installed with, so the old image repository must still be pullable.
+
+Between the policy edit and the accepted deploy, boot refuses to restart the
+app, as for any settings change; the running container keeps serving. When the
+deploy is accepted, the new source becomes the installed registration. A
+rollback to a generation from before the rename restores that generation's
+registration, so it needs the policy entry's source reverted to the old name
+first. A blocked rename deploy is recovered like any blocked settings deploy:
+revert the entry's registration to the installed one and choose Recover. Root
+cannot verify the new-repository release under the old source, so it restores
+the installed generation rather than adopting the blocked container. The
+pending rename survives, and running `update-registration` with the installed
+registration withdraws it.
+
+The onboarding record is keyed by the repository name it was created for and
+keeps the old name. Onboarding is not rerun after a rename.
 
 ## Retirement and restore
 
