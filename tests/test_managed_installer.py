@@ -578,6 +578,69 @@ def test_pre_switch_backup_follows_admission_and_keeps_two_installation_sets(
     assert order[-2][1] == backups / taken
 
 
+@pytest.mark.parametrize("declared", [False, True])
+def test_deploy_backs_up_state_only_when_the_running_release_declared_it(
+    helper, monkeypatch, declared
+):
+    """Catches the first stateful release of a running stateless app failing
+    its rehearsal input and pre-switch backups on a database the running
+    release never wrote."""
+    installer, operation, authority, app, release, events = helper
+    archive, manifest_digest = (
+        (release.archive, release.manifest_sha256)
+        if declared
+        else forged_archive(release, state=None)
+    )
+    archive_sha256 = hashlib.sha256(archive).hexdigest()
+    publish(installer.journal / (archive_sha256 + ".zip"), archive)
+    previous = InstalledSnapshot(
+        operation_id=uuid4(),
+        generation=1,
+        selection=operation.approval.selection.model_copy(
+            update={
+                "archive_sha256": archive_sha256,
+                "manifest_sha256": manifest_digest,
+            }
+        ),
+        registration=app.registration,
+        image=release.image,
+        image_id="sha256:" + "b" * 64,
+    )
+    installed_by_root(installer, previous)
+    deploy = operation.model_copy(update={"operation_id": uuid4(), "kind": "deploy"})
+    deployed = authority.model_copy(update={"operation": deploy, "previous": previous})
+    monkeypatch.setattr(installer, "authority", lambda *_: (deployed, app, release))
+    monkeypatch.setattr(
+        installer,
+        "child",
+        lambda *args: b"switching"
+        if args[2] == "state"
+        else deploy.model_dump_json().encode(),
+    )
+    monkeypatch.setattr(installer, "existing_state", lambda *_: False)
+    monkeypatch.setattr(
+        installer,
+        "backup",
+        lambda _, __, destination, **___: events.append(("backup", destination.name)),
+    )
+    monkeypatch.setattr(installer, "owned", lambda *_: None)
+    monkeypatch.setattr(installer, "stop_timers", lambda *_: None)
+    monkeypatch.setattr(installer, "remove", lambda *_: None)
+    monkeypatch.setattr(installer, "start", lambda *args, **kwargs: None)
+    monkeypatch.setattr(installer, "probe", lambda *_: None)
+    installer.execute(deploy.operation_id)
+    receipt = Receipt.model_validate_json(
+        (installer.journal / f"{deploy.operation_id}.receipt.json").read_bytes()
+    )
+    assert (receipt.state, receipt.error) == ("succeeded", None)
+    backups = [event[1] for event in events if event[0] == "backup"]
+    assert backups == (
+        ["input.sqlite", f"pre-switch-g2-{deploy.operation_id}.sqlite"]
+        if declared
+        else []
+    )
+
+
 EVIL_IMAGE = "evil.example/attacker@sha256:" + "e" * 64
 
 
