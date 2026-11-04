@@ -964,6 +964,15 @@ class Installer:
             image_id = self.image(release.image)
             self.retain_assets(release)
             state = app.state
+            # A running release that declared no state file never wrote one, so
+            # the policy adopting state follows the first-install rule.
+            kept = (
+                running is not None
+                and self.retained_publication(
+                    as_installed(app, running), running
+                ).manifest.state
+                is not None
+            )
             scratch = Path(tempfile.mkdtemp(prefix="input-", dir=self.policy.scratch))
             try:
                 backup = None
@@ -971,9 +980,7 @@ class Installer:
                     current.archive if isinstance(current, RetiredSnapshot) else None
                 )
                 if state is not None and (
-                    running is not None
-                    or archive is not None
-                    or self.existing_state(app)
+                    kept or archive is not None or self.existing_state(app)
                 ):
                     backup = scratch / "input.sqlite"
                     if archive is None:
@@ -1013,11 +1020,7 @@ class Installer:
                 if (
                     state is not None
                     and not switched
-                    and (
-                        running is not None
-                        or backup is not None
-                        or self.existing_state(app)
-                    )
+                    and (kept or backup is not None or self.existing_state(app))
                 ):
                     self.pre_switch_backup(app, state.sqlite_file, operation_id, target)
                 publish(marker, b"{}")
@@ -1265,10 +1268,10 @@ class Installer:
             time.sleep(1)
         return False
 
-    def retained_release(
+    def retained_publication(
         self, app: HostApp, snapshot: InstalledSnapshot
-    ) -> HostRelease:
-        release = self.verified(
+    ) -> VerifiedPublication:
+        release = self.publication(
             app,
             read_owned(
                 self.journal / (snapshot.selection.archive_sha256 + ".zip"),
@@ -1278,9 +1281,14 @@ class Installer:
             1,
             snapshot.selection.archive_sha256,
         )
-        if release.image != snapshot.image:
+        if release.manifest.image != snapshot.image:
             raise ContractError("Installed image differs from retained release")
         return release
+
+    def retained_release(
+        self, app: HostApp, snapshot: InstalledSnapshot
+    ) -> HostRelease:
+        return narrow(self.retained_publication(app, snapshot))
 
     def restore_previous(self, authority: Authority, app: HostApp) -> None:
         previous = self.running(app)

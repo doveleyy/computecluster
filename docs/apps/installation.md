@@ -154,6 +154,14 @@ probes still agree on the same records. Keep a column added with a non-null
 default out of the declared list. Otherwise the new release reports values
 that the previous release does not.
 
+A stateless app that later adopts SQLite state keeps the same rule. Its probe
+printed `[]`, so the first stateful release must also print `[]` when there
+are no records, and print a list of records once there are. The release
+declares `state` in its manifest and the operator adds the same entry to the
+app's policy. Root backs up the state file before rehearsal and before the
+switch only when the running release declared that file. Otherwise it follows
+the first-install rule and backs up the file only if it exists.
+
 Rehearsal has no network or production secrets. Normal startup receives a
 synthetic credential and unreachable platform API address. Read-only probes
 receive a read-only state mount. The helper enters only the disposable
