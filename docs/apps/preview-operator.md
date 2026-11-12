@@ -2,8 +2,7 @@
 
 Provision a dedicated Linux guest with Docker and a private HTTPS reverse proxy.
 Use a separate enrollment identity and synthetic storage. Do not mount
-production
-storage or copy production credentials into the guest.
+production storage or copy production credentials into the guest.
 
 Install the platform's Python dependencies and source in the guest. Build a
 fixed core image containing the source, Python dependencies, and Docker CLI.
@@ -11,7 +10,10 @@ Preload the approved scientific Python worker image. Record both local image
 IDs with `docker image inspect`. The guest configuration accepts immutable
 `sha256:` image IDs for these two operator-controlled images.
 
-Create a separate staging-control token file with at least 32 random characters.
+Create a separate staging-control token file with at least 32 random
+characters. The core's Preview button uses the same token through
+`HOME_PLATFORM_PREVIEW_ORIGIN` and `HOME_PLATFORM_PREVIEW_TOKEN_FILE`; see
+[Configuration](../configuration.md#managed-application-connections).
 Configure `python -m ops.preview_guest --config guest.json` with these fields.
 
 | Field | Meaning |
@@ -75,8 +77,8 @@ worker daemon and application, plus one worker job capped at 512 MiB and one
 CPU. The two previews therefore have a 2.5 GiB container budget, leaving
 1.5 GiB in a 4 GiB guest for the operating system, Docker and installer. Each
 core and worker daemon has a one-CPU quota; each application has a half-CPU
-quota. These quotas
-share the guest's two vCPUs and do not promise dedicated CPU capacity.
+quota. These quotas share the guest's two vCPUs and do not promise dedicated
+CPU capacity.
 A transient operator-owned identity probe has a 64 MiB limit and a tenth-CPU
 quota. It runs during installation or sequential restart verification.
 Retirement frees a resource slot only after cleanup succeeds. Uncertain cleanup

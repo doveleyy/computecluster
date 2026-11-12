@@ -46,6 +46,8 @@ is never mounted into an app.
 | `HOME_PLATFORM_APP_TIMEZONE` | `UTC` | Valid timezone supplied as `TZ` to managed apps |
 | `HOME_PLATFORM_INSTALLER_POLICY` | unset | Root-owned installer policy file. Enables operation publication and receipt reconciliation when configured |
 | `HOME_PLATFORM_APPS_ORIGIN` | unset | Exact browser origin, including scheme and optional port. Administrator Apps mutations and launcher pin changes require it. Every other browser write must name it or the request's own origin |
+| `HOME_PLATFORM_PREVIEW_ORIGIN` | unset | HTTPS origin of the preview guest. Apps Preview requires it together with the token file |
+| `HOME_PLATFORM_PREVIEW_TOKEN_FILE` | unset | Private file holding the guest's staging-control token |
 
 The database pins its environment, app API URL, and timezone on first managed
 startup. A later mismatch refuses startup. Use a separate database, key,
@@ -76,9 +78,9 @@ uses SQLite's online backup API, verifies locally that the copy is intact and
 carries the source's tables and row counts from one snapshot, publishes
 immutable bytes plus a SHA-256 sidecar, and only then removes older sets. A
 source with no user tables fails the run without touching existing sets, and
-`--verify` checks the sidecar digest when present. The production systemd
-unit supplies its destination through `HOME_PLATFORM_BACKUP_DIR`; keep that
-path in live-only configuration because it may contain an owner storage key.
+`--verify` checks the sidecar digest when present. Keep the destination in
+live-only configuration, such as the backup unit's environment, because the
+path may contain an owner storage key.
 NAS snapshots and a second off-device copy are separate layers.
 
 ## Independent applications
