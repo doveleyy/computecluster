@@ -37,7 +37,7 @@ from app.app_publication import (
     verify_package,
 )
 from ops.preview_checker import CheckerRejected
-from ops.preview_runtime import GuestConfig, GuestRuntime
+from ops.preview_runtime import GuestConfig, GuestRefused, GuestRuntime
 
 
 class GuestJournal:
@@ -207,7 +207,7 @@ def create_guest(config: GuestConfig) -> FastAPI:
                 update={
                     "state": "failed",
                     "error": str(cause)
-                    if isinstance(cause, CheckerRejected)
+                    if isinstance(cause, (CheckerRejected, GuestRefused))
                     else "Guest installation or reconciliation failed",
                     "preview_url": None,
                 }

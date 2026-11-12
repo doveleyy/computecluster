@@ -32,6 +32,12 @@ bindings. Each attempt registers those names and mounts a fresh copy of each
 directory taken into its own state, so one attempt never sees another's
 changes or alters the fixture. A missing fixture directory refuses the attempt
 before Docker runs.
+
+Every app needs an `apps` entry, even an empty `{}` for an app with no
+secrets, settings or integrations. The guest reads the map only at startup, so
+restart it after adding an app. Without the entry, Preview fails with
+"Synthetic application bindings are missing".
+
 State directories, application credentials, and platform variables are generated
 by the guest. The application never receives the staging-control token.
 
@@ -76,6 +82,12 @@ quota. It runs during installation or sequential restart verification.
 Retirement frees a resource slot only after cleanup succeeds. Uncertain cleanup
 keeps its installation slot; restarting the guest adopts verified ready
 previews.
+
+A failed attempt records why it failed. A refusal the guest raises itself, such
+as a missing fixture, an app that never became ready, or an app that accepted
+forged proxy context, appears on the Apps page in its own words. Any other
+error appears as "Guest installation or reconciliation failed", so exception
+text, paths and secrets never reach the page.
 
 The guest retains completed attempt records and synthetic state for
 review. Its bounded journal refuses additional installs when retention is full.

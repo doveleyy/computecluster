@@ -48,6 +48,10 @@ OWNER_LABEL = "home-platform.preview-owner"
 ATTEMPT_LABEL = "home-platform.preview-attempt"
 
 
+class GuestRefused(ContractError):
+    """A refusal the guest wrote itself; the message is safe to show."""
+
+
 def reported_version(response: httpx.Response) -> str | None:
     if response.status_code != 200 or len(response.content) > 64 * 1024:
         return None
@@ -87,7 +91,7 @@ class GuestRuntime:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.owner = self.root.name
         if not self.owner.replace("-", "").isalnum():
-            raise ContractError("Guest root basename must be alphanumeric")
+            raise GuestRefused("Guest root basename must be alphanumeric")
 
     def docker(self, *args: str, timeout: int = 120) -> str:
         result = subprocess.run(
@@ -98,7 +102,7 @@ class GuestRuntime:
             check=False,
         )
         if result.returncode:
-            raise ContractError("Guest Docker operation failed")
+            raise GuestRefused("Guest Docker operation failed")
         return result.stdout.strip()
 
     def labels(self, attempt: UUID) -> list[str]:
@@ -148,7 +152,7 @@ class GuestRuntime:
             ):
                 raise ValueError
         except (ValueError, KeyError, IndexError, TypeError, AttributeError):
-            raise ContractError(
+            raise GuestRefused(
                 "Preview endpoint is not an owned internal container"
             ) from None
         return f"http://{address}:{port}"
@@ -205,13 +209,13 @@ class GuestRuntime:
         if fixture is None or any(
             name not in fixture.secret_files for name in manifest.secrets
         ):
-            raise ContractError("Synthetic application bindings are missing")
+            raise GuestRefused("Synthetic application bindings are missing")
         if any(
             not Path(fixture.secret_files[name]).is_file() for name in manifest.secrets
         ):
-            raise ContractError("Synthetic secret file is missing")
+            raise GuestRefused("Synthetic secret file is missing")
         if any(not Path(source).is_dir() for source in fixture.integrations.values()):
-            raise ContractError("Synthetic integration directory is missing")
+            raise GuestRefused("Synthetic integration directory is missing")
         directory = self.root / str(attempt)
         directory.mkdir(mode=0o700)
         integrations = []
@@ -336,7 +340,7 @@ class GuestRuntime:
         self.docker("pull", manifest.image, timeout=600)
         image_info = json.loads(self.docker("image", "inspect", manifest.image))[0]
         if manifest.image not in image_info["RepoDigests"]:
-            raise ContractError(
+            raise GuestRefused(
                 "Pulled image does not have the selected repository digest"
             )
         network = self.name(attempt, "net")
@@ -440,7 +444,7 @@ class GuestRuntime:
                 is None
             ):
                 if time.monotonic() >= deadline:
-                    raise ContractError("Synthetic worker did not register")
+                    raise GuestRefused("Synthetic worker did not register")
                 time.sleep(1)
             JobRepository(worker_database).set_worker_capacity(
                 "preview-" + attempt.hex,
@@ -461,7 +465,7 @@ class GuestRuntime:
             or release.publication.manifest_sha256 != initial.manifest_sha256
             or release.artifact_sha256 != initial.bundle_sha256
         ):
-            raise ContractError("Preview release does not match selected attempt")
+            raise GuestRefused("Preview release does not match selected attempt")
         directory = self.root / str(initial.attempt_id)
         route = f"/previews/{initial.attempt_id}/{initial.app_id}"
         headers = {
@@ -480,7 +484,7 @@ class GuestRuntime:
                 except httpx.HTTPError:
                     pass
                 if time.monotonic() >= deadline:
-                    raise ContractError("Preview did not become ready")
+                    raise GuestRefused("Preview did not become ready")
                 time.sleep(1)
             proxied = client.get(
                 app_url + "/",
@@ -497,7 +501,7 @@ class GuestRuntime:
             except httpx.HTTPError:
                 version = None
         if proxied.status_code not in {401, 403}:
-            raise ContractError("The application accepted forged proxy context")
+            raise GuestRefused("The application accepted forged proxy context")
         portable = check_running(
             release.files["manifest.json"],
             initial.manifest_sha256,
@@ -519,7 +523,7 @@ class GuestRuntime:
             or any(item["State"]["Running"] is not True for item in containers)
             or containers[0]["Image"] != image_id
         ):
-            raise ContractError("Preview containers are not running the selected image")
+            raise GuestRefused("Preview containers are not running the selected image")
         script = (
             "import urllib.request,urllib.error; "
             "r=urllib.request.Request("
@@ -558,7 +562,7 @@ class GuestRuntime:
             script,
         )
         if denied.strip() != "401":
-            raise ContractError(
+            raise GuestRefused(
                 "An application peer could impersonate the trusted proxy"
             )
         checks = {
@@ -575,7 +579,7 @@ class GuestRuntime:
             "forged_proxy_denial": denied.strip() == "401",
         }
         if checks.keys() != CHECKS or not all(checks.values()):
-            raise ContractError("Preview readiness evidence is incomplete")
+            raise GuestRefused("Preview readiness evidence is incomplete")
         return initial.model_copy(
             update={
                 "state": "ready",
