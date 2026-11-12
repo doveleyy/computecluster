@@ -833,6 +833,28 @@ def test_guest_install_error_stores_generic_message_not_exception_text(
     assert sensitive not in (stored.error or "")
 
 
+def test_guest_install_names_its_own_refusal(tmp_path, monkeypatch):
+    app = create_guest(guest_config(tmp_path))
+    request, archive = initial()
+    monkeypatch.setattr(app.state.runtime, "owned_attempts", set)
+    monkeypatch.setattr(app.state.runtime, "cleanup", lambda attempt: None)
+    with TestClient(app, base_url="https://preview.example") as client:
+        response = client.put(
+            f"/control/attempts/{request.attempt_id}",
+            content=archive,
+            headers={
+                "Authorization": "Bearer " + "t" * 32,
+                "X-App-ID": request.app_id,
+                "X-Release-SHA256": request.manifest_sha256,
+                "X-Bundle-SHA256": request.bundle_sha256,
+            },
+        )
+        assert response.status_code == 200
+    stored = app.state.journal.get(request.attempt_id)
+    assert stored.state == "failed"
+    assert stored.error == "Synthetic application bindings are missing"
+
+
 def test_core_retires_attempt_that_staging_never_admitted(tmp_path):
     database = Database(tmp_path / "core.db")
     database.initialize()
