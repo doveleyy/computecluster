@@ -23,7 +23,7 @@
     .art-body canvas { display:block; }
     .art-alt { position:absolute; width:1px; height:1px; margin:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
     .tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:var(--space-3); }
-    .tile { --c:var(--accent); position:relative; display:flex; flex-direction:column; min-height:150px; padding:var(--space-5); border:1px solid var(--line); border-radius:var(--radius-3); background:var(--surface); color:var(--text); text-decoration:none; transition:border-color .16s ease; }
+    .tile { --c:var(--accent); position:relative; display:flex; flex-direction:column; padding:var(--space-5); border:1px solid var(--line); border-radius:var(--radius-3); background:var(--surface); color:var(--text); text-decoration:none; transition:border-color .16s ease; }
     .tile:hover { border-color:var(--strong); }
     .tile:hover .tile-go { color:var(--text); }
     .tile i { width:8px; height:8px; border-radius:var(--radius-round); background:var(--c); }
@@ -47,7 +47,7 @@
       .brand,.clock-time { font-size:var(--text-7); }
       .topbar { grid-template-rows:auto auto; column-gap:var(--space-3); }
       .tiles { grid-template-columns:1fr; }
-      .tile { min-height:0; padding:var(--space-4); }
+      .tile { padding:var(--space-4); }
       .tile-go { top:var(--space-4); right:var(--space-4); }
       .tile-key { right:var(--space-4); bottom:var(--space-4); }
       .slot .tile { padding-bottom:calc(var(--control) + 2 * var(--space-4)); }
