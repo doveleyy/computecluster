@@ -21,6 +21,7 @@
     .topbar > :first-child { min-width:0; }
     .topbar .context-line { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .topbar-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:var(--space-2) var(--space-3); min-width:0; }
+    .topbar-text { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-2) var(--space-3); min-width:0; }
     .metric-label,.field-label { color:var(--muted); font:600 var(--text-1)/1.2 var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; }
     .brand { margin:0; font:600 var(--text-8)/1 var(--mono); letter-spacing:var(--track-display); }
     .brand span { color:var(--dim); }
@@ -129,6 +130,7 @@
     .primary-button:hover:not(:disabled) { background:color-mix(in srgb, var(--text) 88%, var(--bg)); }
     .primary-button:disabled { cursor:not-allowed; opacity:.5; }
     .login-error { min-height:18px; margin:var(--space-3) 0 0; color:var(--red); font:var(--text-2) var(--mono); }
+    .login-error:empty,.power-message:empty { min-height:0; margin:0; }
     .power-body { padding:var(--space-5); }
     .power-copy { margin:0 0 var(--space-5); color:var(--muted); font:var(--text-2)/1.65 var(--mono); }
     .power-choices { display:grid; grid-template-columns:1fr 1fr; gap:var(--space-2); }
@@ -174,13 +176,23 @@
       .page-nav { width:100%; flex-wrap:nowrap; }
       .page-nav a { flex:1 1 auto; min-width:0; padding:0 var(--space-1); }
       .brand { font-size:var(--text-7); }
-      .topbar { flex-direction:column; align-items:stretch; gap:var(--space-3); }
-      .topbar-actions { justify-content:flex-start; }
+      .topbar { flex-wrap:wrap; align-items:flex-start; justify-content:flex-start; gap:var(--space-3); }
+      .topbar > :first-child { flex:1 1 auto; }
+      .topbar-actions { display:contents; }
+      .topbar-button-row { order:1; }
+      .topbar-text { order:2; flex-basis:100%; }
       .metric { padding:var(--space-4); }
       #workers-section .panel-header,.dialog-head { padding-inline:var(--space-4); }
       .service-card,.worker-row,.member-form,.power-body,.account-reset-body { padding:var(--space-4); }
       .metric-value { font-size:var(--text-7); }
       .services,.application-services { grid-template-columns:1fr; }
+      .fact-value,.worker-stat-value { white-space:normal; overflow-wrap:anywhere; }
+      .worker-top { row-gap:0; }
+      .worker-top > div { display:contents; }
+      .worker-name { grid-column:1; grid-row:1; }
+      .worker-side .status { grid-column:2; grid-row:1; }
+      .worker-meta { grid-column:1/-1; grid-row:2; white-space:normal; }
+      .last-seen { grid-column:1/-1; grid-row:3; margin-top:var(--space-1); text-align:left; }
     }
     @media (max-width:380px) {
       .metrics { grid-template-columns:1fr; }
@@ -197,13 +209,13 @@
   <iframe class="platform-bar" src="/platform/bar?app=dashboard" title="Home Platform apps" style="display:block;width:100%;height:41px;border:0;flex:none;background:#070707"></iframe>
   <section id="login" class="login-wrap hidden"><div class="login-panel"><div class="login-top"><h1 class="brand">HOME<span>//</span>CTRL</h1><p class="login-copy">Members sign in through <a href="/jobs-ui">Job Desk</a>.</p></div><form id="login-form" class="login-form"><label class="field-label" for="token">Owner API token</label><input id="token" class="login-input" type="password" autocomplete="current-password" autocapitalize="none" spellcheck="false" required><button class="primary-button" type="submit">OPEN SESSION</button><p id="login-error" class="login-error" aria-live="polite"></p></form></div></section>
   <main id="app" class="shell hidden">
-    <header class="topbar"><div><h1 id="page-brand" class="brand">HOME<span>//</span>CTRL</h1></div><div class="topbar-actions"><div id="host" class="context-line">connecting...</div><div id="connection" class="connection"><i class="connection-dot"></i><span id="updated">SYNCING</span></div><div class="topbar-button-row"><button id="power-open" class="ghost-button power-open hidden" type="button">HOST POWER</button><button id="logout" class="ghost-button" type="button">LOG OUT</button></div></div></header>
+    <header class="topbar"><div><h1 id="page-brand" class="brand">HOME<span>//</span>CTRL</h1></div><div class="topbar-actions"><div class="topbar-text"><div id="host" class="context-line">connecting...</div><div id="connection" class="connection"><i class="connection-dot"></i><span id="updated">SYNCING</span></div></div><div class="topbar-button-row"><button id="power-open" class="ghost-button power-open hidden" type="button">HOST POWER</button><button id="logout" class="ghost-button" type="button">LOG OUT</button></div></div></header>
     <nav class="page-nav" aria-label="Home Platform"><a id="overview-nav" href="/dashboard">OVERVIEW</a><a id="operations-nav" href="/dashboard/operations">OPERATIONS</a><a href="/dashboard/apps">APPS</a><a href="/dashboard/jobs">JOBS</a><a href="/dashboard/files">FILES</a></nav>
     <section id="overview-metrics" class="metrics" aria-label="Control host metrics">
-      <article class="metric"><div class="metric-label">Host CPU in use</div><div id="cpu" class="metric-value">—</div><div id="cpu-foot" class="metric-foot">Waiting for host</div><div class="meter"><i id="cpu-bar" class="meter-fill"></i></div></article>
-      <article class="metric"><div class="metric-label">Host memory in use</div><div id="memory" class="metric-value">—</div><div id="memory-foot" class="metric-foot">Waiting for host</div><div class="meter"><i id="memory-bar" class="meter-fill"></i></div></article>
-      <article class="metric"><div class="metric-label">Host system disk used</div><div id="storage" class="metric-value">—</div><div id="storage-foot" class="metric-foot">Waiting for host</div><div class="meter"><i id="storage-bar" class="meter-fill"></i></div></article>
-      <article class="metric"><div class="metric-label">Host CPU temperature</div><div id="temperature" class="metric-value">—</div><div id="uptime" class="metric-foot">Waiting for host</div></article>
+      <article class="metric"><div class="metric-label">CPU in use</div><div id="cpu" class="metric-value">—</div><div id="cpu-foot" class="metric-foot">Waiting for host</div><div class="meter"><i id="cpu-bar" class="meter-fill"></i></div></article>
+      <article class="metric"><div class="metric-label">Memory in use</div><div id="memory" class="metric-value">—</div><div id="memory-foot" class="metric-foot">Waiting for host</div><div class="meter"><i id="memory-bar" class="meter-fill"></i></div></article>
+      <article class="metric"><div class="metric-label">System disk used</div><div id="storage" class="metric-value">—</div><div id="storage-foot" class="metric-foot">Waiting for host</div><div class="meter"><i id="storage-bar" class="meter-fill"></i></div></article>
+      <article class="metric"><div class="metric-label">CPU temperature</div><div id="temperature" class="metric-value">—</div><div id="uptime" class="metric-foot">Waiting for host</div></article>
     </section>
     <section id="services-section" class="section" aria-labelledby="services-title"><header class="section-heading"><h2 id="services-title" class="section-title">Services</h2><span id="service-count" class="count">—</span></header><div class="services">
       <article class="service-card jobs"><div class="service-top"><div><div class="service-name">Jobs</div></div><span id="jobs-state" class="status UNKNOWN">UNKNOWN</span></div><div id="jobs-detail" class="service-detail">Waiting for job system data</div><a class="service-link" href="/dashboard/jobs">OPEN JOBS →</a></article>

@@ -1107,9 +1107,9 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert "Control plane</div>" not in page.text
     assert "Job database</div>" not in page.text
     assert '<div class="service-name">Jobs</div>' in page.text
-    assert '<div class="metric-label">Host CPU in use</div>' in page.text
-    assert '<div class="metric-label">Host memory in use</div>' in page.text
-    assert '<div class="metric-label">Host system disk used</div>' in page.text
+    assert '<div class="metric-label">CPU in use</div>' in page.text
+    assert '<div class="metric-label">Memory in use</div>' in page.text
+    assert '<div class="metric-label">System disk used</div>' in page.text
     assert "load  " not in page.text
     assert '<div class="metric-label">Pi root</div>' not in page.text
     assert 'api("/dashboard/api/jobs")' not in page.text
