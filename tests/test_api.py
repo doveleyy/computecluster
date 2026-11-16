@@ -1122,7 +1122,7 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert 'href="/jobs-ui/files"' in jobs_page.text
     assert 'href="/dashboard/operations"' in jobs_page.text
     assert 'aria-label="Home Platform"' in jobs_page.text
-    assert "width:min(1240px,100%)" in jobs_page.text
+    assert "width:min(var(--page-width),100%)" in jobs_page.text
     assert "grid-template-columns:repeat(2,minmax(0,1fr))" in jobs_page.text
     assert 'id="target-worker-field"' in jobs_page.text
     assert 'class="topbar-actions"' in jobs_page.text
