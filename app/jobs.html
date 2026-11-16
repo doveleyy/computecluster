@@ -49,8 +49,8 @@
     .submit-panel .panel-head,dialog .panel-head { padding-inline:var(--space-5); }
     h2 { margin:0; color:var(--text); font:600 var(--text-1)/1.2 var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; }
     .count { color:var(--muted); font:600 var(--text-1)/1.2 var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; white-space:nowrap; }
-    .form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 var(--space-5); padding:var(--space-5); }
-    .form > #target-worker-field,.form > #sleep-fields,.form > .form-section,.form > .file-flow,.form > .form-actions,.form > .feedback { grid-column:1/-1; }
+    .form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--space-5); padding:var(--space-5); }
+    .form > #target-worker-field,.form > #sleep-fields,.form > .form-section,.form > .file-flow,.form > .form-footer { grid-column:1/-1; }
     /* Every task type renders the same sections in the same order. Only the
        controls inside a section vary, so switching task swaps contents without
        the form itself changing shape. */
@@ -58,12 +58,14 @@
     .form-section-head { display:flex; align-items:baseline; gap:var(--space-3); margin-bottom:var(--space-3); }
     .form-section-head h3 { margin:0; color:var(--text); font:600 var(--text-1) var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; }
     .form-section-note { min-width:0; color:var(--muted); font:var(--text-2) var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .form-section-body { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 var(--space-5); }
+    .form-section-body { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--space-5); }
+    .form .field { margin-bottom:0; }
     .form-section-body > .field-wide,.form-section-body > .advanced,.form-section-body > .storage-bindings,.form-section-body > .declared { grid-column:1/-1; }
     /* Values a project declared for itself. Read-only on purpose: submit.hp is
        the source of truth, and letting the form override it would create a
        second contract. */
-    .declared { display:grid; margin-bottom:var(--space-5); grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:var(--space-4) var(--space-3); padding:var(--space-3); border:1px solid var(--line); border-radius:var(--radius-2); background:var(--sunken); }
+    .declared:empty { display:none; }
+    .declared { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:var(--space-4) var(--space-3); padding:var(--space-3); border:1px solid var(--line); border-radius:var(--radius-2); background:var(--sunken); }
     .declared-value { margin-top:var(--space-1); color:var(--text); font:var(--text-2)/1.4 var(--mono); overflow-wrap:anywhere; }
     .declared-empty { grid-column:1/-1; color:var(--muted); font:var(--text-2)/1.6 var(--mono); }
     .field { display:block; margin-bottom:var(--space-5); }
@@ -71,13 +73,14 @@
     .field input[type=file] { padding:var(--space-2) var(--space-3); }
     .field textarea { min-height:110px; padding:var(--space-3); resize:vertical; font:var(--text-3)/1.5 var(--mono); }
     .hint { display:block; margin-top:var(--space-2); color:var(--muted); font:var(--text-2)/1.45 var(--mono); }
-    .advanced { margin:var(--space-1) 0 var(--space-5); border:1px solid var(--line); border-radius:var(--radius-2); }
+    .advanced { margin:var(--space-5) 0 0; border:1px solid var(--line); border-radius:var(--radius-2); }
     .advanced summary { padding:var(--space-3); color:var(--muted); cursor:pointer; font:600 var(--text-1) var(--mono); letter-spacing:var(--track-caps); }
-    .advanced-body { padding:var(--space-4) var(--space-3) 0; border-top:1px solid var(--line); }
+    .advanced-body { display:grid; gap:var(--space-5); padding:var(--space-4) var(--space-3); border-top:1px solid var(--line); }
     .primary { border-color:var(--text); background:var(--text); color:var(--bg); }
     .primary:hover:not(:disabled) { background:color-mix(in srgb, var(--text) 88%, var(--bg)); }
     .primary:disabled { cursor:wait; opacity:.5; }
-    .feedback { min-height:18px; margin:var(--space-3) 0 0; color:var(--muted); font:var(--text-2)/1.5 var(--mono); }
+    .feedback { margin:var(--space-3) 0 0; color:var(--muted); font:var(--text-2)/1.5 var(--mono); }
+    .feedback:empty { margin:0; }
     .feedback.good { color:var(--green); }
     .feedback.bad { color:var(--red); }
     .filters { display:flex; flex-wrap:wrap; gap:var(--space-2); padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--line); }
@@ -132,11 +135,7 @@
     .storage-binding span { min-width:0; overflow:hidden; font:var(--text-2) var(--mono); text-overflow:ellipsis; white-space:nowrap; }
     .storage-browser { padding:0 var(--space-5) var(--space-5); }
     .storage-path { margin:0 calc(-1 * var(--space-5)) var(--space-4); padding:var(--space-3) var(--space-5); border-bottom:1px solid var(--line); color:var(--muted); font:var(--text-2) var(--mono); overflow-wrap:anywhere; }
-    /* align-content:start stops grid rows sharing out the spare height. Without
-       it a single entry stretches to fill min-height and one folder reads as a
-       120px slab; two would be 60px each. Rows keep their own height, leftover
-       space stays empty, and the list scrolls once it exceeds max-height. */
-    .storage-entries { display:grid; align-content:start; gap:var(--space-2); min-height:120px; max-height:50dvh; overflow:auto; }
+    .storage-entries { display:grid; align-content:start; gap:var(--space-2); max-height:50dvh; overflow:auto; }
     .storage-entry { display:grid; grid-template-columns:auto minmax(0,1fr) auto; gap:var(--space-3); align-items:center; min-height:calc(var(--control) + var(--space-2)); padding:0 var(--space-4); border:1px solid var(--line); border-radius:var(--radius-2); background:var(--sunken); color:var(--text); cursor:pointer; font:var(--text-3) var(--mono); text-align:left; }
     .storage-entry:hover { border-color:var(--strong); background:var(--raised); }
     .storage-entry-kind,.storage-entry-size { color:var(--muted); font:var(--text-2) var(--mono); }
@@ -147,7 +146,7 @@
     /* Flat, not a card. This already sits inside the submit panel, so giving it
        its own border and fill nests a box in a box. A rule underneath is enough
        to separate the explanation from the fields it introduces. */
-    .file-flow { grid-column:1/-1; margin-bottom:var(--space-5); padding-bottom:var(--space-5); border-bottom:1px solid var(--line); }
+    .file-flow { grid-column:1/-1; padding-bottom:var(--space-5); border-bottom:1px solid var(--line); }
     .file-flow-head { margin-bottom:var(--space-3); color:var(--text); font:600 var(--text-1) var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; }
     .flow-step { display:grid; grid-template-columns:auto minmax(0,1fr); gap:var(--space-3); padding:var(--space-2) 0; }
     .flow-marker { width:18px; color:var(--muted); font:600 var(--text-1)/1.5 var(--mono); text-align:right; }
@@ -163,8 +162,9 @@
     .file-toolbar { display:flex; align-items:center; gap:var(--space-2); padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--line); }
     .file-location { min-width:0; flex:1; overflow:hidden; color:var(--text); font:var(--text-3) var(--mono); text-overflow:ellipsis; white-space:nowrap; }
     .file-search { width:min(280px,40%); min-height:var(--control); padding:0 var(--space-3); border:1px solid var(--line); border-radius:var(--radius-2); background:var(--sunken); color:var(--text); }
-    .file-list { display:grid; align-content:start; min-height:260px; }
+    .file-list { display:grid; align-content:start; }
     .file-row { display:grid; grid-template-columns:46px minmax(0,1fr) minmax(72px,auto) auto; gap:var(--space-3); align-items:center; min-height:calc(var(--control-sm) + 2 * var(--space-4)); padding:var(--space-4); border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--text); text-align:left; }
+    .file-row:last-child { border-bottom:0; }
     .file-row:hover { background:var(--raised); }
     .file-kind { color:var(--muted); font:600 var(--text-1) var(--mono); letter-spacing:var(--track-nav); }
     .file-name { min-width:0; overflow:hidden; font:600 var(--text-3) var(--mono); text-overflow:ellipsis; white-space:nowrap; }
@@ -181,7 +181,7 @@
     .action-menu-item:hover { background:var(--raised); color:var(--text); }
     .action-menu-item.danger-action:hover { color:var(--red); }
     #files-panel { overflow:visible; }
-    .file-footer { display:flex; justify-content:flex-end; padding:var(--space-4); }
+    .file-footer { display:flex; justify-content:flex-end; padding:var(--space-4); border-top:1px solid var(--line); }
     @media (prefers-reduced-motion:reduce) { * { transition:none!important; } }
     @media (max-width:840px) {
       .shell { padding-left:max(var(--space-3),env(safe-area-inset-left)); padding-right:max(var(--space-3),env(safe-area-inset-right)); }
@@ -276,7 +276,7 @@
           <div id="project-review-inputs" class="declared"></div>
           <div class="field field-wide"><span class="label">Missing or replacement input</span><span class="storage-choice"><input id="batch-input-name" maxlength="64" placeholder="Declared input name, e.g. dataset"><button id="browse-input" class="ghost" type="button">CHOOSE FILE</button></span><div id="batch-storage-inputs" class="storage-bindings"></div><span id="batch-storage-hint" class="hint"></span></div>
         </div></section>
-        <div class="form-actions"><button id="submit" class="primary" type="submit">SUBMIT JOB</button></div><p id="feedback" class="feedback" aria-live="polite"></p>
+        <div class="form-footer"><div class="form-actions"><button id="submit" class="primary" type="submit">SUBMIT JOB</button></div><p id="feedback" class="feedback" aria-live="polite"></p></div>
       </form></section>
       <section id="queue-panel" class="panel queue-panel hidden" aria-labelledby="queue-title"><header class="panel-head"><h2 id="queue-title">Queue &amp; history</h2><span id="job-count" class="count">—</span></header><nav id="filters" class="filters" aria-label="Filter jobs by state"></nav><div class="job-head" role="row" aria-label="Sortable job columns"><button class="sort head-name" data-sort="name" type="button">Name</button><button class="sort head-id" data-sort="id" type="button">ID</button><button class="sort head-type" data-sort="type" type="button">Type</button><button class="sort head-state" data-sort="status" type="button">State</button><button class="sort head-worker" data-sort="worker_id" type="button">Worker</button><button class="sort head-time" data-sort="created_at" type="button">Created</button></div><div id="jobs"></div></section>
       <section id="files-panel" class="panel hidden" aria-labelledby="files-title"><header class="panel-head"><h2 id="files-title">Files</h2><span id="file-count" class="count">—</span></header><div class="file-toolbar"><button id="file-up" class="ghost" type="button">UP</button><div id="file-location" class="file-location">/</div><input id="file-search" class="file-search" type="search" placeholder="Filter this folder" aria-label="Filter this folder"><button id="file-refresh" class="ghost" type="button">REFRESH</button></div><div id="file-entries" class="file-list"></div><div id="file-footer" class="file-footer hidden"><div class="topbar-button-row"><button id="file-clear-artifacts" class="ghost hidden" type="button">CLEAR ARTIFACTS</button><button id="file-new-folder" class="ghost hidden" type="button">NEW FOLDER</button><button id="file-upload" class="ghost hidden" type="button">UPLOAD</button><input id="file-upload-input" class="hidden" type="file"></div></div><p id="file-feedback" class="feedback bad" aria-live="polite"></p></section>
