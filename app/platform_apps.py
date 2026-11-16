@@ -115,7 +115,11 @@ def render_launcher_tiles(apps: tuple[PlatformApp, ...], pinned: frozenset[str])
     Each registered app also gets a toggle for whether the viewer's bar shows
     it. The toggle sits beside the link, since a button cannot nest in one."""
     tiles: list[str] = []
-    for index, app in enumerate((app for app in apps if app.key != "home"), 1):
+    shown = sorted(
+        (app for app in apps if app.key != "home"),
+        key=lambda app: app.key not in BUILTIN_KEYS,
+    )
+    for index, app in enumerate(shown, 1):
         tile = (
             f'<a class="tile" href="{escape(app.href, quote=True)}"'
             f' style="--c:{app.accent}"><i aria-hidden="true"></i>'

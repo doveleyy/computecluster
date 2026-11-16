@@ -151,9 +151,10 @@ def test_fresh_core_starts_without_external_apps_and_explicit_registration_survi
         "jobs",
     ]
     assert [target.key for target in registry.monitoring()] == ["notes"]
-    assert 'href="/notes/"' in render_launcher_tiles(
-        registry.navigation(Role.MEMBER), frozenset()
-    )
+    member_tiles = render_launcher_tiles(registry.navigation(Role.MEMBER), frozenset())
+    assert 'href="/notes/"' in member_tiles
+    assert member_tiles.index('href="/jobs-ui"') < member_tiles.index('href="/notes/"')
+    assert member_tiles.split('class="tile-key"')[1].startswith(' aria-hidden="true">01<')
     database.close()
 
 

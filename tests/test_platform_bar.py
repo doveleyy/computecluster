@@ -312,12 +312,12 @@ def test_launcher_shows_one_tile_per_app_the_role_can_open(
         return re.findall(r'<a class="tile" href="([^"]+)"', html)
 
     member_tiles = tile_hrefs(member_home.text)
-    assert member_tiles == ["/notes/", "/calendar/", "/weather/", "/jobs-ui"]
+    assert member_tiles == ["/jobs-ui", "/notes/", "/calendar/", "/weather/"]
     assert tile_hrefs(admin_home.text) == [
+        "/dashboard",
         "/notes/",
         "/calendar/",
         "/weather/",
-        "/dashboard",
         "/toolbox/",
     ]
     assert tile_hrefs(no_session_home.text) == member_tiles
