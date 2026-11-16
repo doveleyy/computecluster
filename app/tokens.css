@@ -1,6 +1,7 @@
 /* Home Platform design tokens. Copied byte for byte into every app; DESIGN.md names each one. */
 :root {
   color-scheme: dark;
+  scrollbar-gutter: stable;
   --bg: #050505;
   --sunken: #080808;
   --surface: #0a0a0a;
