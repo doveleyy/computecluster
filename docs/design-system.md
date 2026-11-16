@@ -163,8 +163,9 @@ Every page uses the same frame:
   fill, Line border. Focus shows the focus ring.
 - **Tabs.** A rail with Sunken fill, Line border, `--radius-3` and `--space-1`
   padding. The rail is as wide as its tabs. At 600px it spans the frame and
-  the tabs share its width in one row. Each tab is `--control` tall, `--radius-2`, a `--text-1` uppercase
-  label at `--track-nav`. The current tab fills with Text and Canvas text.
+  the tabs share its width in one row. Each tab is `--control` tall,
+  `--radius-2`, a `--text-1` uppercase label at `--track-nav`. The current
+  tab fills with Text and Canvas text.
 - **Label.** Mono, weight 600, `--text-1`, uppercase, `--track-caps`, Muted.
 - **Badge.** `--text-2` mono, Tint fill, 1px Tint strong border, `--radius-1`,
   padding `--space-1` by `--space-2`.
