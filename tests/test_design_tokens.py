@@ -285,6 +285,26 @@ def test_checker_names_each_kind_of_violation() -> None:
     ]
 
 
+def test_a_mix_of_tokens_passes_and_a_literal_inside_it_does_not() -> None:
+    mix = "color-mix(in srgb, var(--text) 88%, var(--bg))"
+    assert check([f".a:hover {{ background: {mix} }}"], []) == []
+    literal = "color-mix(in srgb, #fff 88%, var(--bg))"
+    assert check([f".a {{ background: {literal} }}"], []) == [
+        f".a: background: {literal} writes a colour literal"
+    ]
+
+
+def test_primary_buttons_hover_to_the_documented_mix() -> None:
+    mix = "color-mix(in srgb, var(--text) 88%, var(--bg))"
+    assert f"`{mix}`" in (ROOT / "docs/design-system.md").read_text()
+    for path in ("app/apps.html", "app/dashboard.html", "app/jobs.html"):
+        hover = re.search(
+            r"\.primary(?:-button)?:hover:not\(:disabled\) \{([^}]*)\}",
+            surface_text(path)[0][0],
+        )
+        assert hover and f"background:{mix}" in hover.group(1), path
+
+
 def doc_tables() -> dict[str, str]:
     """Each `--token` and its value from the tables in the design document."""
     rows = re.findall(

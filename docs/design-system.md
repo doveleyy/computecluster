@@ -138,26 +138,32 @@ Every page uses the same frame:
   Padding is `--space-5` at the top, `--space-4` at the sides and `--space-7`
   at the bottom, each raised to the safe-area inset when that is larger. The
   sides drop to `--space-3` at 840px.
-- **Header.** A row at the top of the frame. The page title sits on the left
-  with its bottom edge aligned to the right-hand content. The gap is
-  `--space-4`. The header sits `--space-5` above the page body.
+- **Header.** A row at the top of the frame, at least `--control` tall, so
+  the title sits at the same height whether or not the row holds a button.
+  The page title sits on the left with its bottom edge on the row's bottom.
+  The right-hand group shares that bottom edge. The gap is `--space-4`. The
+  header sits `--space-5` above the page body. At 600px the right-hand group
+  may move under the title.
 - **Title.** Mono, weight 600, `--text-8`, line height 1, `--track-display`.
-  It is `--text-7` at 600px.
+  It is `--text-7` at 600px. A punctuation mark inside or after the title is
+  Dim.
 - **Panel.** Surface fill, 1px Line border, `--radius-3`. A panel head is
-  `--space-3` by `--space-4` with a Line border under it and a `--text-1`
-  uppercase label.
+  `--space-3` by `--space-4` with a Line border under it. Its title is a
+  Label in Text colour. A count or period on the right is a Label in Muted.
 
 ## Components
 
 - **Button.** `--control` tall, `--space-3` side padding, `--radius-2`, Surface
   fill and a Line border. Hover raises the fill to Raised and the border to
   Strong. Disabled drops to 50% opacity.
-- **Primary button.** Text fill with Canvas text. One per view, on the action
-  that finishes the task.
+- **Primary button.** Text fill with Canvas text. Hover mixes the fill to
+  `color-mix(in srgb, var(--text) 88%, var(--bg))`. One per view, on the
+  action that finishes the task.
 - **Input.** `--control` tall, `--space-3` side padding, `--radius-2`, Sunken
   fill, Line border. Focus shows the focus ring.
 - **Tabs.** A rail with Sunken fill, Line border, `--radius-3` and `--space-1`
-  padding. Each tab is `--control` tall, `--radius-2`, a `--text-1` uppercase
+  padding. The rail is as wide as its tabs. At 600px it spans the frame and
+  the tabs share its width in one row. Each tab is `--control` tall, `--radius-2`, a `--text-1` uppercase
   label at `--track-nav`. The current tab fills with Text and Canvas text.
 - **Label.** Mono, weight 600, `--text-1`, uppercase, `--track-caps`, Muted.
 - **Badge.** `--text-2` mono, Tint fill, 1px Tint strong border, `--radius-1`,
