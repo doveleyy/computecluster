@@ -22,6 +22,7 @@
     .topbar > :first-child { min-width:0; }
     .topbar .context-line { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .topbar-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:var(--space-2) var(--space-3); min-width:0; }
+    .topbar-text { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-2) var(--space-3); min-width:0; }
     .topbar-button-row { display:flex; gap:var(--space-2); }
     .label { color:var(--muted); font:600 var(--text-1)/1.2 var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; }
     .brand { margin:0; font:600 var(--text-8)/1 var(--mono); letter-spacing:var(--track-display); }
@@ -123,10 +124,11 @@
     .login { width:min(420px,100%); overflow:hidden; border:1px solid var(--line); border-radius:var(--radius-3); background:var(--surface); }
     .login-copy { padding:var(--space-5); border-bottom:1px solid var(--line); }
     .login form { padding:var(--space-5); }
-    .login .primary { width:100%; margin-top:0; }
+    .login .primary { width:100%; margin-top:var(--space-5); }
     .account-form,.account-section { padding:var(--space-5); }
     .account-section { border-bottom:1px solid var(--line); }
     .identity-value { margin:var(--space-2) 0 var(--space-3); color:var(--text); font:var(--text-2)/1.55 var(--mono); overflow-wrap:anywhere; }
+    .label + .dialog-copy { margin-top:var(--space-2); }
     .dialog-copy { margin:0 0 var(--space-4); color:var(--muted); font:var(--text-2)/1.65 var(--mono); }
     .storage-choice { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:var(--space-2); margin-top:var(--space-2); }
     .storage-choice input { margin-top:0; }
@@ -193,8 +195,11 @@
       .page-nav { width:100%; flex-wrap:nowrap; }
       .page-nav a { flex:1 1 auto; min-width:0; padding:0 var(--space-1); }
       .brand { font-size:var(--text-7); }
-      .topbar { flex-direction:column; align-items:stretch; gap:var(--space-3); }
-      .topbar-actions { justify-content:flex-start; }
+      .topbar { flex-wrap:wrap; align-items:flex-start; justify-content:flex-start; gap:var(--space-3); }
+      .topbar > :first-child { flex:1 1 auto; }
+      .topbar-actions { display:contents; }
+      .topbar-button-row { order:1; }
+      .topbar-text { order:2; flex-basis:100%; }
       .form,.form-section-body { grid-template-columns:1fr; }
       .form,.dialog-body,.account-form,.account-section { padding:var(--space-4); }
       .submit-panel .panel-head,dialog .panel-head { padding-inline:var(--space-4); }
@@ -202,15 +207,15 @@
       .storage-path { margin:0 calc(-1 * var(--space-4)) var(--space-4); padding:var(--space-3) var(--space-4); }
       .form > *,.form-section-body > * { grid-column:1/-1; }
       .declared { grid-template-columns:1fr; }
-      .job-head { grid-template-columns:1fr .75fr .8fr; padding:var(--space-2) var(--space-3); }
+      .job-head { grid-template-columns:repeat(3,auto); justify-content:start; padding:var(--space-2) var(--space-3); }
       .head-type,.head-state,.head-worker { display:none; }
       .job-row { grid-template-columns:minmax(0,1fr) auto; gap:var(--space-2) var(--space-3); padding:var(--space-4); }
       .job-name { grid-column:1; grid-row:1; }
       .job-state { grid-column:2; grid-row:1; justify-self:end; }
-      .job-id { grid-column:1/-1; grid-row:2; }
+      .job-id { grid-column:1; grid-row:2; }
+      .job-time { grid-column:2; grid-row:2; text-align:right; }
       .job-type { grid-column:1; grid-row:3; }
-      .job-worker { grid-column:1/-1; grid-row:4; }
-      .job-time { grid-column:2; grid-row:3; text-align:right; }
+      .job-worker { grid-column:2; grid-row:3; text-align:right; }
       .job-worker::before { content:"worker  "; color:var(--muted); }
       .dialog-body { grid-template-columns:1fr; }
       .detail.wide { grid-column:auto; }
@@ -222,6 +227,7 @@
       .file-row { grid-template-columns:38px minmax(0,1fr) auto; padding:var(--space-4); }
       .file-size { display:none; }
       .file-footer { justify-content:flex-start; }
+      .form-actions .primary,.account-form .primary { width:100%; }
     }
   </style>
 </head>
@@ -229,7 +235,7 @@
   <iframe class="platform-bar" src="/platform/bar?app=__PLATFORM_APP__" title="Home Platform apps" style="display:block;width:100%;height:41px;border:0;flex:none;background:#070707"></iframe>
   <section id="login-view" class="login-wrap hidden"><div class="login"><div class="login-copy"><h1 class="brand">JOB<span>//</span>DESK</h1></div><form id="login-form"><label class="field"><span class="label">Username</span><input id="login-username" autocomplete="username" autocapitalize="none" spellcheck="false"></label><label class="field"><span class="label">Password</span><input id="login-password" type="password" autocomplete="current-password"></label><details class="advanced"><summary>OWNER TOKEN</summary><div class="advanced-body"><label class="field"><span class="label">API token</span><input id="token" type="password" autocomplete="current-password"></label></div></details><button class="primary" type="submit">OPEN JOB DESK</button><p id="login-error" class="feedback bad" aria-live="polite"></p></form></div></section>
   <main id="app" class="shell hidden">
-    <header class="topbar"><div><h1 class="brand">JOB<span>//</span>DESK</h1></div><div class="topbar-actions"><div id="account" class="context-line"></div><div id="connection" class="connection"><i></i><span id="updated">SYNCING</span></div><div class="topbar-button-row"><button id="account-open" class="ghost hidden" type="button">ACCOUNT</button><button id="logout" class="ghost" type="button">LOG OUT</button></div></div></header>
+    <header class="topbar"><div><h1 class="brand">JOB<span>//</span>DESK</h1></div><div class="topbar-actions"><div class="topbar-text"><div id="account" class="context-line"></div><div id="connection" class="connection"><i></i><span id="updated">SYNCING</span></div></div><div class="topbar-button-row"><button id="account-open" class="ghost hidden" type="button">ACCOUNT</button><button id="logout" class="ghost" type="button">LOG OUT</button></div></div></header>
     <nav class="page-nav" aria-label="Home Platform"><a class="operator-nav hidden" href="/dashboard">OVERVIEW</a><a class="operator-nav hidden" href="/dashboard/operations">OPERATIONS</a><a class="operator-nav hidden" href="/dashboard/apps">APPS</a><a id="jobs-nav" href="/jobs-ui">JOBS</a><a id="files-nav" href="/jobs-ui/files">FILES</a><a id="submit-nav" class="member-nav" href="/jobs-ui/new">SUBMIT</a></nav>
     <div id="workspace" class="layout one-page">
       <section id="submit-panel" class="panel submit-panel hidden" aria-labelledby="submit-title"><header class="panel-head"><h2 id="submit-title">Submit a job</h2></header><form id="job-form" class="form">
