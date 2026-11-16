@@ -153,6 +153,7 @@
     .flow-step.is-result .flow-term { color:var(--accent); }
     .flow-step p { margin:0 0 var(--space-1); color:var(--muted); font:var(--text-2)/1.6 var(--mono); }
     .flow-step p:last-child { margin-bottom:0; }
+    .flow-step p:empty { display:none; }
     .flow-step code { color:var(--text); font-size:var(--text-2); overflow-wrap:anywhere; }
     .project-review-row { display:grid; grid-column:1/-1; grid-template-columns:minmax(0,.65fr) minmax(0,1.35fr) auto; gap:var(--space-2); align-items:center; font:var(--text-2)/1.45 var(--mono); }
     .project-review-row span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -225,7 +226,7 @@
     <div id="workspace" class="layout one-page">
       <section id="submit-panel" class="panel submit-panel hidden" aria-labelledby="submit-title"><header class="panel-head"><h2 id="submit-title">Submit a job</h2></header><form id="job-form" class="form">
         <div class="file-flow hidden" id="file-flow"><div class="file-flow-head">Where your files go</div>
-          <div class="flow-step"><div class="flow-marker">1</div><div><div class="flow-term">Choosing files</div><p><strong>Home</strong> is your private area. <strong>Shared</strong> is for files the household deliberately shares.</p></div></div>
+          <div class="flow-step"><div class="flow-marker">1</div><div><div class="flow-term">Choosing files</div><p><strong>Home</strong> is your private area. <strong>Shared</strong> is for files the household deliberately shares.</p><p id="flow-choose-detail"></p></div></div>
           <div class="flow-step"><div class="flow-marker">2</div><div><div class="flow-term">Inside the job</div><p id="flow-inside-detail"></p></div></div>
           <div class="flow-step is-result"><div class="flow-marker">3</div><div><div class="flow-term">Results</div><p>Anything written to <code>HOME_PLATFORM_OUTPUT_DIR</code> is published as an artifact.</p><p id="flow-result-detail"></p></div></div>
         </div>
@@ -404,8 +405,8 @@
     // inside them change. Switching task must never rebuild the form's shape,
     // because that is what made this page feel like three unrelated screens.
     const FLOW_COPY={
-      python_batch:{inside:"The input is staged read-only and read at HOME_PLATFORM_DATASET.",result:"It lands in a folder named after this job, so re-running never overwrites an earlier result. The script cannot choose another destination."},
-      batch:{inside:"The project is unpacked read-only at HOME_PLATFORM_PROJECT_DIR, and each named input appears at HOME_PLATFORM_INPUT_DIR/NAME.",result:"The submission gets one folder named after the job, and every array index gets its own folder inside it. Scripts cannot choose another destination."}
+      python_batch:{choose:"",inside:"The input is staged read-only and read at HOME_PLATFORM_DATASET.",result:"It lands in a folder named after this job, so re-running never overwrites an earlier result. The script cannot choose another destination."},
+      batch:{choose:"Inputs declared as #HP --input NAME=Home/… in submit.hp are resolved for you; you only pick a file when one has no default.",inside:"The project is unpacked read-only at HOME_PLATFORM_PROJECT_DIR, and each named input appears at HOME_PLATFORM_INPUT_DIR/NAME.",result:"The submission gets one folder named after the job, and every array index gets its own folder inside it. Scripts cannot choose another destination."}
     };
     function updateDatasetFields(){
       const type=$("#job-type").value,python=type==="python_batch",batch=type==="batch",runs=python||batch;
@@ -439,6 +440,7 @@
       $("#batch-entrypoint").required=batch;
       if(runs){
         const copy=FLOW_COPY[type];
+        $("#flow-choose-detail").textContent=copy.choose;
         $("#flow-inside-detail").textContent=copy.inside;
         $("#flow-result-detail").textContent=copy.result;
       }
