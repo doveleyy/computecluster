@@ -20,7 +20,13 @@ from app.page_assets import TOKENS
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "app"
-SURFACES: list[str] = ["app/platform_bar.css", "app/apps.html", "app/dashboard.html", "app/jobs.html"]
+SURFACES: list[str] = [
+    "app/platform_bar.css",
+    "app/apps.html",
+    "app/dashboard.html",
+    "app/jobs.html",
+    "app/home.html",
+]
 BREAKPOINTS = {840, 600, 380}
 ACCENTS = {f"var(--{name})" for name in ("cyan", "green", "violet", "yellow", "red")}
 LENGTH = r"-?(?:\d+\.?\d*|\.\d+)(?:px|r?em|vw|vh|vmin|vmax|[ds]?vh|[ds]?vw|ch|pt)\b"
@@ -223,7 +229,7 @@ def check(styles: list[str], scripts: list[str]) -> list[str]:
         for match in SCRIPT_COLOUR.finditer(script):
             line = script[: match.start()].count("\n") + 1
             found.append(f"script line {line}: colour literal {match.group(0)}")
-        for name in re.findall(r"""getPropertyValue\(\s*["'`](--[\w-]+)""", script):
+        for name in re.findall(r"""["'`](--[a-z][\w-]*)["'`]""", script):
             if name not in declared and name not in defined:
                 found.append(f"script reads {name}, which nothing declares")
     return found
@@ -237,6 +243,11 @@ def test_surface_takes_every_value_from_the_tokens(path: str) -> None:
     assert check(styles, scripts) == []
 
 
+def test_every_html_page_is_a_surface() -> None:
+    pages = sorted(f"app/{page.name}" for page in APP.glob("*.html"))
+    assert pages == sorted(path for path in SURFACES if path.endswith(".html"))
+
+
 def test_checker_names_each_kind_of_violation() -> None:
     sample = (
         ".a { padding: 13px; margin: 0 var(--space-2);"
@@ -247,9 +258,12 @@ def test_checker_names_each_kind_of_violation() -> None:
         ".e { --bg: #000; --accent: var(--text) }"
         "@media (max-width: 640px) { .f { top: 5px; font: var(--text-3) var(--mono) } }"
     )
-    script = "const c = '#dfeee4'; ctx.fillStyle = `rgba(1,2,3,${a})`;"
+    script = (
+        "const c = '#dfeee4'; ctx.fillStyle = `rgba(1,2,3,${a})`;"
+        " const m = token('--nothing');"
+    )
     found = check([sample], [script])
-    assert [item.split(": ", 1)[1] for item in found] == [
+    assert [item.split(": ", 1)[-1] for item in found] == [
         "padding: 13px is a raw length; use a --space token",
         "gap: 3px is a raw length; use a --space token",
         "font-size 13px is not a --text step",
@@ -267,6 +281,7 @@ def test_checker_names_each_kind_of_violation() -> None:
         "top: 5px is a raw length; use a --space token",
         "colour literal '#dfeee4'",
         "colour literal rgba(",
+        "script reads --nothing, which nothing declares",
     ]
 
 
