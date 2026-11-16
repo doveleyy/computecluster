@@ -54,3 +54,6 @@
   --page-width: 1240px;
   --grid-cell: 32px;
 }
+@media (max-width: 600px) {
+  :root { scrollbar-gutter: auto; }
+}

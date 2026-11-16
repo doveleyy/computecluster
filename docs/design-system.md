@@ -137,9 +137,10 @@ Every page uses the same frame:
 - **Frame.** `.shell` is `min(var(--page-width), 100%)` wide and centred.
   Padding is `--space-5` at the top, `--space-4` at the sides and `--space-7`
   at the bottom, each raised to the safe-area inset when that is larger. The
-  sides drop to `--space-3` at 840px. The root reserves the scrollbar gutter
-  (`scrollbar-gutter: stable` in `tokens.css`), so a page that starts or stops
-  scrolling never moves the frame sideways.
+  sides drop to `--space-3` at 840px. Above 600px the root reserves the
+  scrollbar gutter (`scrollbar-gutter: stable` in `tokens.css`), so a page
+  that starts or stops scrolling never moves the frame sideways. Phones
+  overlay their scrollbars and keep the full width.
 - **Header.** A row at the top of the frame, at least `--control` tall, so
   the title sits at the same height whether or not the row holds a button.
   The page title sits on the left with its bottom edge on the row's bottom.
@@ -150,7 +151,8 @@ Every page uses the same frame:
   It is `--text-7` at 600px. A punctuation mark inside or after the title is
   Dim.
 - **Panel.** Surface fill, 1px Line border, `--radius-3`. A panel head is
-  `--space-3` by `--space-4` with a Line border under it. Its title is a
+  `--space-3` tall with a Line border under it. Its side padding matches the
+  body below it, so the title lines up with the content. Its title is a
   Label in Text colour. A count or period on the right is a Label in Muted.
 
 ### Rhythm
@@ -159,8 +161,9 @@ Space groups the content: tight inside a group, generous between groups, and
 more space above a heading than below it.
 
 - **Body.** Tabs sit `--space-5` above the first panel. Panels and cards in
-  a column or grid sit `--space-3` apart. A section heading sits `--space-6`
-  below the block before it and `--space-3` above its own content.
+  a column or grid sit `--space-3` apart, including panels with their own
+  head. A section heading outside a panel sits `--space-6` below the block
+  before it and `--space-3` above its own content.
 - **Cards and dialogs.** A card inside a panel, and a dialog body, has
   `--space-5` padding, or `--space-4` at 600px. A panel body that holds a
   list or table has no padding of its own, so rows reach its edges.
@@ -169,8 +172,9 @@ more space above a heading than below it.
 - **Facts.** A cell in a fact grid has `--space-3` padding. Its label sits
   `--space-1` above the value.
 - **Forms.** A label sits `--space-2` above its control. A hint sits
-  `--space-2` below it. Fields sit `--space-5` apart. A group heading sits
-  `--space-6` above its first field.
+  `--space-2` below it. Fields sit `--space-5` apart. A group heading inside
+  a form sits at least `--space-6` below the field before it and `--space-3`
+  above its first field.
 - **Messages.** A status, empty or error line sits `--space-3` from the
   block it describes. It never sits between the tabs and a heading.
 
