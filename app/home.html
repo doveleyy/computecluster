@@ -14,13 +14,9 @@
     .shell { width:min(var(--page-width),100%); margin:0 auto; padding:max(var(--space-5),env(safe-area-inset-top)) max(var(--space-4),env(safe-area-inset-right)) max(var(--space-7),env(safe-area-inset-bottom)) max(var(--space-4),env(safe-area-inset-left)); }
     .brand { margin:0; font:600 var(--text-8)/1 var(--mono); letter-spacing:var(--track-display); }
     .brand span { color:var(--dim); }
-    .greeting { color:var(--muted); font:var(--text-2) var(--mono); }
-    .greeting strong { color:var(--text); font-weight:600; }
-    .topbar { display:flex; align-items:flex-end; justify-content:space-between; gap:var(--space-4); min-height:var(--control); margin-bottom:var(--space-5); }
-    .clock { display:flex; align-items:center; gap:var(--space-3); }
-    .clock-meta { text-align:right; }
-    .clock-time { display:block; font:500 var(--text-8)/1 var(--mono); letter-spacing:var(--track-display); font-variant-numeric:tabular-nums; }
-    .clock-date { min-height:1.4em; color:var(--muted); font:var(--text-2) var(--mono); text-transform:uppercase; }
+    .topbar { display:grid; grid-template-columns:minmax(0,1fr) auto; grid-template-rows:var(--control) auto; align-items:end; column-gap:var(--space-4); margin-bottom:var(--space-5); }
+    .clock-time { font:500 var(--text-8)/1 var(--mono); letter-spacing:var(--track-display); font-variant-numeric:tabular-nums; }
+    .clock-line { grid-column:1/-1; overflow-wrap:anywhere; margin:var(--space-2) 0 0; color:var(--muted); font:var(--text-2) var(--mono); text-align:right; text-transform:uppercase; }
     h2 { margin:0 0 var(--space-3); font:600 var(--text-7)/1.2 var(--mono); letter-spacing:var(--track-display); }
     .art { position:relative; overflow:hidden; margin-bottom:var(--space-5); border:1px solid var(--line); border-radius:var(--radius-3); background:var(--sunken); }
     .art-body { position:relative; overflow:hidden; }
@@ -49,9 +45,7 @@
     }
     @media (max-width:600px) {
       .brand,.clock-time { font-size:var(--text-7); }
-      .topbar { flex-direction:column; align-items:stretch; gap:var(--space-3); }
-      .clock { flex-direction:row-reverse; justify-content:flex-end; }
-      .clock-meta { text-align:left; }
+      .topbar { column-gap:var(--space-3); }
       .tiles { grid-template-columns:1fr; }
       .tile { min-height:0; }
       .slot .tile { padding-bottom:calc(var(--control) + 2 * var(--space-3)); }
@@ -62,13 +56,9 @@
 <body>
   <main class="shell">
     <header class="topbar">
-      <div>
-        <h1 class="brand">HOME<span>//</span>PLATFORM</h1>
-      </div>
-      <div class="clock" aria-live="off">
-        <div class="clock-meta"><div class="greeting"><strong>__DISPLAY_NAME__</strong></div><div class="clock-date" id="date"></div></div>
-        <time class="clock-time" id="time">--:--:--</time>
-      </div>
+      <h1 class="brand">HOME<span>//</span>PLATFORM</h1>
+      <time class="clock-time" id="time" aria-live="off">--:--:--</time>
+      <p class="clock-line"><span>__DISPLAY_NAME__</span> · <span id="date"></span></p>
     </header>
 
     <section class="art">

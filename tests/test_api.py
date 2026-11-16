@@ -1637,7 +1637,7 @@ def test_tailscale_identity_self_link_and_internal_resolution(
     assert linked.status_code == 200
     assert linked.json()["subject"] == "owner@example.test"
     assert home.status_code == 200
-    assert "<strong>owner</strong>" in home.text
+    assert "<span>owner</span> · " in home.text
     assert 'href="/jobs-ui"' in home.text
     for href in ("/habits/", "/wishlist/", "/transport/"):
         assert f'href="{href}"' not in home.text

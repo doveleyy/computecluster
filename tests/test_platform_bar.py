@@ -336,7 +336,7 @@ def test_launcher_shows_one_tile_per_app_the_role_can_open(
         assert re.findall(r"fetch\(`([^$`]*)", script) == ["/platform/pins/"]
         for service_call in ("XMLHttpRequest", "EventSource"):
             assert service_call not in script
-    assert "<strong>member</strong>" in member_home.text
+    assert "<span>member</span> · " in member_home.text
 
 
 def test_every_page_frames_the_bar_with_the_one_canonical_tag() -> None:
