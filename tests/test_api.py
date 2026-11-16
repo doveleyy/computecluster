@@ -1083,7 +1083,7 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert 'href="/sorter/"' not in page.text
     assert 'href="/jobs-ui/new"' not in page.text
     assert 'aria-label="Home Platform"' in page.text
-    assert "width:min(1240px,100%)" in page.text
+    assert "width:min(var(--page-width),100%)" in page.text
     assert 'class="topbar-actions"' in page.text
     assert 'id="host" class="context-line"' in page.text
     jobs_card_position = page.text.index('class="service-card jobs"')
@@ -1102,10 +1102,7 @@ def test_dashboard_requires_login_and_exposes_operational_data(
     assert 'primary.append(element("div","worker-meta",platform+ceiling))' in page.text
     assert 'worker.supported_types.join(" · ")' not in page.text
     assert 'state.classList.add("account-state")' in page.text
-    assert (
-        ".account-state { min-width:78px; min-height:30px; justify-content:center;"
-        in page.text
-    )
+    assert ".account-state { min-width:78px; justify-content:center;" in page.text
     assert "response.status===403" in page.text
     assert "ADMINISTRATOR SESSION REQUIRED" in page.text
     assert "Control plane</div>" not in page.text

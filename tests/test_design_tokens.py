@@ -20,7 +20,7 @@ from app.page_assets import TOKENS
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "app"
-SURFACES: list[str] = ["app/platform_bar.css", "app/apps.html"]
+SURFACES: list[str] = ["app/platform_bar.css", "app/apps.html", "app/dashboard.html"]
 BREAKPOINTS = {840, 600, 380}
 ACCENTS = {f"var(--{name})" for name in ("cyan", "green", "violet", "yellow", "red")}
 LENGTH = r"-?(?:\d+\.?\d*|\.\d+)(?:px|r?em|vw|vh|vmin|vmax|[ds]?vh|[ds]?vw|ch|pt)\b"
