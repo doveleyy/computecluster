@@ -46,6 +46,7 @@
     .layout.submit-only { justify-items:stretch; }
     .panel { min-width:0; overflow:hidden; border:1px solid var(--line); border-radius:var(--radius-3); background:var(--surface); }
     .panel-head { padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--line); }
+    .submit-panel .panel-head,dialog .panel-head { padding-inline:var(--space-5); }
     h2 { margin:0; color:var(--text); font:600 var(--text-1)/1.2 var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; }
     .count { color:var(--muted); font:600 var(--text-1)/1.2 var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; white-space:nowrap; }
     .form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 var(--space-5); padding:var(--space-5); }
@@ -62,7 +63,7 @@
     /* Values a project declared for itself. Read-only on purpose: submit.hp is
        the source of truth, and letting the form override it would create a
        second contract. */
-    .declared { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:var(--space-4) var(--space-3); padding:var(--space-3); border:1px solid var(--line); border-radius:var(--radius-2); background:var(--sunken); }
+    .declared { display:grid; margin-bottom:var(--space-5); grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:var(--space-4) var(--space-3); padding:var(--space-3); border:1px solid var(--line); border-radius:var(--radius-2); background:var(--sunken); }
     .declared-value { margin-top:var(--space-1); color:var(--text); font:var(--text-2)/1.4 var(--mono); overflow-wrap:anywhere; }
     .declared-empty { grid-column:1/-1; color:var(--muted); font:var(--text-2)/1.6 var(--mono); }
     .field { display:block; margin-bottom:var(--space-5); }
@@ -196,6 +197,7 @@
       .topbar-actions { justify-content:flex-start; }
       .form,.form-section-body { grid-template-columns:1fr; }
       .form,.dialog-body,.account-form,.account-section { padding:var(--space-4); }
+      .submit-panel .panel-head,dialog .panel-head { padding-inline:var(--space-4); }
       .storage-browser { padding:0 var(--space-4) var(--space-4); }
       .storage-path { margin:0 calc(-1 * var(--space-4)) var(--space-4); padding:var(--space-3) var(--space-4); }
       .form > *,.form-section-body > * { grid-column:1/-1; }
