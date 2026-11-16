@@ -45,7 +45,7 @@
     }
     @media (max-width:600px) {
       .brand,.clock-time { font-size:var(--text-7); }
-      .topbar { column-gap:var(--space-3); }
+      .topbar { grid-template-rows:auto auto; column-gap:var(--space-3); }
       .tiles { grid-template-columns:1fr; }
       .tile { min-height:0; }
       .slot .tile { padding-bottom:calc(var(--control) + 2 * var(--space-3)); }
