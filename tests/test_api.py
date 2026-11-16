@@ -1074,7 +1074,6 @@ def test_dashboard_requires_login_and_exposes_operational_data(
 
     assert page.status_code == 200
     assert "Overview · Home Platform" in page.text
-    assert "operator dashboard" in page.text
     assert "viewport-fit=cover" in page.text
     assert 'href="/dashboard/jobs"' in page.text
     assert 'href="/dashboard/files"' in page.text

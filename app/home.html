@@ -12,7 +12,6 @@
     ::selection { background:var(--accent); color:var(--bg); }
     a:focus-visible, button:focus-visible { outline:2px solid var(--accent); outline-offset:var(--space-half); }
     .shell { width:min(var(--page-width),100%); margin:0 auto; padding:max(var(--space-5),env(safe-area-inset-top)) max(var(--space-4),env(safe-area-inset-right)) max(var(--space-7),env(safe-area-inset-bottom)) max(var(--space-4),env(safe-area-inset-left)); }
-    .eyebrow { color:var(--muted); font:600 var(--text-1)/1.2 var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; }
     .brand { margin:0; font:600 var(--text-8)/1 var(--mono); letter-spacing:var(--track-display); }
     .brand span { color:var(--dim); }
     .greeting { margin:var(--space-2) 0 0; color:var(--muted); font:var(--text-3)/1.4 var(--mono); }
@@ -23,9 +22,6 @@
     .clock-date { min-height:1.4em; margin-top:var(--space-2); color:var(--muted); font:var(--text-2) var(--mono); text-transform:uppercase; }
     h2 { margin:0 0 var(--space-3); font:600 var(--text-7)/1.2 var(--mono); letter-spacing:var(--track-display); }
     .art { position:relative; overflow:hidden; margin-bottom:var(--space-5); border:1px solid var(--line); border-radius:var(--radius-3); background:var(--sunken); }
-    .art-head { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); min-height:var(--control); padding:0 var(--space-4); border-bottom:1px solid var(--line); color:var(--muted); font:600 var(--text-1) var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; }
-    .art-head .dots { display:inline-flex; gap:var(--space-2); }
-    .art-head .dots i { width:8px; height:8px; border-radius:var(--radius-round); background:var(--strong); }
     .art-body { position:relative; overflow:hidden; }
     .art-body canvas { display:block; }
     .art-alt { position:absolute; width:1px; height:1px; margin:0; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
@@ -34,8 +30,7 @@
     .tile:hover { border-color:var(--strong); }
     .tile:hover .tile-go { color:var(--text); }
     .tile i { width:8px; height:8px; border-radius:var(--radius-round); background:var(--c); }
-    .tile-kicker { margin-top:var(--space-3); color:var(--muted); font:600 var(--text-1) var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; }
-    .tile-name { margin-top:var(--space-1); font:600 var(--text-5)/1.2 var(--mono); }
+    .tile-name { margin-top:var(--space-3); font:600 var(--text-5)/1.2 var(--mono); }
     .tile-desc { margin:var(--space-2) var(--space-5) 0 0; color:var(--muted); font:var(--text-2)/1.55 var(--mono); }
     .tile-go { position:absolute; top:var(--space-3); right:var(--space-3); color:var(--dim); font:600 var(--text-1) var(--mono); }
     .tile-key { position:absolute; bottom:var(--space-3); right:var(--space-3); color:var(--muted); font:600 var(--text-1) var(--mono); letter-spacing:var(--track-nav); }
@@ -47,7 +42,6 @@
     .pin[aria-pressed="true"] { border-color:var(--accent); color:var(--accent); }
     .pin[aria-pressed="true"]::before { border-color:var(--accent); background:var(--accent); }
     .pin[aria-busy="true"] { opacity:.5; cursor:progress; }
-    footer { margin-top:var(--space-5); color:var(--muted); font:var(--text-1) var(--mono); letter-spacing:var(--track-nav); }
     @media (prefers-reduced-motion:reduce) { * { transition:none!important; } }
     @media (max-width:840px) {
       .shell { padding-left:max(var(--space-3),env(safe-area-inset-left)); padding-right:max(var(--space-3),env(safe-area-inset-right)); }
@@ -67,9 +61,8 @@
   <main class="shell">
     <header class="topbar">
       <div>
-        <div class="eyebrow">Private tailnet</div>
         <h1 class="brand">HOME<span>//</span>PLATFORM</h1>
-        <p class="greeting"><span id="hello">Hello</span>, <strong>__DISPLAY_NAME__</strong>.</p>
+        <p class="greeting"><strong>__DISPLAY_NAME__</strong></p>
       </div>
       <div class="clock" aria-live="off">
         <time class="clock-time" id="time">--:--:--</time>
@@ -77,11 +70,7 @@
       </div>
     </header>
 
-    <section class="art" aria-labelledby="art-h">
-      <div class="art-head">
-        <span id="art-h">OPERATOR//CONSOLE</span>
-        <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-      </div>
+    <section class="art">
       <div class="art-body">
         <canvas id="art" aria-hidden="true"></canvas>
         <p class="art-alt">Decorative animation: a small cat with happy, closed golden eyes sits at the corner of a desk. Its tail curls beside a keyboard and a steaming mug. Cyan and lavender side monitors surround a green terminal, while Matrix-style glyphs fall around the workstation.</p>
@@ -93,19 +82,15 @@
       <div class="tiles">__TILES__</div>
     </section>
 
-    <footer>HOME PLATFORM · THIS PAGE POLLS NOTHING</footer>
   </main>
   <script>
     (() => {
       const timeEl = document.getElementById('time');
       const dateEl = document.getElementById('date');
-      const helloEl = document.getElementById('hello');
       function tickClock() {
         const now = new Date();
         timeEl.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
         dateEl.textContent = now.toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-        const h = now.getHours();
-        helloEl.textContent = h < 5 ? 'Still up' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
       }
       tickClock();
       setInterval(tickClock, 1000);

@@ -119,8 +119,7 @@ def render_launcher_tiles(apps: tuple[PlatformApp, ...], pinned: frozenset[str])
         tile = (
             f'<a class="tile" href="{escape(app.href, quote=True)}"'
             f' style="--c:{app.accent}"><i aria-hidden="true"></i>'
-            f'<div class="tile-copy"><div class="tile-kicker">{escape(app.kicker)}'
-            f'</div><div class="tile-name">{escape(app.label)}</div>'
+            f'<div class="tile-copy"><div class="tile-name">{escape(app.label)}</div>'
             f'<p class="tile-desc">{escape(app.description)}</p></div>'
             '<span class="tile-go" aria-hidden="true">→</span>'
             f'<span class="tile-key" aria-hidden="true">{index:02d}</span></a>'
