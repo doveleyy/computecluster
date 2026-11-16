@@ -17,16 +17,15 @@
     button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible { outline:2px solid var(--accent); outline-offset:var(--space-half); }
     .hidden { display:none!important; }
     .shell { width:min(var(--page-width),100%); margin:0 auto; padding:max(var(--space-5),env(safe-area-inset-top)) max(var(--space-4),env(safe-area-inset-right)) max(var(--space-7),env(safe-area-inset-bottom)) max(var(--space-4),env(safe-area-inset-left)); }
-    .topbar { display:flex; align-items:flex-end; justify-content:space-between; gap:var(--space-4); margin-bottom:var(--space-5); }
-    .topbar > :first-child { min-width:0; flex:1; }
+    .topbar { display:flex; align-items:flex-end; justify-content:space-between; gap:var(--space-4); min-height:var(--control); margin-bottom:var(--space-5); }
+    .topbar > :first-child { min-width:0; }
     .topbar .context-line { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .topbar-actions { flex-shrink:0; }
+    .topbar-actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:var(--space-2) var(--space-3); min-width:0; }
     .metric-label,.field-label { color:var(--muted); font:600 var(--text-1)/1.2 var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; }
     .brand { margin:0; font:600 var(--text-8)/1 var(--mono); letter-spacing:var(--track-display); }
     .brand span { color:var(--dim); }
     .context-line:empty { display:none; }
-    .context-line { min-height:18px; margin-top:var(--space-2); color:var(--muted); font:var(--text-3)/1.4 var(--mono); }
-    .topbar-actions { display:flex; flex-direction:column; align-items:flex-end; gap:var(--space-2); }
+    .context-line { margin:0; color:var(--muted); font:var(--text-3)/1.4 var(--mono); }
     .connection { display:inline-flex; align-items:center; gap:var(--space-2); color:var(--muted); font:var(--text-2) var(--mono); }
     .connection-dot { width:7px; height:7px; border-radius:var(--radius-round); background:var(--yellow); }
     .connection.live .connection-dot { background:var(--green); }
@@ -37,7 +36,7 @@
     .ghost-button,.worker-toggle,.close-button,.power-choice { border:1px solid var(--line); border-radius:var(--radius-2); background:var(--surface); color:var(--muted); cursor:pointer; font:600 var(--text-1) var(--mono); letter-spacing:var(--track-nav); text-transform:uppercase; }
     .ghost-button:hover,.worker-toggle:hover,.power-choice:hover { border-color:var(--strong); background:var(--raised); color:var(--text); }
     .ghost-button { min-height:var(--control); padding:0 var(--space-3); }
-    .topbar-button-row { display:flex; justify-content:flex-end; gap:var(--space-2); }
+    .topbar-button-row { display:flex; gap:var(--space-2); }
     .row-actions { display:flex; align-items:center; justify-content:flex-end; gap:var(--space-1); }
     .action-menu { position:relative; width:var(--control-sm); }
     .action-menu > summary { display:grid; width:var(--control-sm); height:var(--control-sm); padding:0; place-items:center; border:1px solid transparent; border-radius:var(--radius-2); color:var(--muted); cursor:pointer; font:600 var(--text-4) var(--mono); list-style:none; }
@@ -158,13 +157,13 @@
     }
     @media (max-width:600px) {
       .brand { font-size:var(--text-7); }
+      .topbar { flex-direction:column; align-items:stretch; gap:var(--space-3); }
+      .topbar-actions { justify-content:flex-start; }
       .metric { padding:var(--space-3) var(--space-4); }
       .metric-value { font-size:var(--text-7); }
       .services,.application-services { grid-template-columns:1fr; }
     }
     @media (max-width:380px) {
-      .topbar { flex-direction:column; align-items:stretch; }
-      .topbar-actions { align-items:flex-start; }
       .metrics { grid-template-columns:1fr; }
       .metric,.metric:nth-child(odd) { display:grid; grid-template-columns:1fr auto; align-items:center; gap:var(--space-1) var(--space-3); border-left:0; border-top:1px solid var(--line); }
       .metric:first-child { border-top:0; }
@@ -177,7 +176,7 @@
   <iframe class="platform-bar" src="/platform/bar?app=dashboard" title="Home Platform apps" style="display:block;width:100%;height:41px;border:0;flex:none;background:#070707"></iframe>
   <section id="login" class="login-wrap hidden"><div class="login-panel"><div class="login-top"><h1 class="brand">HOME<span>//</span>CTRL</h1><p class="login-copy">Members sign in through <a href="/jobs-ui">Job Desk</a>.</p></div><form id="login-form" class="login-form"><label class="field-label" for="token">Owner API token</label><input id="token" class="login-input" type="password" autocomplete="current-password" autocapitalize="none" spellcheck="false" required><button class="primary-button" type="submit">OPEN SESSION</button><p id="login-error" class="login-error" aria-live="polite"></p></form></div></section>
   <main id="app" class="shell hidden">
-    <header class="topbar"><div><h1 id="page-brand" class="brand">HOME<span>//</span>CTRL</h1><div id="host" class="context-line">connecting...</div></div><div class="topbar-actions"><div id="connection" class="connection"><i class="connection-dot"></i><span id="updated">SYNCING</span></div><div class="topbar-button-row"><button id="power-open" class="ghost-button power-open hidden" type="button">HOST POWER</button><button id="logout" class="ghost-button" type="button">LOG OUT</button></div></div></header>
+    <header class="topbar"><div><h1 id="page-brand" class="brand">HOME<span>//</span>CTRL</h1></div><div class="topbar-actions"><div id="host" class="context-line">connecting...</div><div id="connection" class="connection"><i class="connection-dot"></i><span id="updated">SYNCING</span></div><div class="topbar-button-row"><button id="power-open" class="ghost-button power-open hidden" type="button">HOST POWER</button><button id="logout" class="ghost-button" type="button">LOG OUT</button></div></div></header>
     <nav class="page-nav" aria-label="Home Platform"><a id="overview-nav" href="/dashboard">OVERVIEW</a><a id="operations-nav" href="/dashboard/operations">OPERATIONS</a><a href="/dashboard/apps">APPS</a><a href="/dashboard/jobs">JOBS</a><a href="/dashboard/files">FILES</a></nav>
     <section id="overview-metrics" class="metrics" aria-label="Control host metrics">
       <article class="metric"><div class="metric-label">Host CPU in use</div><div id="cpu" class="metric-value">—</div><div class="metric-foot"></div><div class="meter"><i id="cpu-bar" class="meter-fill"></i></div></article>
