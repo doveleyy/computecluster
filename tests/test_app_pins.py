@@ -265,5 +265,5 @@ def test_launcher_pin_toggles_mirror_the_viewers_pins_on_registered_tiles_only(
         ("calendar", "true", "Pin Calendar to the bar"),
         ("weather", "false", "Pin Weather to the bar"),
     ]
-    assert re.findall(r'<a class="tile" href="([^"]+)"', page)[-1] == "/jobs-ui"
+    assert re.findall(r'<a class="tile" href="([^"]+)"', page)[0] == "/jobs-ui"
     assert re.search(r"<a [^>]*>(?:(?!</a>).)*<button", page, re.S) is None

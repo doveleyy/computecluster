@@ -123,18 +123,19 @@ def render_launcher_tiles(apps: tuple[PlatformApp, ...], pinned: frozenset[str])
         tile = (
             f'<a class="tile" href="{escape(app.href, quote=True)}"'
             f' style="--c:{app.accent}"><i aria-hidden="true"></i>'
-            f'<div class="tile-copy"><div class="tile-name">{escape(app.label)}</div>'
-            f'<p class="tile-desc">{escape(app.description)}</p></div>'
-            '<span class="tile-go" aria-hidden="true">→</span>'
+            f'<div class="tile-head"><div class="tile-name">{escape(app.label)}</div>'
+            '<span class="tile-go" aria-hidden="true">→</span></div>'
+            f'<p class="tile-desc">{escape(app.description)}</p>'
             f'<span class="tile-key" aria-hidden="true">{index:02d}</span></a>'
         )
+        pin = ""
         if app.key not in BUILTIN_KEYS:
             pressed = "true" if app.key in pinned else "false"
-            tile = (
-                f'<div class="slot">{tile}<button class="pin" type="button"'
+            pin = (
+                f'<button class="pin" type="button"'
                 f' data-app="{escape(app.key, quote=True)}" aria-pressed="{pressed}"'
                 f' aria-label="Pin {escape(app.label, quote=True)} to the bar">'
-                "Pin</button></div>"
+                "Pin</button>"
             )
-        tiles.append(tile)
+        tiles.append(f'<div class="slot">{tile}{pin}</div>')
     return "".join(tiles)
