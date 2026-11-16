@@ -29,7 +29,7 @@
     .connection { display:inline-flex; align-items:center; gap:var(--space-2); color:var(--muted); font:var(--text-2) var(--mono); }
     .connection-dot { width:7px; height:7px; border-radius:var(--radius-round); background:var(--yellow); }
     .connection.live .connection-dot { background:var(--green); }
-    .page-nav { display:flex; width:fit-content; max-width:100%; flex-wrap:wrap; gap:var(--space-1); margin:0 0 var(--space-3); padding:var(--space-1); border:1px solid var(--line); border-radius:var(--radius-3); background:var(--sunken); }
+    .page-nav { display:flex; width:fit-content; max-width:100%; flex-wrap:wrap; gap:var(--space-1); margin:0 0 var(--space-5); padding:var(--space-1); border:1px solid var(--line); border-radius:var(--radius-3); background:var(--sunken); }
     .page-nav a { display:inline-grid; min-height:var(--control); padding:0 var(--space-4); place-items:center; border-radius:var(--radius-2); color:var(--muted); font:600 var(--text-1) var(--mono); letter-spacing:var(--track-nav); text-decoration:none; text-transform:uppercase; white-space:nowrap; }
     .page-nav a:hover { color:var(--text); }
     .page-nav a[aria-current="page"] { background:var(--text); color:var(--bg); }
@@ -48,13 +48,15 @@
     .action-menu-item.danger-action:hover { color:var(--red); }
     .power-open { border-color:var(--red-line); color:var(--red); }
     .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); overflow:hidden; border:1px solid var(--line); border-radius:var(--radius-3); background:var(--surface); }
-    .metric { min-width:0; padding:var(--space-4); border-left:1px solid var(--line); }
+    .metric { min-width:0; padding:var(--space-5); border-left:1px solid var(--line); }
     .metric:first-child { border-left:0; }
     .metric-value { margin:var(--space-2) 0; font:500 var(--text-8)/1 var(--mono); letter-spacing:var(--track-display); }
     .metric-foot { min-height:33px; color:var(--muted); font:var(--text-2)/1.5 var(--mono); }
-    .meter { height:2px; margin-top:var(--space-3); overflow:hidden; background:var(--line); }
+    .meter { height:2px; margin-top:var(--space-4); overflow:hidden; background:var(--line); }
     .meter-fill { display:block; width:0; height:100%; background:var(--accent); transition:width .25s ease; }
-    .section { margin-top:var(--space-5); }
+    .section { margin-top:var(--space-6); }
+    .operations-view #workers-section { margin-top:0; }
+    #workers-section + #members-section { margin-top:var(--space-3); }
     .section-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:var(--space-3); margin:0 0 var(--space-3); }
     .section-title { margin:0; font:600 var(--text-7)/1.2 var(--mono); letter-spacing:var(--track-display); }
     .panel-header .section-title,.dialog-title { margin:0; color:var(--text); font:600 var(--text-1)/1.2 var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; }
@@ -66,14 +68,14 @@
     .application-services { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--space-3); }
     .application-services .service-card { display:flex; min-height:166px; flex-direction:column; }
     .application-services .service-link { align-self:flex-start; margin-top:auto; }
-    .service-card { min-width:0; padding:var(--space-4); border:1px solid var(--line); border-radius:var(--radius-3); background:var(--surface); }
+    .service-card { min-width:0; padding:var(--space-5); border:1px solid var(--line); border-radius:var(--radius-3); background:var(--surface); }
     .service-top { display:flex; align-items:flex-start; justify-content:space-between; gap:var(--space-3); }
     .service-name { margin-top:var(--space-1); overflow:hidden; font:600 var(--text-5) var(--mono); text-overflow:ellipsis; white-space:nowrap; }
     .service-detail { margin-top:var(--space-3); color:var(--muted); font:var(--text-2)/1.55 var(--mono); }
     .service-link { display:inline-flex; min-height:var(--control-sm); align-items:center; margin-top:var(--space-3); padding:0 var(--space-3); border:1px solid var(--line); border-radius:var(--radius-2); background:var(--surface); color:var(--text); font:600 var(--text-1) var(--mono); letter-spacing:var(--track-nav); text-decoration:none; }
     .service-link:hover { border-color:var(--strong); background:var(--raised); }
-    .service-facts,.worker-stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:var(--space-3); overflow:hidden; border:1px solid var(--line); border-radius:var(--radius-2); background:var(--sunken); }
-    .service-fact,.worker-stat { min-width:0; padding:var(--space-2); border-top:1px solid var(--line); }
+    .service-facts,.worker-stats { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:var(--space-4); overflow:hidden; border:1px solid var(--line); border-radius:var(--radius-2); background:var(--sunken); }
+    .service-fact,.worker-stat { min-width:0; padding:var(--space-3); border-top:1px solid var(--line); }
     .service-fact:nth-child(even),.worker-stat:nth-child(even) { border-left:1px solid var(--line); }
     .service-fact:nth-child(-n+2),.worker-stat:nth-child(-n+2) { border-top:0; }
     .fact-name,.worker-stat-label { color:var(--muted); font:600 var(--text-1) var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; }
@@ -87,7 +89,7 @@
     .UNKNOWN { color:var(--muted); }
     .account-state { min-width:78px; justify-content:center; padding:var(--space-1) var(--space-2); border:1px solid var(--tint-strong); border-radius:var(--radius-1); background:var(--tint); font-size:var(--text-2); }
     .worker-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
-    .worker-row { min-width:0; padding:var(--space-4); border-top:1px solid var(--line); }
+    .worker-row { min-width:0; padding:var(--space-5); border-top:1px solid var(--line); }
     .worker-row:nth-child(even) { border-left:1px solid var(--line); }
     .worker-row:nth-child(-n+2) { border-top:0; }
     .worker-row.is-disabled { background:var(--sunken); }
@@ -100,7 +102,7 @@
     .worker-stat-value { color:var(--text); }
     .worker-stat.thermal-warning .worker-stat-value { color:var(--yellow); }
     .worker-stat.thermal-critical .worker-stat-value { color:var(--red); font-weight:600; }
-    .worker-control { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); margin-top:var(--space-3); }
+    .worker-control { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); margin-top:var(--space-4); }
     .schedule-state { color:var(--green); font:600 var(--text-1) var(--mono); letter-spacing:var(--track-nav); }
     .schedule-state.off { color:var(--red); }
     .worker-toggle { min-height:var(--control-sm); padding:0 var(--space-3); color:var(--text); }
@@ -117,32 +119,32 @@
     .login-copy { margin:var(--space-3) 0 0; color:var(--muted); font:var(--text-3)/1.6 var(--mono); }
     .login-form { padding:var(--space-5); }
     .field-label { display:block; }
-    .login-input + .field-label { margin-top:var(--space-3); }
+    .login-input + .field-label { margin-top:var(--space-5); }
     .login-input,.power-confirm { display:block; width:100%; min-height:var(--control); margin-top:var(--space-2); padding:0 var(--space-3); border:1px solid var(--line); border-radius:var(--radius-2); background:var(--sunken); color:var(--text); font:var(--text-4) var(--sans); }
-    .primary-button { width:100%; min-height:var(--control); margin-top:var(--space-3); border:1px solid var(--text); border-radius:var(--radius-2); background:var(--text); color:var(--bg); cursor:pointer; font:600 var(--text-1) var(--mono); letter-spacing:var(--track-nav); text-transform:uppercase; }
+    .primary-button { width:100%; min-height:var(--control); margin-top:var(--space-5); border:1px solid var(--text); border-radius:var(--radius-2); background:var(--text); color:var(--bg); cursor:pointer; font:600 var(--text-1) var(--mono); letter-spacing:var(--track-nav); text-transform:uppercase; }
     .primary-button:hover:not(:disabled) { background:color-mix(in srgb, var(--text) 88%, var(--bg)); }
     .primary-button:disabled { cursor:not-allowed; opacity:.5; }
     .login-error { min-height:18px; margin:var(--space-3) 0 0; color:var(--red); font:var(--text-2) var(--mono); }
-    .power-body { padding:var(--space-4); }
-    .power-copy { margin:0 0 var(--space-4); color:var(--muted); font:var(--text-2)/1.65 var(--mono); }
+    .power-body { padding:var(--space-5); }
+    .power-copy { margin:0 0 var(--space-5); color:var(--muted); font:var(--text-2)/1.65 var(--mono); }
     .power-choices { display:grid; grid-template-columns:1fr 1fr; gap:var(--space-2); }
     .power-choice { min-height:var(--control); padding:0 var(--space-3); }
     .power-choice.active { border-color:var(--red); background:var(--raised); color:var(--red); }
-    .power-choices + .field-label { margin-top:var(--space-4); }
+    .power-choices + .field-label { margin-top:var(--space-5); }
     .power-confirm:focus-visible { outline-color:var(--red); }
-    .power-submit { width:100%; min-height:var(--control); margin-top:var(--space-2); border:1px solid var(--red-line); border-radius:var(--radius-2); background:var(--surface); color:var(--red); cursor:pointer; font:600 var(--text-1) var(--mono); letter-spacing:var(--track-nav); text-transform:uppercase; }
+    .power-submit { width:100%; min-height:var(--control); margin-top:var(--space-5); border:1px solid var(--red-line); border-radius:var(--radius-2); background:var(--surface); color:var(--red); cursor:pointer; font:600 var(--text-1) var(--mono); letter-spacing:var(--track-nav); text-transform:uppercase; }
     .power-submit:hover:not(:disabled) { border-color:var(--red); background:var(--raised); }
     .power-submit:disabled { cursor:not-allowed; opacity:.5; }
     .power-message { min-height:18px; margin:var(--space-3) 0 0; color:var(--muted); font:var(--text-2)/1.5 var(--mono); }
     .member-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(260px,360px); }
     .member-list { display:grid; align-content:start; }
-    .member-row { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--line); }
+    .member-row { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); padding:var(--space-4); border-bottom:1px solid var(--line); }
     .member-name { font:600 var(--text-3) var(--mono); }
     .member-meta { margin-top:var(--space-1); color:var(--muted); font:var(--text-2) var(--mono); }
-    .member-form { padding:var(--space-4); border-left:1px solid var(--line); }
+    .member-form { padding:var(--space-5); border-left:1px solid var(--line); }
     .member-feedback { min-height:18px; margin:var(--space-3) 0 0; color:var(--muted); font:var(--text-2) var(--mono); }
     #members-section { overflow:visible; }
-    .account-reset-body { padding:var(--space-4); }
+    .account-reset-body { padding:var(--space-5); }
     body:not(.operations-view) .worker-control { display:none; }
     @media (prefers-reduced-motion:reduce) { * { transition:none!important; } }
     @media (max-width:840px) {
@@ -161,7 +163,8 @@
       .brand { font-size:var(--text-7); }
       .topbar { flex-direction:column; align-items:stretch; gap:var(--space-3); }
       .topbar-actions { justify-content:flex-start; }
-      .metric { padding:var(--space-3) var(--space-4); }
+      .metric { padding:var(--space-4); }
+      .service-card,.worker-row,.member-form,.power-body,.account-reset-body { padding:var(--space-4); }
       .metric-value { font-size:var(--text-7); }
       .services,.application-services { grid-template-columns:1fr; }
     }
@@ -191,7 +194,7 @@
       <article class="service-card nas"><div class="service-top"><div><div class="service-name">NAS</div></div><span id="storage-service-state" class="status UNKNOWN">UNKNOWN</span></div><div id="storage-service-detail" class="service-detail">Waiting for storage data</div><div class="service-facts"><div class="service-fact"><div class="fact-name">File access</div><div id="synology-smb" class="fact-value">—</div></div><div class="service-fact"><div class="fact-name">Management page</div><div id="synology-management" class="fact-value">—</div></div></div></article>
     </div></section>
     <section id="applications-section" class="section" aria-labelledby="applications-title"><header class="section-heading"><h2 id="applications-title" class="section-title">Applications</h2><span id="application-count" class="count">—</span></header><div id="application-services" class="application-services" aria-live="polite"></div></section>
-    <section class="section panel" aria-labelledby="workers-title"><header class="panel-header"><h2 id="workers-title" class="section-title">Worker nodes</h2><span id="worker-count" class="count">—</span></header><div id="workers" class="worker-list"></div></section>
+    <section id="workers-section" class="section panel" aria-labelledby="workers-title"><header class="panel-header"><h2 id="workers-title" class="section-title">Worker nodes</h2><span id="worker-count" class="count">—</span></header><div id="workers" class="worker-list"></div></section>
     <section id="members-section" class="section panel hidden" aria-labelledby="members-title"><header class="panel-header"><h2 id="members-title" class="section-title">Members</h2><span id="member-count" class="count">—</span></header><div class="member-layout"><div id="members" class="member-list"></div><form id="member-form" class="member-form"><label class="field-label" for="member-username">Username</label><input id="member-username" class="login-input" minlength="3" maxlength="32" pattern="[a-z][a-z0-9._-]*" autocomplete="off" placeholder="family-member" required><label class="field-label" for="member-password">Initial password</label><input id="member-password" class="login-input" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button id="member-submit" class="primary-button" type="submit">CREATE MEMBER</button><p id="member-feedback" class="member-feedback" aria-live="polite"></p></form></div></section>
   </main>
   <dialog id="power-dialog"><div class="dialog-head"><div class="dialog-title">Host power</div><button id="power-close" class="close-button" type="button" aria-label="Close">×</button></div><form id="power-form" class="power-body"><p class="power-copy">This queues a reboot or shutdown request with the host, which stops the control plane and flushes writes before changing power state. It is refused while scheduling is enabled or a job is running.</p><div class="power-choices"><button class="power-choice" data-power-action="reboot" type="button">REBOOT HOST</button><button class="power-choice" data-power-action="shutdown" type="button">SHUT DOWN HOST</button></div><label id="power-confirm-label" class="field-label" for="power-confirm">Choose an action</label><input id="power-confirm" class="power-confirm" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" disabled><button id="power-submit" class="power-submit" type="submit" disabled>CONFIRM</button><p id="power-message" class="power-message" aria-live="polite"></p></form></dialog>
