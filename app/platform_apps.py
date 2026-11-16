@@ -1,12 +1,12 @@
 from dataclasses import dataclass
 from enum import StrEnum
 from html import escape
-from pathlib import Path
 
 from fastapi import Request
 
 from app.accounts import AccountStore
 from app.dashboard_auth import session_identity
+from app.page_assets import read_stylesheet
 
 
 class Role(StrEnum):
@@ -72,7 +72,7 @@ def viewer_role(
     return Role.MEMBER
 
 
-BAR_STYLE = Path(__file__).with_name("platform_bar.css").read_text().strip()
+BAR_STYLE = read_stylesheet("platform_bar.css")
 
 
 def render_bar(apps: tuple[PlatformApp, ...], current: str) -> str:

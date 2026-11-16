@@ -1,7 +1,6 @@
 """The HTML shells, the tailnet launcher page, the platform bar, and its pins."""
 
 from html import escape
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, status
@@ -16,6 +15,7 @@ from app.dashboard_auth import (
     session_identity,
     tailscale_request_identity,
 )
+from app.page_assets import read_page
 from app.platform_apps import (
     BUILTIN_KEYS,
     render_bar,
@@ -23,9 +23,9 @@ from app.platform_apps import (
     viewer_role,
 )
 
-DASHBOARD_HTML = Path(__file__).with_name("dashboard.html").read_text()
-JOBS_HTML = Path(__file__).with_name("jobs.html").read_text()
-HOME_HTML = Path(__file__).with_name("home.html").read_text()
+DASHBOARD_HTML = read_page("dashboard.html")
+JOBS_HTML = read_page("jobs.html")
+HOME_HTML = read_page("home.html")
 
 SessionCookie = Annotated[str | None, Cookie(alias=SESSION_COOKIE)]
 TailscaleLogin = Annotated[str | None, Header(alias="Tailscale-User-Login")]

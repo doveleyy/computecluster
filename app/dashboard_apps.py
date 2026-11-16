@@ -63,10 +63,12 @@ from app.dashboard_auth import (
     session_claims,
     session_secret,
 )
+from app.page_assets import read_page
 from ops.installer_policy import app_fingerprint, load_policy
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+APPS_HTML = read_page("apps.html")
 Step = Literal[
     "preview",
     "previewing",
@@ -130,7 +132,7 @@ def mutation(request: Request) -> None:
 
 @router.get("/dashboard/apps", response_class=HTMLResponse)
 def page(request: Request, identity: AdminSession) -> str:
-    return Path(__file__).with_name("apps.html").read_text()
+    return APPS_HTML
 
 
 @dataclass

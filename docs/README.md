@@ -34,6 +34,7 @@ boundaries.
 | [Application runtime](apps/runtime-contract.md) | Routing, identity, state, and platform capabilities |
 | [Application releases](apps/release-contract.md) | Published manifests, images, and compatibility requirements |
 | [Application HTTP API](apps/api-reference.md) | HTTP examples and the generated API specification |
+| [Design system](design-system.md) | Colour, type, space and component tokens shared by the control plane and apps |
 
 Application registration, release discovery, previews, and approved installation
 are indexed under [Application integration](apps/README.md). Deployment-specific
