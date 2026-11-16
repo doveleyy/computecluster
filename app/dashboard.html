@@ -48,11 +48,12 @@
     .action-menu-item.danger-action:hover { color:var(--red); }
     .power-open { border-color:var(--red-line); color:var(--red); }
     .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); overflow:hidden; border:1px solid var(--line); border-radius:var(--radius-3); background:var(--surface); }
-    .metric { min-width:0; padding:var(--space-5); border-left:1px solid var(--line); }
+    .metric { display:flex; min-width:0; flex-direction:column; padding:var(--space-5); border-left:1px solid var(--line); }
     .metric:first-child { border-left:0; }
     .metric-value { margin:var(--space-2) 0; font:500 var(--text-8)/1 var(--mono); letter-spacing:var(--track-display); }
-    .metric-foot { min-height:33px; color:var(--muted); font:var(--text-2)/1.5 var(--mono); }
-    .meter { height:2px; margin-top:var(--space-4); overflow:hidden; background:var(--line); }
+    .metric-foot { margin-bottom:var(--space-4); color:var(--muted); font:var(--text-2)/1.5 var(--mono); }
+    .metric-foot:last-child { margin-bottom:0; }
+    .meter { height:2px; margin-top:auto; overflow:hidden; background:var(--line); }
     .meter-fill { display:block; width:0; height:100%; background:var(--accent); transition:width .25s ease; }
     .section { margin-top:var(--space-6); }
     .operations-view #workers-section { margin-top:0; }
@@ -65,9 +66,10 @@
     #workers-section .panel-header { padding-inline:var(--space-5); }
     .panel-header { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); padding:var(--space-3) var(--space-4); border-bottom:1px solid var(--line); }
     .empty { padding:var(--space-6) var(--space-4); color:var(--muted); font:var(--text-3) var(--mono); text-align:center; }
-    .services { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:var(--space-3); }
+    .services { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:start; gap:var(--space-3); }
     .application-services { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--space-3); }
-    .application-services .service-card { display:flex; min-height:166px; flex-direction:column; }
+    .application-services .service-card { display:flex; flex-direction:column; }
+    .application-services .service-detail { margin-bottom:var(--space-3); }
     .application-services .service-link { align-self:flex-start; margin-top:auto; }
     .service-card { min-width:0; padding:var(--space-5); border:1px solid var(--line); border-radius:var(--radius-3); background:var(--surface); }
     .service-top { display:flex; align-items:flex-start; justify-content:space-between; gap:var(--space-3); }
@@ -138,13 +140,19 @@
     .power-submit:hover:not(:disabled) { border-color:var(--red); background:var(--raised); }
     .power-submit:disabled { cursor:not-allowed; opacity:.5; }
     .power-message { min-height:18px; margin:var(--space-3) 0 0; color:var(--muted); font:var(--text-2)/1.5 var(--mono); }
-    .member-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(260px,360px); }
     .member-list { display:grid; align-content:start; }
     .member-row { display:flex; align-items:center; justify-content:space-between; gap:var(--space-3); padding:var(--space-4); border-bottom:1px solid var(--line); }
+    .member-row:last-child { border-bottom:0; }
     .member-name { font:600 var(--text-3) var(--mono); }
     .member-meta { margin-top:var(--space-1); color:var(--muted); font:var(--text-2) var(--mono); }
-    .member-form { padding:var(--space-5); border-left:1px solid var(--line); }
-    .member-feedback { min-height:18px; margin:var(--space-3) 0 0; color:var(--muted); font:var(--text-2) var(--mono); }
+    .member-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)) auto; align-items:end; gap:0 var(--space-5); padding:var(--space-5); border-bottom:1px solid var(--line); }
+    .member-form .field-label { grid-row:1; margin-top:0; }
+    .member-form .field-label:nth-of-type(2) { grid-column:2; }
+    .member-form input { grid-row:2; }
+    .member-form #member-password { grid-column:2; }
+    .member-form .primary-button { grid-column:3; grid-row:2; width:auto; margin-top:0; padding:0 var(--space-5); }
+    .member-feedback { grid-column:1/-1; margin:var(--space-3) 0 0; color:var(--muted); font:var(--text-2) var(--mono); }
+    .member-feedback:empty { margin:0; }
     #members-section { overflow:visible; }
     .account-reset-body { padding:var(--space-5); }
     body:not(.operations-view) .worker-control { display:none; }
@@ -154,10 +162,13 @@
       .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
       .metric:nth-child(odd) { border-left:0; }
       .metric:nth-child(n+3) { border-top:1px solid var(--line); }
-      .worker-list,.member-layout { grid-template-columns:1fr; }
+      .worker-list { grid-template-columns:1fr; }
       .worker-row:nth-child(even) { border-left:0; }
       .worker-row:nth-child(2) { border-top:1px solid var(--line); }
-      .member-form { border-top:1px solid var(--line); border-left:0; }
+      .member-form { grid-template-columns:1fr; }
+      .member-form .field-label,.member-form input,.member-form .field-label:nth-of-type(2),.member-form #member-password,.member-form .primary-button,.member-feedback { grid-column:1; grid-row:auto; }
+      .member-form .field-label:nth-of-type(2) { margin-top:var(--space-5); }
+      .member-form .primary-button { width:100%; margin-top:var(--space-5); }
     }
     @media (max-width:600px) {
       .page-nav { width:100%; flex-wrap:nowrap; }
@@ -177,6 +188,8 @@
       .metric:first-child { border-top:0; }
       .metric-value { grid-column:2; grid-row:1; margin:0; }
       .metric-foot,.meter { grid-column:1/-1; }
+      .metric-foot { margin-bottom:0; }
+      .meter { margin-top:var(--space-3); }
     }
   </style>
 </head>
@@ -187,7 +200,7 @@
     <header class="topbar"><div><h1 id="page-brand" class="brand">HOME<span>//</span>CTRL</h1></div><div class="topbar-actions"><div id="host" class="context-line">connecting...</div><div id="connection" class="connection"><i class="connection-dot"></i><span id="updated">SYNCING</span></div><div class="topbar-button-row"><button id="power-open" class="ghost-button power-open hidden" type="button">HOST POWER</button><button id="logout" class="ghost-button" type="button">LOG OUT</button></div></div></header>
     <nav class="page-nav" aria-label="Home Platform"><a id="overview-nav" href="/dashboard">OVERVIEW</a><a id="operations-nav" href="/dashboard/operations">OPERATIONS</a><a href="/dashboard/apps">APPS</a><a href="/dashboard/jobs">JOBS</a><a href="/dashboard/files">FILES</a></nav>
     <section id="overview-metrics" class="metrics" aria-label="Control host metrics">
-      <article class="metric"><div class="metric-label">Host CPU in use</div><div id="cpu" class="metric-value">—</div><div class="metric-foot"></div><div class="meter"><i id="cpu-bar" class="meter-fill"></i></div></article>
+      <article class="metric"><div class="metric-label">Host CPU in use</div><div id="cpu" class="metric-value">—</div><div id="cpu-foot" class="metric-foot">Waiting for host</div><div class="meter"><i id="cpu-bar" class="meter-fill"></i></div></article>
       <article class="metric"><div class="metric-label">Host memory in use</div><div id="memory" class="metric-value">—</div><div id="memory-foot" class="metric-foot">Waiting for host</div><div class="meter"><i id="memory-bar" class="meter-fill"></i></div></article>
       <article class="metric"><div class="metric-label">Host system disk used</div><div id="storage" class="metric-value">—</div><div id="storage-foot" class="metric-foot">Waiting for host</div><div class="meter"><i id="storage-bar" class="meter-fill"></i></div></article>
       <article class="metric"><div class="metric-label">Host CPU temperature</div><div id="temperature" class="metric-value">—</div><div id="uptime" class="metric-foot">Waiting for host</div></article>
@@ -198,7 +211,7 @@
     </div></section>
     <section id="applications-section" class="section" aria-labelledby="applications-title"><header class="section-heading"><h2 id="applications-title" class="section-title">Applications</h2><span id="application-count" class="count">—</span></header><div id="application-services" class="application-services" aria-live="polite"></div></section>
     <section id="workers-section" class="section panel" aria-labelledby="workers-title"><header class="panel-header"><h2 id="workers-title" class="section-title">Worker nodes</h2><span id="worker-count" class="count">—</span></header><div id="workers" class="worker-list"></div></section>
-    <section id="members-section" class="section panel hidden" aria-labelledby="members-title"><header class="panel-header"><h2 id="members-title" class="section-title">Members</h2><span id="member-count" class="count">—</span></header><div class="member-layout"><div id="members" class="member-list"></div><form id="member-form" class="member-form"><label class="field-label" for="member-username">Username</label><input id="member-username" class="login-input" minlength="3" maxlength="32" pattern="[a-z][a-z0-9._-]*" autocomplete="off" placeholder="family-member" required><label class="field-label" for="member-password">Initial password</label><input id="member-password" class="login-input" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button id="member-submit" class="primary-button" type="submit">CREATE MEMBER</button><p id="member-feedback" class="member-feedback" aria-live="polite"></p></form></div></section>
+    <section id="members-section" class="section panel hidden" aria-labelledby="members-title"><header class="panel-header"><h2 id="members-title" class="section-title">Members</h2><span id="member-count" class="count">—</span></header><form id="member-form" class="member-form"><label class="field-label" for="member-username">Username</label><input id="member-username" class="login-input" minlength="3" maxlength="32" pattern="[a-z][a-z0-9._-]*" autocomplete="off" placeholder="family-member" required><label class="field-label" for="member-password">Initial password</label><input id="member-password" class="login-input" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button id="member-submit" class="primary-button" type="submit">CREATE MEMBER</button><p id="member-feedback" class="member-feedback" aria-live="polite"></p></form><div id="members" class="member-list"></div></section>
   </main>
   <dialog id="power-dialog"><div class="dialog-head"><div class="dialog-title">Host power</div><button id="power-close" class="close-button" type="button" aria-label="Close">×</button></div><form id="power-form" class="power-body"><p class="power-copy">This queues a reboot or shutdown request with the host, which stops the control plane and flushes writes before changing power state. It is refused while scheduling is enabled or a job is running.</p><div class="power-choices"><button class="power-choice" data-power-action="reboot" type="button">REBOOT HOST</button><button class="power-choice" data-power-action="shutdown" type="button">SHUT DOWN HOST</button></div><label id="power-confirm-label" class="field-label" for="power-confirm">Choose an action</label><input id="power-confirm" class="power-confirm" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" disabled><button id="power-submit" class="power-submit" type="submit" disabled>CONFIRM</button><p id="power-message" class="power-message" aria-live="polite"></p></form></dialog>
   <dialog id="reset-dialog"><div class="dialog-head"><div id="reset-title" class="dialog-title">Reset password</div><button id="reset-close" class="close-button" type="button" aria-label="Close">×</button></div><form id="reset-form" class="account-reset-body"><p class="power-copy">Every existing browser session for this member will be signed out.</p><label class="field-label" for="reset-password">New password</label><input id="reset-password" class="login-input" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><label class="field-label" for="reset-confirm">Confirm new password</label><input id="reset-confirm" class="login-input" type="password" minlength="12" maxlength="128" autocomplete="new-password" required><button id="reset-submit" class="primary-button" type="submit">RESET PASSWORD</button><p id="reset-feedback" class="member-feedback" aria-live="polite"></p></form></dialog>
@@ -264,7 +277,7 @@
       refreshInFlight++;
       try{
         if(operationsView){const [workers,users]=await Promise.all([api("/dashboard/api/workers"),api("/dashboard/api/users")]);renderWorkers(workers);renderMembers(users);$("#host").textContent=""}
-        else{const [system,services,workers]=await Promise.all([api("/dashboard/api/system"),api("/dashboard/api/services"),api("/dashboard/api/workers")]);$("#host").textContent=system.hostname+" / "+system.platform.toLowerCase();setPercent("#cpu",system.cpu.percent);setPercent("#memory",system.memory.percent);setPercent("#storage",system.storage.percent);$("#memory-foot").textContent=formatBytes(system.memory.available)+" available";$("#storage-foot").textContent=formatBytes(system.storage.free)+" free";$("#temperature").textContent=system.cpu.temperature_c===null?"N/A":system.cpu.temperature_c.toFixed(1)+"°C";$("#uptime").textContent=formatUptime(system.uptime_seconds);renderServices(services);renderWorkers(workers)}
+        else{const [system,services,workers]=await Promise.all([api("/dashboard/api/system"),api("/dashboard/api/services"),api("/dashboard/api/workers")]);$("#host").textContent=system.hostname+" / "+system.platform.toLowerCase();setPercent("#cpu",system.cpu.percent);setPercent("#memory",system.memory.percent);setPercent("#storage",system.storage.percent);$("#cpu-foot").textContent=system.cpu.logical_cores+" logical cores";$("#memory-foot").textContent=formatBytes(system.memory.available)+" available";$("#storage-foot").textContent=formatBytes(system.storage.free)+" free";$("#temperature").textContent=system.cpu.temperature_c===null?"N/A":system.cpu.temperature_c.toFixed(1)+"°C";$("#uptime").textContent=formatUptime(system.uptime_seconds);renderServices(services);renderWorkers(workers)}
         $("#login").classList.add("hidden");$("#app").classList.remove("hidden");$("#connection").classList.add("live");$("#updated").textContent="Updated "+new Date().toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"});
       }catch(error){if(error.message==="AUTH")showLogin();else if(error.message==="FORBIDDEN")showLogin("ADMINISTRATOR SESSION REQUIRED");else{$("#connection").classList.remove("live");$("#updated").textContent="OFFLINE"}}finally{refreshInFlight--}
     }
