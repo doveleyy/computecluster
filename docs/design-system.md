@@ -177,6 +177,13 @@ more space above a heading than below it.
   above its first field.
 - **Messages.** A status, empty or error line sits `--space-3` from the
   block it describes. It never sits between the tabs and a heading.
+- **Balance.** A box is as tall as its content plus its padding. Cards and
+  tiles set no minimum height. Cards in one row share a height only when they
+  show the same kind of content. Then only a footer row sits at the bottom,
+  so footers line up across the row; the rest of the content stays together
+  at the top. Unlike cards align to the top of the row. Dense lists and roomy
+  cards follow the same rhythm, so no box on a page looks empty beside a
+  crowded one.
 
 ## Components
 
