@@ -170,7 +170,9 @@ Every page uses the same frame:
 - **Badge.** `--text-2` mono, Tint fill, 1px Tint strong border, `--radius-1`,
   padding `--space-1` by `--space-2`.
 - **Focus ring.** `2px solid var(--accent)` with a 2px offset on every link,
-  button, input and summary.
+  button, input and summary. A row that fills its container draws the ring
+  2px inside its own edge, so the container cannot clip it and it never
+  paints onto the next row.
 - **Charts.** Series take the page accent. Axes and ticks use Strong and
   Muted at `--text-1`. Gridlines use Tint strong. Chart scripts read colours
   from these tokens and never hard-code one.
