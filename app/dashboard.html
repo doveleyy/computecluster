@@ -43,7 +43,7 @@
     .action-menu > summary { display:grid; width:var(--control-sm); height:var(--control-sm); padding:0; place-items:center; border:1px solid transparent; border-radius:var(--radius-2); color:var(--muted); cursor:pointer; font:600 var(--text-4) var(--mono); list-style:none; }
     .action-menu > summary::-webkit-details-marker { display:none; }
     .action-menu[open] > summary,.action-menu > summary:hover { border-color:var(--line); background:var(--raised); color:var(--text); }
-    .action-menu-list { position:absolute; top:calc(100% + var(--space-2)); right:0; z-index:40; display:grid; min-width:190px; padding:var(--space-1); border:1px solid var(--strong); border-radius:var(--radius-2); background:var(--surface); }
+    .action-menu-list { position:absolute; top:calc(100% + var(--space-2)); right:0; z-index:40; display:grid; gap:var(--space-1); min-width:190px; padding:var(--space-1); border:1px solid var(--strong); border-radius:var(--radius-2); background:var(--surface); }
     .action-menu-item { width:100%; min-height:var(--control); padding:0 var(--space-3); border:0; border-radius:var(--radius-1); background:transparent; color:var(--muted); cursor:pointer; font:600 var(--text-1) var(--mono); letter-spacing:var(--track-nav); text-align:left; text-transform:uppercase; }
     .action-menu-item:hover { background:var(--raised); color:var(--text); }
     .action-menu-item.danger-action:hover { color:var(--red); }
