@@ -24,7 +24,7 @@
     .connection { display:inline-flex; align-items:center; gap:var(--space-2); color:var(--muted); font:var(--text-2) var(--mono); }
     .connection i { width:7px; height:7px; border-radius:var(--radius-round); background:var(--yellow); }
     .connection.live i { background:var(--green); }
-    .page-nav { display:flex; width:fit-content; max-width:100%; flex-wrap:wrap; gap:var(--space-1); margin:0 0 var(--space-3); padding:var(--space-1); border:1px solid var(--line); border-radius:var(--radius-3); background:var(--sunken); }
+    .page-nav { display:flex; width:fit-content; max-width:100%; flex-wrap:wrap; gap:var(--space-1); margin:0 0 var(--space-5); padding:var(--space-1); border:1px solid var(--line); border-radius:var(--radius-3); background:var(--sunken); }
     .page-nav a { display:inline-grid; min-height:var(--control); padding:0 var(--space-4); place-items:center; border-radius:var(--radius-2); color:var(--muted); font:600 var(--text-1) var(--mono); letter-spacing:var(--track-nav); text-decoration:none; text-transform:uppercase; white-space:nowrap; }
     .page-nav a:hover { color:var(--text); }
     .page-nav a[aria-current="page"] { background:var(--text); color:var(--bg); }
@@ -50,11 +50,11 @@
     .app-id { margin-top:var(--space-1); color:var(--muted); font:var(--text-2) var(--mono); overflow-wrap:anywhere; }
     .status { display:inline-flex; align-items:center; gap:var(--space-2); color:var(--tone); font:600 var(--text-1) var(--mono); letter-spacing:var(--track-nav); white-space:nowrap; }
     .status::before { width:6px; height:6px; border-radius:var(--radius-round); background:currentColor; content:""; }
-    .card-body { display:grid; gap:var(--space-2); padding:var(--space-4); font:var(--text-3)/1.55 var(--mono); }
+    .card-body { display:grid; gap:var(--space-3); padding:var(--space-5); font:var(--text-3)/1.55 var(--mono); }
     .line { font:var(--text-4)/1.5 var(--mono); }
     .meta { color:var(--muted); font:var(--text-2)/1.5 var(--mono); }
     .meta a,.card-body dd a { color:var(--text); text-decoration-color:var(--strong); text-underline-offset:var(--space-1); }
-    .update { display:grid; gap:var(--space-2); margin:var(--space-2) 0 var(--space-half); padding:var(--space-3) var(--space-4); border:1px solid var(--line); border-radius:var(--radius-2); background:var(--sunken); }
+    .update { display:grid; gap:var(--space-2); margin:var(--space-2) 0 var(--space-half); padding:var(--space-4); border:1px solid var(--line); border-radius:var(--radius-2); background:var(--sunken); }
     .update.tone-red { border-color:var(--red-line); }
     .headline { font:600 var(--text-4)/1.45 var(--mono); }
     .changes { color:var(--yellow); }
@@ -74,7 +74,7 @@
     summary:hover { color:var(--text); }
     details[open] summary { margin-bottom:var(--space-3); }
     dl { display:grid; grid-template-columns:minmax(120px,190px) minmax(0,1fr); margin:0 0 var(--space-3); overflow:hidden; border:1px solid var(--line); border-radius:var(--radius-2); background:var(--sunken); }
-    dt,dd { min-width:0; margin:0; padding:var(--space-2); border-top:1px solid var(--line); }
+    dt,dd { min-width:0; margin:0; padding:var(--space-3); border-top:1px solid var(--line); }
     dt:first-of-type,dt:first-of-type + dd { border-top:0; }
     dd { border-left:1px solid var(--line); font:var(--text-2)/1.5 var(--mono); overflow-wrap:anywhere; }
     dt { color:var(--muted); font:600 var(--text-1)/1.6 var(--mono); letter-spacing:var(--track-caps); text-transform:uppercase; }
@@ -91,9 +91,10 @@
       .topbar { flex-direction:column; align-items:stretch; gap:var(--space-3); }
       .topbar-actions { justify-content:flex-start; }
       .panel-header { align-items:flex-start; }
+      .card-body { padding:var(--space-4); }
       .actions .primary { width:100%; }
       dl { grid-template-columns:1fr; }
-      dd { border-left:0; border-top:0; padding-top:var(--space-half); }
+      dd { border-left:0; border-top:0; padding-top:var(--space-1); }
       dt { padding-bottom:0; border-top:1px solid var(--line); }
       dt:first-of-type { border-top:0; }
     }
@@ -104,8 +105,7 @@
   <div class="shell">
     <header class="topbar"><div><h1 class="brand">HOME<span>//</span>CTRL</h1></div><div class="topbar-actions"><div id="connection" class="connection"><i></i><span id="updated">SYNCING</span></div><div class="topbar-button-row"><button id="refresh" class="ghost" type="button">Refresh</button><button id="logout" class="ghost" type="button">LOG OUT</button></div></div></header>
     <nav class="page-nav" aria-label="Home Platform"><a href="/dashboard">OVERVIEW</a><a href="/dashboard/operations">OPERATIONS</a><a href="/dashboard/apps" aria-current="page">APPS</a><a href="/dashboard/jobs">JOBS</a><a href="/dashboard/files">FILES</a></nav>
-    <div id="status" class="context-line" role="status"></div>
-    <main class="section" aria-labelledby="apps-title"><header class="section-heading"><h2 id="apps-title" class="section-title">Applications</h2><span id="count" class="count">—</span></header><div id="apps" class="cards"></div></main>
+    <main class="section" aria-labelledby="apps-title"><header class="section-heading"><h2 id="apps-title" class="section-title">Applications</h2><span id="count" class="count">—</span></header><p id="status" class="context-line" role="status"></p><div id="apps" class="cards"></div></main>
   </div>
 <script>
 let csrf='';const status=document.getElementById('status');const connection=document.getElementById('connection');const root=document.getElementById('apps');const node=(tag,text,className)=>{const n=document.createElement(tag);if(text)n.textContent=text;if(className)n.className=className;return n};
